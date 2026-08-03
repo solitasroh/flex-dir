@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>flex-dir — UI 시안</title>
+<style>
+:root{
+--accent:#0067c0;--accent-hover:#0078d4;--accent-pressed:#005a9e;
+--win-bg:#f3f3f3;--chrome-bg:#f9f9f9;--pane-bg:#ffffff;
+--text:#1b1b1b;--text-2:#616161;--text-disabled:#9d9d9d;
+--stroke:#e5e5e5;--stroke-strong:#d0d0d0;
+--hover:rgba(0,0,0,0.047);--pressed:rgba(0,0,0,0.08);
+--sel:rgba(0,103,192,0.14);--sel-hover:rgba(0,103,192,0.20);--sel-inactive:rgba(0,0,0,0.07);
+--focus-ring:#1b1b1b;
+--icon-folder:#b3b3b3;--icon-file:#dcdcdc;
+--error:#c42b1c;
+--splitter:#e5e5e5;--splitter-hover:#0067c0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#dcdcdc;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:12px;color:var(--text);display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:16px}
+a{color:var(--accent)}a:hover{color:var(--accent-hover)}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+/* ===== 목업 전용 전환 컨트롤 ===== */
+.mock-controls{width:min(1280px,96vw);background:#2b2b2b;color:#ddd;border-radius:6px;padding:8px 12px;margin-bottom:12px;display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+.mock-controls .grp{display:flex;gap:4px;align-items:center}
+.mock-controls .lbl{font-size:11px;color:#999;margin-right:4px}
+.mock-controls button{padding:4px 10px;border-radius:4px;background:#3d3d3d;color:#ddd;font-size:12px}
+.mock-controls button:hover{background:#4a4a4a}
+.mock-controls button.on{background:var(--accent);color:#fff}
+.mock-controls .note{font-size:11px;color:#888;margin-left:auto}
+/* ===== 창 ===== */
+.win{width:min(1280px,96vw);height:min(800px,calc(100vh - 110px));background:var(--win-bg);border:1px solid #bcbcbc;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 8px 24px rgba(0,0,0,0.18)}
+.titlebar{height:32px;display:flex;align-items:center;flex:none;padding-left:12px;gap:8px}
+.titlebar .app{font-size:12px;color:var(--text)}
+.titlebar .caption-btns{margin-left:auto;display:flex;height:100%}
+.titlebar .caption-btns button{width:46px;height:100%;font-size:10px;color:var(--text);font-family:"Segoe UI Symbol","Segoe UI",sans-serif}
+.titlebar .caption-btns button:hover{background:var(--hover)}
+.titlebar .caption-btns button.close:hover{background:#c42b1c;color:#fff}
+/* ===== 페인 영역 ===== */
+.panes{flex:1;display:flex;min-height:0;padding:0 4px 0 4px}
+.pane{display:flex;flex-direction:column;min-width:320px;min-height:0;background:var(--pane-bg);border:1px solid var(--stroke);border-radius:6px 6px 0 0;overflow:hidden}
+.pane.left{flex:1 1 50%}
+.pane.right{flex:1 1 50%}
+.splitter{width:6px;flex:none;cursor:col-resize;position:relative}
+.splitter::after{content:"";position:absolute;left:2px;right:2px;top:8px;bottom:8px;border-radius:2px;background:transparent}
+.splitter:hover::after,.splitter.drag::after{background:var(--splitter-hover)}
+/* 툴바 */
+.toolbar{height:36px;flex:none;display:flex;align-items:center;gap:2px;padding:0 6px;background:var(--chrome-bg);border-bottom:1px solid var(--stroke)}
+.tbtn{width:32px;height:28px;border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--text)}
+.tbtn:hover{background:var(--hover)}
+.tbtn:active{background:var(--pressed)}
+.tbtn.on{background:var(--sel);color:var(--accent)}
+.tbtn.dis{color:var(--text-disabled);pointer-events:none}
+.tbtn svg{width:16px;height:16px;stroke:currentColor;stroke-width:1.5;fill:none}
+.tb-sep{width:1px;height:18px;background:var(--stroke-strong);margin:0 4px;flex:none}
+/* 주소줄 */
+.addrbar{height:28px;flex:none;display:flex;align-items:center;padding:0 6px 4px 6px;background:var(--chrome-bg);border-bottom:1px solid var(--stroke);position:relative}
+.addr{flex:1;height:24px;display:flex;align-items:center;gap:0;background:var(--pane-bg);border:1px solid var(--stroke-strong);border-radius:4px;padding:0 8px;overflow:hidden;white-space:nowrap}
+.addr .seg{padding:2px 4px;border-radius:3px;color:var(--text)}
+.addr .seg:hover{background:var(--hover)}
+.addr .chev{color:var(--text-2);font-size:10px;padding:0 1px}
+.pane.active .addr{border-color:var(--accent);box-shadow:0 1px 0 0 var(--accent)}
+.pane:not(.active){--sel:var(--sel-inactive);--sel-hover:var(--sel-inactive)}
+.pane:not(.active) .toolbar,.pane:not(.active) .addrbar{background:var(--win-bg)}
+/* 목록 공통 — 스크롤은 .list 자신이 가짐 */
+.list{flex:1;overflow:auto;position:relative;padding:0 8px}
+.row-icon{flex:none;position:relative;background:var(--icon-file);border-radius:2px;clip-path:polygon(0 0,72% 0,100% 24%,100% 100%,0 100%)}
+.row-icon::after{content:"";position:absolute;top:0;right:0;width:28%;height:24%;background:rgba(0,0,0,0.13)}
+.row-icon.folder{background:var(--icon-folder);clip-path:polygon(0 12%,42% 12%,54% 26%,100% 26%,100% 100%,0 100%)}
+.row-icon.folder::after{display:none}
+.row-icon.thumb{border-radius:2px;clip-path:none}
+.row-icon.thumb::after{display:none}
+/* Details */
+.dt-head{display:flex;position:sticky;top:0;background:var(--pane-bg);z-index:2;height:24px;border-bottom:1px solid var(--stroke);font-size:11px;color:var(--text-2)}
+.dt-head .col{display:flex;align-items:center;padding:0 8px;border-right:1px solid transparent;position:relative}
+.dt-head .col:hover{background:var(--hover)}
+.dt-head .col::after{content:"";position:absolute;right:0;top:4px;bottom:4px;width:1px;background:var(--stroke)}
+.dt-head .sort{font-size:8px;margin-left:4px;color:var(--text-2)}
+.dt-row{display:flex;height:24px;align-items:center;border-radius:3px}
+.dt-row .col{padding:0 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px}
+.col.c-name{flex:1 1 320px;min-width:160px}
+.col.c-size{flex:0 0 90px;justify-content:flex-end;text-align:right;color:var(--text-2)}
+.dt-head .col.c-size{justify-content:flex-end}
+.col.c-type{flex:0 0 120px;color:var(--text-2)}
+.col.c-date{flex:0 0 140px;color:var(--text-2)}
+.dt-row .c-name .row-icon{width:16px;height:16px}
+/* 항목 상태 공통 */
+.item{cursor:default;user-select:none}
+.item:hover{background:var(--hover)}
+.item.sel{background:var(--sel)}
+.item.sel:hover{background:var(--sel-hover)}
+.pane.active .item.foc{outline:1px solid var(--focus-ring);outline-offset:-1px}
+/* 목록(List) 뷰 — 다단 column flow */
+.lv{display:flex;flex-flow:column wrap;align-content:flex-start;height:100%;padding-top:4px}
+.lv .it{width:200px;height:22px;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:3px;margin-right:12px}
+.lv .it span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lv .row-icon{width:16px;height:16px}
+/* 타일 뷰 */
+.tv{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:4px 8px;padding:8px 0}
+.tv .it{height:56px;display:flex;align-items:center;gap:10px;padding:0 10px;border-radius:4px}
+.tv .row-icon{width:32px;height:32px}
+.tv .meta{min-width:0}
+.tv .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tv .sub{font-size:11px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 큰 아이콘 뷰 */
+.iv{display:grid;grid-template-columns:repeat(auto-fill,116px);gap:8px 8px;padding:8px 0;justify-content:flex-start}
+.iv .it{width:116px;height:140px;display:flex;flex-direction:column;align-items:center;padding:6px;border-radius:4px}
+.iv .row-icon{width:96px;height:96px;position:relative}
+.iv .nm{margin-top:4px;font-size:12px;text-align:center;line-height:14px;max-height:28px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all;width:104px}
+
+/* 빈/권한 상태 */
+.empty-msg{position:absolute;left:0;right:0;top:120px;text-align:center;color:var(--text-2);font-size:12px}
+/* 상태표시줄 */
+.statusbar{height:24px;flex:none;display:flex;align-items:center;gap:0;padding:0 12px;background:var(--win-bg);border-top:1px solid var(--stroke);font-size:11px;color:var(--text-2)}
+.statusbar .sect{padding:0 10px;border-right:1px solid var(--stroke-strong)}
+.statusbar .sect:first-child{padding-left:0}
+.statusbar .sect:last-of-type{border-right:none}
+.statusbar .err{color:var(--error);display:flex;align-items:center;gap:6px}
+.statusbar .prog{display:flex;align-items:center;gap:8px}
+.statusbar .bar{width:90px;height:4px;border-radius:2px;background:var(--stroke-strong);overflow:hidden}
+.statusbar .bar i{display:block;height:100%;background:var(--accent);transition:width .3s}
+.statusbar .free{margin-left:auto}
+</style>
+</head>
+<body>
+<div class="mock-controls">
+<div class="grp"><span class="lbl">뷰 (활성 페인)</span><button data-view="details" class="on">Details</button><button data-view="list">목록</button><button data-view="tiles">타일</button><button data-view="icons">큰 아이콘</button></div>
+<div class="grp"><span class="lbl">상태 (활성 페인)</span><button data-state="normal" class="on">일반</button><button data-state="empty">빈 폴더</button><button data-state="denied">권한 없음</button><button data-state="enum">열거 중</button><button data-state="thumbs">썸네일 로딩</button></div>
+<span class="note">이 검은 띠는 목업 전용 전환 컨트롤 — 실제 앱에는 없음. 페인 클릭으로 활성 전환.</span>
+</div>
+<div class="win">
+<div class="titlebar"><span class="app">flex-dir</span><div class="caption-btns"><button>─</button><button>□</button><button class="close">✕</button></div></div>
+<div class="panes">
+<div class="pane left active" id="pane0"></div>
+<div class="splitter" id="splitter"></div>
+<div class="pane right" id="pane1"></div>
+</div>
+<div class="statusbar" id="statusbar"></div>
+</div>
+<script>
+const DATA=(()=>{const f=(n)=>({name:n,type:"folder",kind:"파일 폴더",size:"",date:"2026-07-30 09:12"});
+const F=(n,s,k,d,img)=>({name:n,type:"file",kind:k,size:s,date:d,img:!!img});
+return [
+f("assets"),f("build-output-2026-07-31-final-release-candidate"),f("docs"),f("node_modules"),f("src"),f("tests"),
+F("app.manifest","1.1 KB","MANIFEST 파일","2026-07-12 08:55"),
+F("CHANGELOG.md","9.8 KB","Markdown 파일","2026-08-01 17:20"),
+F("flex-dir.sln","2.3 KB","Visual Studio 솔루션","2026-06-02 10:14"),
+F("LICENSE","1.0 KB","파일","2025-11-20 13:00"),
+F("photo-berlin-2025.jpg","3.4 MB","JPG 파일","2025-12-25 16:41",1),
+F("photo-han-river-sunset.jpg","4.1 MB","JPG 파일","2026-05-05 19:02",1),
+F("README.md","4.2 KB","Markdown 파일","2026-07-28 14:02"),
+F("screenshot-details-view.png","812 KB","PNG 파일","2026-08-02 11:30",1),
+F("screenshot-tiles-view.png","794 KB","PNG 파일","2026-08-02 11:31",1),
+F("wallpaper-4k-mountains.png","11.2 MB","PNG 파일","2026-03-14 21:08",1),
+F("아주-긴-파일-이름-테스트-2026-상반기-보고서-최종-수정본-v3.xlsx","218 KB","XLSX 워크시트","2026-06-30 18:45"),
+F("발표자료-백업.pptx","24.6 MB","PPTX 프레젠테이션","2026-04-11 09:27"),
+];})();
+const THUMB_COLORS={"photo-berlin-2025.jpg":"#8a9bb0","photo-han-river-sunset.jpg":"#d99a6c","screenshot-details-view.png":"#e8eef4","screenshot-tiles-view.png":"#e4ece0","wallpaper-4k-mountains.png":"#7d94a8"};
+const panes=[
+{el:document.getElementById("pane0"),path:["C:","Projects","flex-dir"],view:"details",state:"normal",sel:new Set(["README.md","screenshot-details-view.png"]),foc:"screenshot-details-view.png",enumN:DATA.length,thumbsLoaded:new Set()},
+{el:document.getElementById("pane1"),path:["D:","Backup","2026"],view:"details",state:"normal",sel:new Set(["docs"]),foc:"docs",enumN:DATA.length,thumbsLoaded:new Set()},
+];
+let active=0,timers=[];
+function icon(it,cls,style){
+if(it.type==="folder")return `<span class="row-icon folder ${cls||""}"></span>`;
+if(it.img&&style)return style;
+return `<span class="row-icon ${cls||""}"></span>`}
+function visibleItems(p){
+if(p.state==="empty"||p.state==="denied")return[];
+if(p.state==="enum")return DATA.slice(0,p.enumN);
+return DATA}
+function itemAttrs(p,it){return `data-name="${it.name}" class="item ${p.sel.has(it.name)?"sel":""} ${p.foc===it.name?"foc":""}"`}
+function renderList(p){
+const items=visibleItems(p);
+if(p.view==="details"||p.state==="denied"||p.state==="empty"){
+let h=`<div class="dt-head"><div class="col c-name">이름<span class="sort">▲</span></div><div class="col c-size">크기</div><div class="col c-type">유형</div><div class="col c-date">수정한 날짜</div></div>`;
+if(p.state==="empty")h+=`<div class="empty-msg">이 폴더는 비어 있습니다.</div>`;
+else if(p.state==="denied")h+=``;
+else h+=items.map(it=>`<div ${itemAttrs(p,it)}><div class="dt-row" style="display:flex;width:100%"><div class="col c-name">${icon(it)}<span style="overflow:hidden;text-overflow:ellipsis">${it.name}</span></div><div class="col c-size">${it.size}</div><div class="col c-type">${it.kind}</div><div class="col c-date">${it.date}</div></div></div>`).join("");
+return h}
+if(p.view==="list")return `<div class="lv">`+items.map(it=>`<div ${itemAttrs(p,it)}><div class="it" style="display:flex;align-items:center;gap:6px;width:200px;height:22px;padding:0 8px">${icon(it)}<span>${it.name}</span></div></div>`).join("")+`</div>`;
+if(p.view==="tiles")return `<div class="tv">`+items.map(it=>`<div ${itemAttrs(p,it)} style="border-radius:4px"><div class="it">${tileIcon(p,it)}<div class="meta"><div class="nm">${it.name}</div><div class="sub">${it.kind}</div><div class="sub">${it.type==="folder"?it.date:it.size+" · "+it.date.slice(0,10)}</div></div></div></div>`).join("")+`</div>`;
+return `<div class="iv">`+items.map(it=>`<div ${itemAttrs(p,it)} style="border-radius:4px"><div class="it">${bigIcon(p,it)}<div class="nm">${it.name}</div></div></div>`).join("")+`</div>`}
+function tileIcon(p,it){
+if(it.img&&p.state!=="thumbs")return `<span class="row-icon thumb" style="width:32px;height:32px;background:${THUMB_COLORS[it.name]||"#999"}"></span>`;
+return icon(it)}
+function bigIcon(p,it){
+if(it.img){
+if(p.state==="thumbs"&&!p.thumbsLoaded.has(it.name))return `<span class="row-icon" style="width:96px;height:96px"></span>`;
+return `<span class="row-icon thumb" style="width:96px;height:96px;background:${THUMB_COLORS[it.name]||"#999"}"></span>`}
+return `<span class="row-icon ${it.type==="folder"?"folder":""}" style="width:96px;height:96px"></span>`}
+function svgView(k){
+const s={details:'<rect x="2" y="3" width="12" height="2"/><rect x="2" y="7" width="12" height="2"/><rect x="2" y="11" width="12" height="2"/>',
+list:'<rect x="2" y="3" width="5" height="2"/><rect x="9" y="3" width="5" height="2"/><rect x="2" y="7" width="5" height="2"/><rect x="9" y="7" width="5" height="2"/><rect x="2" y="11" width="5" height="2"/><rect x="9" y="11" width="5" height="2"/>',
+tiles:'<rect x="2" y="2" width="5" height="5"/><rect x="9" y="2" width="5" height="5"/><rect x="2" y="9" width="5" height="5"/><rect x="9" y="9" width="5" height="5"/>',
+icons:'<rect x="2" y="2" width="12" height="9"/><rect x="5" y="13" width="6" height="1.5"/>'};
+return `<svg viewBox="0 0 16 16">${s[k].replaceAll("/>",' fill="currentColor" stroke="none"/>')}</svg>`}
+function renderPane(i){
+const p=panes[i];
+const path=p.state==="denied"?["E:","Secure"]:p.path;
+p.el.className=`pane ${i===0?"left":"right"} ${active===i?"active":""}`;
+p.el.innerHTML=`
+<div class="toolbar">
+<button class="tbtn" title="뒤로">←</button><button class="tbtn dis" title="앞으로">→</button><button class="tbtn" title="상위 폴더">↑</button>
+<div class="tb-sep"></div><button class="tbtn" title="새로 고침">⟳</button><div class="tb-sep"></div>
+${["details","list","tiles","icons"].map(v=>`<button class="tbtn vbtn ${p.view===v?"on":""}" data-v="${v}" title="${{details:"자세히",list:"목록",tiles:"타일",icons:"큰 아이콘"}[v]}">${svgView(v)}</button>`).join("")}
+</div>
+<div class="addrbar"><div class="addr">${path.map((s,j)=>`<span class="seg">${s}</span>${j<path.length-1?'<span class="chev">›</span>':""}`).join("")}</div></div>
+<div class="list">${renderList(p)}</div>`;
+p.el.querySelectorAll(".vbtn").forEach(b=>b.addEventListener("click",e=>{e.stopPropagation();p.view=b.dataset.v;if(p.state==="thumbs"&&p.view!=="icons")p.state="normal";renderPane(i);renderStatus();syncControls()}));
+p.el.addEventListener("mousedown",()=>{if(active!==i){active=i;renderPane(0);renderPane(1);renderStatus();syncControls()}});
+p.el.querySelectorAll(".item").forEach(el=>el.addEventListener("click",ev=>{
+const n=el.dataset.name;
+if(ev.ctrlKey||ev.metaKey){p.sel.has(n)?p.sel.delete(n):p.sel.add(n)}else{p.sel=new Set([n])}
+p.foc=n;renderPane(i);renderStatus()}));
+}
+function renderStatus(){
+const p=panes[active];const items=visibleItems(p);
+let h=`<span class="sect">항목 ${p.state==="denied"?0:items.length}개</span>`;
+const selN=[...p.sel].filter(n=>items.some(it=>it.name===n)).length;
+if(selN)h+=`<span class="sect">${selN}개 선택 4.2 MB</span>`;
+if(p.state==="denied")h+=`<span class="sect err">&#9888; 액세스가 거부되었습니다 — E:\\Secure 를 열 수 있는 권한이 없습니다</span>`;
+if(p.state==="enum")h+=`<span class="sect prog">열거 중… ${p.enumN}/${DATA.length}<span class="bar"><i style="width:${Math.round(p.enumN/DATA.length*100)}%"></i></span></span>`;
+if(p.state==="thumbs"&&p.thumbsLoaded.size<5)h+=`<span class="sect">썸네일 생성 중… ${p.thumbsLoaded.size}/5</span>`;
+h+=`<span class="free">여유 공간 213 GB</span>`;
+document.getElementById("statusbar").innerHTML=h}
+function clearTimers(){timers.forEach(t=>clearInterval(t));timers=[]}
+function setState(s){
+const p=panes[active];clearTimers();p.state=s;
+if(s==="enum"){p.enumN=0;const t=setInterval(()=>{p.enumN=Math.min(DATA.length,p.enumN+3);renderPane(active);renderStatus();if(p.enumN>=DATA.length){clearInterval(t);p.state="normal";syncControls()}},450);timers.push(t)}
+if(s==="thumbs"){p.view="icons";p.thumbsLoaded=new Set();const imgs=DATA.filter(d=>d.img).map(d=>d.name);let k=0;const t=setInterval(()=>{if(k<imgs.length){p.thumbsLoaded.add(imgs[k++]);renderPane(active);renderStatus()}else{clearInterval(t)}},700);timers.push(t)}
+renderPane(active);renderStatus();syncControls()}
+function syncControls(){
+const p=panes[active];
+document.querySelectorAll(".mock-controls [data-view]").forEach(b=>b.classList.toggle("on",b.dataset.view===p.view));
+document.querySelectorAll(".mock-controls [data-state]").forEach(b=>b.classList.toggle("on",b.dataset.state===p.state))}
+document.querySelectorAll(".mock-controls [data-view]").forEach(b=>b.addEventListener("click",()=>{const p=panes[active];p.view=b.dataset.view;if(p.state==="thumbs"&&p.view!=="icons")p.state="normal";renderPane(active);renderStatus();syncControls()}));
+document.querySelectorAll(".mock-controls [data-state]").forEach(b=>b.addEventListener("click",()=>setState(b.dataset.state)));
+/* 스플리터 드래그 */
+(()=>{const sp=document.getElementById("splitter"),L=document.getElementById("pane0"),R=document.getElementById("pane1");
+sp.addEventListener("mousedown",e=>{e.preventDefault();sp.classList.add("drag");
+const move=ev=>{const box=sp.parentElement.getBoundingClientRect();let x=ev.clientX-box.left;x=Math.max(320,Math.min(box.width-326,x));L.style.flex=`0 0 ${x}px`;R.style.flex="1 1 auto"};
+const up=()=>{sp.classList.remove("drag");window.removeEventListener("mousemove",move);window.removeEventListener("mouseup",up)};
+window.addEventListener("mousemove",move);window.addEventListener("mouseup",up)})})();
+renderPane(0);renderPane(1);renderStatus();syncControls();
+</script>
+</body>
+</html>
