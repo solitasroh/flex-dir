@@ -12,7 +12,8 @@
     },
     {
       "dir": "2-viewmodel",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-08-03T22:57:24+0900"
     }
   ]
 }
