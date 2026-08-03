@@ -2,13 +2,49 @@
   "project": "flex-dir",
   "phase": "2-viewmodel",
   "steps": [
-    { "step": 0, "name": "pane-history", "status": "pending" },
-    { "step": 1, "name": "pane-viewmodel", "status": "pending" },
-    { "step": 2, "name": "selection", "status": "pending" },
-    { "step": 3, "name": "sort-view-commands", "status": "pending" },
-    { "step": 4, "name": "two-pane", "status": "pending" },
-    { "step": 5, "name": "file-op-commands", "status": "pending" },
-    { "step": 6, "name": "thumbnail-requests", "status": "pending" },
-    { "step": 7, "name": "watcher-integration", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "pane-history",
+      "status": "completed",
+      "started_at": "2026-08-03T20:38:25+0900",
+      "summary": "src/FlexDir.App/Navigation/PaneHistory.cs — List<LocationId> entries + int index(-1 이 '아직 아무 곳도 방문하지 않음') 뿐인 순수 로직. WPF·INotifyPropertyChanged 없음(PaneViewModel 이 소유하는 내부 상태이고 View 는 ViewModel 의 CanGoBack 등을 본다). Current=index<0?null:entries[index] · CanGoBack=index>0 · CanGoForward=index>=0 && index<Count-1. Navigate 는 (1) location.Equals(Current) 면 즉시 반환 — LocationId 동등성이 OrdinalIgnoreCase 이므로 대소문자만 다른 경로는 같은 위치이고, 새로 고침·같은 폴더 재선택으로 앞으로 기록을 잃지 않는다, (2) RemoveRange(index+1, ...) 로 앞으로 기록을 버리고 Add, (3) MaxEntries(=100) 초과 시 앞에서 잘라내 index 를 다시 맞춘다 — 그만큼 CanGoBack 이 먼저 막힌다. GoBack/GoForward 는 갈 수 없으면 예외 없이 null 을 내고 index 를 건드리지 않는다(CanExecute 와 실행 사이 경합이 ViewModel 을 오류 상태로 보내지 않게). 부모 계산은 하지 않는다 — '상위로' 는 호출자가 LocationId.TryGetParent 로 구한 부모를 Navigate 하는 것이며, 규칙 1 때문에 그 뒤 앞으로가 아니라 뒤로가 자식으로 돌아간다(테스트로 못 박음). 열거는 없다(다음 step 의 일). 테스트 tests/FlexDir.App.Tests/Navigation/PaneHistoryTests.cs 15개 — 초기 상태·뒤로/앞으로·앞으로 기록 폐기·중복 미적립·뒤로 후 현재로 Navigate 시 앞으로 생존·대소문자 동일 취급 2건·MaxEntries+10 이동 후 뒤로 99회에서 정지(가장 오래된 것은 f10)·앞으로는 최신까지 온전·갈 수 없을 때 null 이고 Current 불변. 헬퍼 History(params string[])·Loc(string). FlexDir.App.Tests 는 이 step 이 만든 첫 테스트 파일이다. 빌드 경고 0(-warnaserror), Core.Tests 285 + App.Tests 15 통과, 구조 게이트 통과.",
+      "completed_at": "2026-08-03T20:42:33+0900"
+    },
+    {
+      "step": 1,
+      "name": "pane-viewmodel",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "selection",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "sort-view-commands",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "two-pane",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "file-op-commands",
+      "status": "pending"
+    },
+    {
+      "step": 6,
+      "name": "thumbnail-requests",
+      "status": "pending"
+    },
+    {
+      "step": 7,
+      "name": "watcher-integration",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-08-03T20:38:25+0900"
 }
