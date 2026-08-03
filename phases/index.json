@@ -1,7 +1,17 @@
 {
   "phases": [
-    { "dir": "0-core-model", "status": "pending" },
-    { "dir": "1-core-pipeline", "status": "pending" },
-    { "dir": "2-viewmodel", "status": "pending" }
+    {
+      "dir": "0-core-model",
+      "status": "completed",
+      "completed_at": "2026-08-03T19:28:09+0900"
+    },
+    {
+      "dir": "1-core-pipeline",
+      "status": "pending"
+    },
+    {
+      "dir": "2-viewmodel",
+      "status": "pending"
+    }
   ]
 }
