@@ -34,6 +34,7 @@ public class WorkspaceViewModelTests
     private static readonly IFormatProvider Culture = CultureInfo.InvariantCulture;
 
     private readonly FakeFolderSource source = new();
+    private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly InMemoryViewStateStore viewStates = new();
     private readonly FakeFileOperations operations = new();
@@ -378,7 +379,7 @@ public class WorkspaceViewModelTests
     private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
 
     private PaneViewModel CreatePane()
-        => new(source, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
 
     /// <summary>크기를 함께 준다 — 이름 순서와 크기 순서가 달라야 정렬 독립이 보인다.</summary>
     private LocationId Folder(string path, params (string Name, long Size)[] entries)

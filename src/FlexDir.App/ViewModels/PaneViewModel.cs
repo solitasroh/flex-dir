@@ -15,6 +15,7 @@ using FlexDir.Core.Operations;
 using FlexDir.Core.Presentation;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.ViewState;
+using FlexDir.Core.Watching;
 
 namespace FlexDir.App.ViewModels;
 
@@ -34,12 +35,27 @@ public enum PaneStatus
 /// 폴더 이탈 시의 결과 격리(세대 번호)가 사라진다. UI 스레드로 옮기는 지점은
 /// <see cref="IUiDispatcher"/> 하나뿐이다 (CLAUDE.md §3).
 /// </para>
+/// <para>
+/// 폴더를 여는 동안 감시도 함께 돈다. 외부 변경은 목록에 반영되지만 <b>선택은 유지된다</b> —
+/// 갱신 때마다 선택이 풀리면 감시가 없느니만 못하다 (ADR-011 · CLAUDE.md §4).
+/// </para>
 /// </summary>
-public sealed partial class PaneViewModel : ObservableObject
+public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 {
     /// <summary>새 폴더의 기본 이름. 겹치면 구현체가 유일한 이름을 만든다.</summary>
     private const string NewFolderName = "새 폴더";
 
+    /// <summary>
+    /// 한 번에 적용하는 변경 알림의 최대 개수. 파일 100개를 복사하면 알림이 100개 이상 온다.
+    /// <para>
+    /// 시간이 아니라 <b>개수</b>로만 끊는다 — 디바운스를 넣으면 묶음 경계가 실행 속도에 따라
+    /// 달라지고, 그 원인을 찾는 비용이 자율 실행에서 가장 크다.
+    /// </para>
+    /// </summary>
+    private const int WatchBatchSize = 64;
+
+    private readonly IFolderSource folderSource;
+    private readonly IFolderWatcher folderWatcher;
     private readonly EnumerationSession session;
     private readonly ITypeNameProvider typeNames;
     private readonly IViewStateStore viewStates;
@@ -57,6 +73,9 @@ public sealed partial class PaneViewModel : ObservableObject
     /// <summary>디렉터리의 유형 이름. 확장자가 없으므로 사전과 따로 둔다.</summary>
     private string? directoryTypeName;
 
+    /// <summary>진행 중인 감시. 폴더를 옮길 때마다 교체된다.</summary>
+    private WatchRun? watch;
+
     private LocationId? currentLocation;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
@@ -70,6 +89,7 @@ public sealed partial class PaneViewModel : ObservableObject
 
     public PaneViewModel(
         IFolderSource folderSource,
+        IFolderWatcher folderWatcher,
         ITypeNameProvider typeNames,
         IViewStateStore viewStates,
         IFileOperations fileOperations,
@@ -80,6 +100,7 @@ public sealed partial class PaneViewModel : ObservableObject
         TimeZoneInfo timeZone)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
+        ArgumentNullException.ThrowIfNull(folderWatcher);
         ArgumentNullException.ThrowIfNull(typeNames);
         ArgumentNullException.ThrowIfNull(viewStates);
         ArgumentNullException.ThrowIfNull(fileOperations);
@@ -89,6 +110,9 @@ public sealed partial class PaneViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(culture);
         ArgumentNullException.ThrowIfNull(timeZone);
 
+        // 감시 알림을 받은 항목은 다시 읽어야 한다 (TryGetItemAsync) — 세션은 폴더 열거만 안다.
+        this.folderSource = folderSource;
+        this.folderWatcher = folderWatcher;
         session = new EnumerationSession(folderSource);
         this.typeNames = typeNames;
         this.viewStates = viewStates;
@@ -510,12 +534,35 @@ public sealed partial class PaneViewModel : ObservableObject
         await dispatcher.InvokeAsync(() => StatusText = reason).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 폴더를 열고 감시를 함께 시작한다.
+    /// <para>
+    /// 감시는 열거와 <b>같은 시점</b>에 시작한다. 열거가 끝난 뒤에 걸면 그 사이에 일어난
+    /// 변경을 잃는다 — 대용량·네트워크 폴더에서는 그 창이 초 단위다. 대신 모아둔 변경은
+    /// 열거가 끝난 뒤에 적용한다 (채우는 중에 섞으면 첫 배치 교체가 그것을 덮는다).
+    /// </para>
+    /// </summary>
     private async Task<LoadResult> LoadAsync(LocationId location, CancellationToken ct)
     {
         // 이전 열거를 접고 새 세대를 연다. 뷰 상태 조회보다 먼저다 — 폴더 전환의 순서를
         // 정하는 것이 이 호출이고, 앞에 await 를 두면 느린 저장소가 그 순서를 뒤집는다.
         var run = session.Start(location);
+        var watching = StartWatching(run);
 
+        try
+        {
+            return await FillAsync(run, location, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            // 열거가 어떻게 끝났든(성공·실패·낡음) 모아둔 변경을 풀어준다. 이걸 놓치면 감시
+            // 루프가 영원히 기다리고 DisposeAsync 가 매달린다.
+            watching.MarkEnumerated();
+        }
+    }
+
+    private async Task<LoadResult> FillAsync(EnumerationRun run, LocationId location, CancellationToken ct)
+    {
         // 열거를 시작하기 전에 읽는다. 첫 배치부터 그 폴더의 정렬로 붙어야 한다.
         var view = await LoadViewStateAsync(location, ct).ConfigureAwait(false);
 
@@ -669,15 +716,21 @@ public sealed partial class PaneViewModel : ObservableObject
 
         foreach (var item in items)
         {
-            rows.Add(new FileItemViewModel(
-                item,
-                SizeFormatter.ForItem(item, culture),
-                TimestampFormatter.Format(item.ModifiedUtc, timeZone, culture),
-                await TypeNameAsync(item, ct).ConfigureAwait(false)));
+            rows.Add(await RowAsync(item, ct).ConfigureAwait(false));
         }
 
         return rows;
     }
+
+    /// <summary>
+    /// 항목 하나의 줄. 표시 문자열은 여기서 굳으므로 항목이 바뀌면 줄을 다시 만들어야 한다.
+    /// </summary>
+    private async ValueTask<FileItemViewModel> RowAsync(FileItem item, CancellationToken ct)
+        => new(
+            item,
+            SizeFormatter.ForItem(item, culture),
+            TimestampFormatter.Format(item.ModifiedUtc, timeZone, culture),
+            await TypeNameAsync(item, ct).ConfigureAwait(false));
 
     private async ValueTask<string> TypeNameAsync(FileItem item, CancellationToken ct)
     {
@@ -700,6 +753,260 @@ public sealed partial class PaneViewModel : ObservableObject
         fileTypeNames[item.Extension] = typeName;
 
         return typeName;
+    }
+
+    /// <summary>
+    /// 이 폴더의 감시를 시작하고 이전 감시를 접는다.
+    /// <para>
+    /// 이전 감시의 완료를 <b>기다리지 않는다</b> — 오버플로 폴백이 감시 루프 안에서 이 경로를
+    /// 다시 타므로 기다리면 자기 자신을 기다리는 교착이 된다. 낡은 감시가 목록을 건드리지
+    /// 못하게 막는 것은 대기가 아니라 세대(<see cref="EnumerationRun.IsStale"/>)다.
+    /// </para>
+    /// </summary>
+    private WatchRun StartWatching(EnumerationRun run)
+    {
+        var next = new WatchRun(run);
+        var previous = Interlocked.Exchange(ref watch, next);
+
+        previous?.Cancel();
+
+        // Task.Run 으로 떼어낸다. 감시를 거는 것 자체가 shell 호출이므로 (실제 구현체는
+        // FileSystemWatcher 를 만든다) 호출자의 스레드에서 시작하면 UI 스레드에서 shell 을
+        // 부르게 된다 (CLAUDE.md §3).
+        next.Loop = Task.Run(() => WatchLoopAsync(next));
+
+        return next;
+    }
+
+    /// <summary>
+    /// 감시 스트림을 읽어 묶음 단위로 적용한다.
+    /// <para>
+    /// 묶음 경계는 두 가지다 — 모인 것이 <see cref="WatchBatchSize"/> 개이거나, 스트림이 잠시
+    /// 비어 더 읽을 것이 없을 때. 시간으로 끊지 않는다.
+    /// </para>
+    /// </summary>
+    private async Task WatchLoopAsync(WatchRun watching)
+    {
+        var pending = new List<FolderChange>();
+
+        try
+        {
+            await using var changes = folderWatcher
+                .WatchAsync(watching.Folder, watching.Token)
+                .GetAsyncEnumerator(watching.Token);
+
+            var move = changes.MoveNextAsync();
+
+            while (true)
+            {
+                // 아직 완료되지 않은 MoveNextAsync = 지금 읽을 것이 없다. 여기서 적용한다.
+                // 완료를 기다리기 전에 봐야 하므로 이 검사를 await 앞에 둔다.
+                if (pending.Count > 0 && !move.IsCompleted)
+                {
+                    await ApplyAsync(watching, pending).ConfigureAwait(false);
+                }
+
+                if (!await move.ConfigureAwait(false))
+                {
+                    break;
+                }
+
+                pending.Add(changes.Current);
+
+                if (pending.Count >= WatchBatchSize)
+                {
+                    await ApplyAsync(watching, pending).ConfigureAwait(false);
+                }
+
+                move = changes.MoveNextAsync();
+            }
+
+            // 스트림이 끝났다 (감시 대상이 사라졌다). 받아둔 것은 적용한다.
+            if (pending.Count > 0)
+            {
+                await ApplyAsync(watching, pending).ConfigureAwait(false);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // 폴더를 옮겼거나 페인을 닫았다. 정상 종료다 (IFolderWatcher 계약).
+        }
+        catch (Exception)
+        {
+            // 감시가 죽었다. 목록은 여전히 유효하므로 건드리지 않고 Status 도 올리지 않는다 —
+            // 오류로 표시하면 파일이 사라진 것처럼 보이고, 감시가 죽은 것은 사용자가 손쓸 수
+            // 있는 일이 아니다. 새로 고침으로 회복한다.
+        }
+    }
+
+    /// <summary>
+    /// 모인 알림을 목록에 반영한다. <paramref name="pending"/> 은 비워진다.
+    /// </summary>
+    private async Task ApplyAsync(WatchRun watching, List<FolderChange> pending)
+    {
+        // 열거가 끝날 때까지 모아둔다. 취소로도 풀리므로 폴더를 옮기면 모아둔 것은 버려진다.
+        await watching.Enumerated.WaitAsync(watching.Token).ConfigureAwait(false);
+
+        var batch = ChangeBatch.From(pending);
+        pending.Clear();
+
+        if (batch.RequiresFullRefresh)
+        {
+            // 이벤트가 유실됐다. 무시하면 목록이 파일시스템과 어긋난 채 남는다
+            // (docs/SHELL_NOTES.md §폴더 감시). 선택은 이름으로 남아 재열거 뒤 Retain 이
+            // 복원한다. 감시의 토큰을 넘기지 않는다 — 이 호출이 그 토큰을 취소한다.
+            await RefreshAsync(CancellationToken.None).ConfigureAwait(false);
+            return;
+        }
+
+        // 알림은 "무엇이 바뀌었는지" 만 말한다. 값은 파일시스템에서 다시 읽는다 (CLAUDE.md §4).
+        var upserts = new List<FileItem>(batch.NeedsRefresh.Count);
+        var removals = new List<string>(batch.Removals);
+
+        foreach (var name in batch.NeedsRefresh)
+        {
+            var item = await folderSource
+                .TryGetItemAsync(watching.Folder.Combine(name), watching.Token)
+                .ConfigureAwait(false);
+
+            // 알림과 실제가 어긋나는 것은 정상이다 — 없으면 목록에서도 없다.
+            if (item is null)
+            {
+                removals.Add(name);
+            }
+            else
+            {
+                upserts.Add(item);
+            }
+        }
+
+        var current = new List<FileItem>();
+        var selection = new List<string>();
+        var rows = new Dictionary<string, FileItemViewModel>(StringComparer.OrdinalIgnoreCase);
+
+        // 목록을 읽는 것도 UI 스레드에서 한다 — 열거가 동시에 목록을 갈아치울 수 있다.
+        await dispatcher.InvokeAsync(() =>
+        {
+            if (watching.IsStale)
+            {
+                return;
+            }
+
+            foreach (var row in Items)
+            {
+                current.Add(row.Item);
+                rows[row.Name] = row;
+            }
+
+            selection.AddRange(Selection.SelectedNames);
+        }).ConfigureAwait(false);
+
+        if (watching.IsStale)
+        {
+            return;
+        }
+
+        var result = ListReconciler.Apply(
+            current, selection, upserts, removals, batch.Renames, comparer);
+
+        // 바뀐 항목의 줄은 다시 만든다. 유형 이름 조회가 비동기라 UI 스레드 밖에서 한다.
+        var merged = new List<FileItemViewModel>(result.Items.Count);
+
+        foreach (var item in result.Items)
+        {
+            merged.Add(rows.TryGetValue(item.Name, out var kept) && kept.Item == item
+                ? kept
+                : await RowAsync(item, watching.Token).ConfigureAwait(false));
+        }
+
+        await dispatcher.InvokeAsync(() =>
+        {
+            // 검사와 반영 사이에 폴더가 바뀔 수 있다. 실제 Dispatcher 는 이 동작들을 UI
+            // 스레드에서 직렬화하므로 여기서 한 번 더 보면 낡은 알림이 목록에 섞이지 않는다.
+            if (watching.IsStale)
+            {
+                return;
+            }
+
+            MergeItems(merged);
+
+            // reconcile 이 낸 선택을 그대로 반영한다 — 비우지 않는다 (ADR-011).
+            Selection.ReplaceWith(result.Selection);
+
+            // 빈 폴더가 됐거나 다시 채워졌을 수 있다. 열거 중·오류 상태는 건드리지 않는다.
+            if (Status is PaneStatus.Idle or PaneStatus.Empty)
+            {
+                Status = Items.Count == 0 ? PaneStatus.Empty : PaneStatus.Idle;
+            }
+
+            RefreshStatusText();
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 목록을 <paramref name="merged"/> 와 같게 만든다.
+    /// <para>
+    /// <c>ReplaceAll</c>·<c>AddRange</c> 를 쓰지 않는다 — 그 <c>Reset</c> 알림이 WPF
+    /// <c>ListView</c> 의 선택을 날린다 (ADR-011). 개별 <c>Add</c>·<c>Remove</c>·<c>Move</c>·
+    /// 교체 알림만 낸다.
+    /// </para>
+    /// </summary>
+    private void MergeItems(List<FileItemViewModel> merged)
+    {
+        var keep = new HashSet<string>(merged.Count, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var row in merged)
+        {
+            keep.Add(row.Name);
+        }
+
+        // 사라진 줄부터 뺀다. 뒤에서부터 — 앞에서 지우면 인덱스가 밀린다.
+        for (var index = Items.Count - 1; index >= 0; index--)
+        {
+            if (!keep.Contains(Items[index].Name))
+            {
+                Items.RemoveAt(index);
+            }
+        }
+
+        // 남은 줄은 이름이 유일하므로, 앞에서부터 자리를 맞추면 뒤쪽만 훑어도 충분하다.
+        for (var index = 0; index < merged.Count; index++)
+        {
+            var row = merged[index];
+            var found = IndexOfRow(row.Name, index);
+
+            if (found < 0)
+            {
+                // 새 항목이다. 정렬 위치가 곧 이 자리다 — 맨 끝에 붙이지 않는다.
+                Items.Insert(index, row);
+                continue;
+            }
+
+            // 정렬 키가 바뀌어 자리가 달라진 줄.
+            if (found != index)
+            {
+                Items.Move(found, index);
+            }
+
+            // 내용이 바뀐 줄. 표시 문자열이 생성 시점에 굳으므로 인스턴스를 교체한다.
+            if (!ReferenceEquals(Items[index], row))
+            {
+                Items[index] = row;
+            }
+        }
+    }
+
+    private int IndexOfRow(string name, int from)
+    {
+        for (var index = from; index < Items.Count; index++)
+        {
+            if (StringComparer.OrdinalIgnoreCase.Equals(Items[index].Name, name))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     private void SortItems()
@@ -881,6 +1188,57 @@ public sealed partial class PaneViewModel : ObservableObject
         return string.IsNullOrWhiteSpace(address) ? wording : $"{wording} — {address.Trim()}";
     }
 
+    /// <summary>감시와 열거를 모두 접고 완료를 기다린다.</summary>
+    public async ValueTask DisposeAsync()
+    {
+        var current = Interlocked.Exchange(ref watch, null);
+
+        current?.Cancel();
+
+        // 열거를 먼저 접는다. 감시 루프가 열거 완료를 기다리고 있을 수 있고, 그 대기는
+        // 취소로도 풀리지만 순서를 이렇게 두면 남은 배치까지 조용히 끝난다.
+        await session.DisposeAsync().ConfigureAwait(false);
+
+        if (current is not null)
+        {
+            // 감시 루프는 예외를 밖으로 내지 않는다 — 여기서 기다리는 것은 종료뿐이다.
+            await current.Loop.ConfigureAwait(false);
+        }
+    }
+
     /// <summary>한 번의 <see cref="LoadAsync"/> 결과. 오류가 없으면 <see cref="Error"/> 는 null 이다.</summary>
     private readonly record struct LoadResult(bool IsStale, LocationAccessException? Error);
+
+    /// <summary>
+    /// 한 폴더의 감시. <see cref="EnumerationRun"/> 과 <b>세대를 공유한다</b> — 낡은 감시의
+    /// 알림을 버리는 판정이 그 세대이고, 그 격리가 없으면 이전 폴더의 변경이 새 폴더 목록에
+    /// 섞인다 (전작 잔버그의 원천이다).
+    /// </summary>
+    private sealed class WatchRun(EnumerationRun run)
+    {
+        // Dispose 하지 않는다. run 의 완료와 폴더 전환의 취소가 경합하면 이미 Dispose 된
+        // 원본에 Cancel 이 들어와 ObjectDisposedException 이 된다 (EnumerationRun 과 같은 이유).
+        private readonly CancellationTokenSource cts = new();
+
+        // RunContinuationsAsynchronously: 이 신호를 켜는 스레드는 목록을 채우는 스레드다.
+        // 감시 루프의 이어붙은 코드를 그 스레드에서 그대로 돌리면 채우는 손이 멈춘다.
+        private readonly TaskCompletionSource enumerated = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public LocationId Folder => run.Folder;
+
+        /// <summary>더 새로운 폴더 열기가 있었는가. 있으면 이 감시의 알림은 버린다.</summary>
+        public bool IsStale => run.IsStale;
+
+        public CancellationToken Token => cts.Token;
+
+        /// <summary>열거가 끝났는가. 그때까지 모인 변경은 적용하지 않고 들고 있는다.</summary>
+        public Task Enumerated => enumerated.Task;
+
+        /// <summary>감시 루프. <see cref="DisposeAsync"/> 만 이것을 기다린다.</summary>
+        public Task Loop { get; set; } = Task.CompletedTask;
+
+        public void MarkEnumerated() => enumerated.TrySetResult();
+
+        public void Cancel() => cts.Cancel();
+    }
 }

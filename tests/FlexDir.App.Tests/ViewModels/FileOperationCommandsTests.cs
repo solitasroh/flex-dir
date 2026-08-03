@@ -29,6 +29,7 @@ public class FileOperationCommandsTests
     private static readonly IFormatProvider Culture = CultureInfo.InvariantCulture;
 
     private readonly FakeFolderSource source = new();
+    private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly InMemoryViewStateStore viewStates = new();
     private readonly FakeFileOperations operations = new();
@@ -669,7 +670,7 @@ public class FileOperationCommandsTests
     private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
 
     private PaneViewModel CreatePane()
-        => new(source, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
 
     /// <summary>폴더를 등록한다. 이름이 <c>\</c> 로 끝나면 디렉터리다.</summary>
     private LocationId Folder(string path, params string[] names)
