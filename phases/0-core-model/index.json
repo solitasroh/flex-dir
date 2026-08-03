@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "display-format",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-03T18:56:33+0900",
+      "summary": "src/FlexDir.Core/Formatting/ 3개 static 클래스. 공통 규칙: culture·TimeZoneInfo 를 전부 인자로 받고 ArgumentNullException.ThrowIfNull(culture) 로 막는다 — null 을 통과시키면 ToString 이 CurrentCulture 로 조용히 넘어가 기계마다 다른 문자열이 난다. CurrentCulture·TimeZoneInfo.Local·DateTime.Now·ToLocalTime 은 주석 외에 등장하지 않는다. SizeFormatter.cs — 1024 기반. bytes < 1MB 는 정수 올림((bytes+1023)/1024) 후 \"N0\"(1바이트도 1 KB, 0 은 0 KB), 그 위는 (decimal)bytes/unit 을 Math.Round(1, AwayFromZero) 후 \"N1\" — MB·GB 는 올림이 아니라 반올림이다(1048577 → 1.0 MB). 1073741823 → '1,024.0 MB', 1073741824 부터 GB. double 대신 decimal 이라 long.MaxValue 도 안전. 음수는 ArgumentOutOfRangeException.ThrowIfNegative. ForItem 은 IsDirectory 면 Size 값과 무관하게 \"\"(폴더 용량 계산 없음), 빈 파일은 \"0 KB\" 로 폴더와 구별된다. TimestampFormatter.cs — TimeZoneInfo.ConvertTime 으로 변환 후 DateTimeFormatInfo.GetInstance(culture) 의 ShortDatePattern·ShortTimePattern 을 각각 ToString 해 공백으로 잇는다(\"g\" 미사용, 초 없음). StatusSummary.cs — UI 텍스트 한국어. ForItems '항목 {N}개'(0 도 그대로 — 빈 폴더 판정은 호출자), ForSelection '{N}개 중 {M}개 선택 · {크기}'(selectedCount==0 이면 ForItems 위임, 크기는 SizeFormatter.Format 이라 0 바이트도 '0 KB' 표시), ForEnumerating '항목 {N}개 읽는 중…', Empty => '빈 폴더'. 숫자는 전부 \"N0\"(천단위 구분), 구분자는 private const \" · \" 하나뿐. 오류 문구는 여기 만들지 않는다 — step 5 error-classification 의 책임. tests/FlexDir.Core.Tests/Formatting/{SizeFormatterTests,TimestampFormatterTests,StatusSummaryTests}.cs 47개 추가(시간대는 TimeZoneInfo.CreateCustomTimeZone 고정 오프셋 — 시스템 tz ID 는 플랫폼마다 다르다). 전체 144 tests green, 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-03T19:03:40+0900"
     },
     {
       "step": 4,

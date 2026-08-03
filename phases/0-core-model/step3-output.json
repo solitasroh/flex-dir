@@ -1,0 +1,8 @@
+{
+  "step": 3,
+  "name": "display-format",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": null,
+  "stderr": ""
+}
