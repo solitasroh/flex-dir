@@ -1,0 +1,14 @@
+{
+  "project": "flex-dir",
+  "phase": "2-viewmodel",
+  "steps": [
+    { "step": 0, "name": "pane-history", "status": "pending" },
+    { "step": 1, "name": "pane-viewmodel", "status": "pending" },
+    { "step": 2, "name": "selection", "status": "pending" },
+    { "step": 3, "name": "sort-view-commands", "status": "pending" },
+    { "step": 4, "name": "two-pane", "status": "pending" },
+    { "step": 5, "name": "file-op-commands", "status": "pending" },
+    { "step": 6, "name": "thumbnail-requests", "status": "pending" },
+    { "step": 7, "name": "watcher-integration", "status": "pending" }
+  ]
+}

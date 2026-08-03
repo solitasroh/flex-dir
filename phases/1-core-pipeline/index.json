@@ -1,0 +1,10 @@
+{
+  "project": "flex-dir",
+  "phase": "1-core-pipeline",
+  "steps": [
+    { "step": 0, "name": "folder-source-port", "status": "pending" },
+    { "step": 1, "name": "enumeration-session", "status": "pending" },
+    { "step": 2, "name": "folder-watcher-port", "status": "pending" },
+    { "step": 3, "name": "list-reconcile", "status": "pending" }
+  ]
+}

@@ -1,0 +1,91 @@
+# 수동 작업 계획 — Shell interop · View · Host
+
+> **이 파일은 `docs/` 아래 두지 않는다.** `docs/*.md` 중 일부는 harness `guardrails` 로
+> 매 step 프롬프트에 주입되고, 이 문서는 자율 실행이 참조할 대상이 아니다.
+>
+> `phases/` 에는 자율 실행 가능한 phase 만 있다(ADR-009). 아래 세 덩이는 **자동 채점할
+> 커맨드가 존재하지 않으므로** `phases/` 에 넣지 않는다 — 넣으면 `/harness:run` 이
+> 집어가고, 통과했다는 사실이 아무것도 보증하지 않는 상태가 된다.
+
+## 자율 phase 가 남기는 것
+
+`phases/` 의 3 phase · 18 step 이 끝나면 `FlexDir.Core` 와 `FlexDir.App` 의 ViewModel 이
+완성되고, 모든 외부 의존은 **포트 인터페이스와 fake** 로만 존재한다. 아래는 그 포트에
+실물을 끼우고 화면을 붙이는 일이다.
+
+## A. Shell interop 구현체 (`FlexDir.Shell`)
+
+`docs/SHELL_NOTES.md` 가 이 작업의 지도다. 절마다 함정이 정리돼 있으니 착수 전에 해당 절을 읽는다.
+
+| 포트 | 구현 | SHELL_NOTES 절 |
+|---|---|---|
+| `IFolderSource` | `FindFirstFileExW` + `FindExInfoBasic` + `FIND_FIRST_EX_LARGE_FETCH` | §열거 |
+| `ITypeNameProvider` · `IThumbnailSource` | `SHGetFileInfoW`(확장자당 1회) · `IShellItemImageFactory` | §아이콘 |
+| `IFileOperations` | `IFileOperation` + **`FOFX_RECYCLEONDELETE`** | §파일 조작 |
+| `IClipboardBridge` | 탐색기 호환 클립보드 포맷 | §클립보드 |
+| `IFolderWatcher` | `FileSystemWatcher` + `InternalBufferSize` 확대 + `Error` 처리 | §폴더 감시 |
+| `IViewStateStore` | `%LOCALAPPDATA%\flex-dir\` 파일 | — |
+| `IItemActivator` | `ShellExecuteEx` | — |
+| `IContextMenuProvider` | `IContextMenu` + `IContextMenu2/3` 메시지 펌핑 | §컨텍스트 메뉴 |
+
+- **`IContextMenuProvider` 는 포트 정의부터 수동이다.** 창 핸들과 네이티브 메뉴 메시지
+  펌핑이 필요해 ViewModel 테스트로 채점할 수 없다(자율 phase 2 step 5 에서 의도적으로 제외).
+- 각 구현체 테스트는 자율 phase 가 만든 **계약 기반 클래스를 상속**한다 —
+  `FolderSourceContract` · `FolderWatcherContract` · `ViewStateStoreContract`.
+  같은 검증을 fake 와 실물이 함께 받는 것이 이 계약 클래스들의 존재 이유다.
+- COM 아파트먼트 규칙은 `docs/SHELL_NOTES.md` §COM 아파트먼트 를 따른다.
+
+## B. WPF View (`FlexDir.App`)
+
+**착수 전에 `docs/DESIGN.md` §9 를 채워야 한다.** 지금 비어 있는 것:
+
+- [ ] **키보드 맵 표** — 단축키 확정 + 탐색기 기본 단축키 충돌 검토.
+      `docs/UI_GUIDE.md` §키보드 의 최소선을 실제 키 조합으로 확정한다.
+      ViewModel 커맨드는 자율 phase 에서 이미 다 만들어져 있으므로,
+      남은 것은 XAML `InputBindings` 의 제스처 매핑뿐이다.
+- [ ] **상호작용 상태** — 이름변경 인라인 편집 · 스플리터 드래그 중 · 페인 간 드래그앤드롭
+
+그리고 `docs/DESIGN.md` §10 의 미결 두 건은 실물을 보고 판단한다:
+
+- [ ] #4 밀도 옵션(24/28)을 설정으로 — v1 범위 밖으로 두었으나 실물 확인 후 재검토
+- [ ] #5 비활성 페인 크롬 배경 강등이 과한지
+
+구현 시 지켜야 할 것:
+
+- `*.xaml.cs` 에는 `InitializeComponent()` 만. `scripts/check-structure.ps1` 이 막는다.
+- 뷰 모드 4종은 `DataTemplate` 교체로 바꾼다. 목록 컨트롤을 갈아치우지 않는다(ADR-002).
+- `VirtualizingStackPanel` + `VirtualizationMode="Recycling"` + `ScrollUnit="Item"`.
+  `ScrollViewer` 로 감싸지 않는다(`docs/ARCHITECTURE.md` §5).
+- 행 높이는 뷰 안에서 고정. 수치는 `docs/DESIGN.md` §2.
+- `ThumbnailBitmap`(BGRA32) → `WriteableBitmap` 변환은 View 계층에서 한다.
+- `IUiDispatcher` 의 실제 구현(`Dispatcher` 기반)을 여기서 만든다.
+
+## C. Host — 진입점과 DI 조립 (`FlexDir.Host`)
+
+현재 `src/FlexDir.Host/Program.cs` 는 **빌드를 통과시키기 위한 빈 진입점**이다.
+아래가 미결이며, 결정하면서 채운다.
+
+- [ ] **WPF 진입점 형태** — `App.xaml`(`ApplicationDefinition`) + 빈 `App.xaml.cs` 로 갈지,
+      명시적 `Main` 을 유지할지. 전자는 관례적이지만 DI 조립을 어디서 할지 정해야 하고,
+      `App.xaml.cs` 에 로직을 넣는 것은 `CLAUDE.md` §2 위반이다.
+      → 조립 코드는 `*.xaml.cs` 가 아닌 별도 클래스에 둔다.
+- [ ] **DI 컨테이너 선택** — 또는 수동 조립. `FlexDir.Host` 만 `Core`·`Shell`·`App` 셋을
+      모두 참조하며, 그 지식을 이 프로젝트 하나에 가둔다(`docs/ARCHITECTURE.md` §1).
+- [ ] **single instance 상주** — 두 번째 실행은 기존 프로세스에 인자를 넘기고 종료.
+      창을 닫아도 프로세스 유지(ADR-003, `docs/ARCHITECTURE.md` §6).
+- [ ] **계측** — cold start · 상주 중 창 표시 · 폴더 전환 후 첫 항목.
+      별도 벤치마크 CLI 를 만들지 않는다(`docs/ARCHITECTURE.md` §7).
+- [ ] `IUsageLog` 구현 — 도그푸딩 게이트(ADR-007)의 입력. 게이트 자체는 **v1 완성 후** 켠다.
+
+## 순서
+
+```
+phases/ 자율 실행 (Core + ViewModel)
+   → A. Shell interop  (포트에 실물 끼우기, 계약 테스트 상속)
+   → C. Host 뼈대       (진입점 + DI, 화면 없이 실행되는지)
+   → B. View            (DESIGN §9 를 먼저 채운 뒤)
+   → 매일 쓰기 → 도그푸딩 게이트 ON
+```
+
+B 를 마지막에 두는 이유: 화면이 붙기 전에 Shell 구현체가 실물 폴더에서 동작하는지
+확인할 수 있고, 그 단계의 버그를 UI 버그와 섞지 않을 수 있다.

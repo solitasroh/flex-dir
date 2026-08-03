@@ -1,0 +1,12 @@
+{
+  "project": "flex-dir",
+  "phase": "0-core-model",
+  "steps": [
+    { "step": 0, "name": "location-id", "status": "pending" },
+    { "step": 1, "name": "file-item", "status": "pending" },
+    { "step": 2, "name": "natural-sort", "status": "pending" },
+    { "step": 3, "name": "display-format", "status": "pending" },
+    { "step": 4, "name": "view-state", "status": "pending" },
+    { "step": 5, "name": "error-classification", "status": "pending" }
+  ]
+}

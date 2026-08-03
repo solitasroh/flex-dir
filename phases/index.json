@@ -1,0 +1,7 @@
+{
+  "phases": [
+    { "dir": "0-core-model", "status": "pending" },
+    { "dir": "1-core-pipeline", "status": "pending" },
+    { "dir": "2-viewmodel", "status": "pending" }
+  ]
+}
