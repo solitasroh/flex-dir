@@ -206,3 +206,43 @@ v2 에서 UNC·PIDL 을 같은 타입으로 확장한다. 이 추상화가 없�
 **남은 한계**: 콜드 `dotnet test` 는 기본 `timeoutMs`(60초)를 넘길 수 있고, 넘기면
 **차단이 아니라 조용한 통과**가 된다. 그 조짐이 보이면 `verifyRed: false` 로 내리고
 Quality Gate 에 맡긴다. 방치하면 이 ADR 이 막으려던 상태로 되돌아간다.
+
+---
+
+## ADR-013 — MVVM 기반은 `CommunityToolkit.Mvvm` (8.4.2)
+
+**상태**: 확정
+
+**맥락**: `FlexDir.App` 의 **유일한 외부 런타임 의존**이며 ViewModel 전체가 그 위에 선다 —
+`PaneViewModel`·`WorkspaceViewModel`·`PaneSelection`·`FileItemViewModel` 넷 모두
+`ObservableObject` 를 상속하고, 커맨드 14개가 `[RelayCommand]` 소스 생성기에서 나온다.
+버전은 `src/FlexDir.App/FlexDir.App.csproj` 에 고정한다.
+
+**근거**
+
+- **ADR-002 가 이것에 의존한다.** "MVVM 이 god object 싱크홀을 제거한다" 는 근거는 ViewModel 을
+  쓰는 비용이 낮을 때만 성립한다. `INotifyPropertyChanged` 와 `ICommand` 를 손으로 쓰면 속성마다
+  대여섯 줄이 붙고, 그러면 상태를 ViewModel 에 두는 것보다 코드비하인드에 두는 것이 싸 보인다 —
+  전작이 무너진 방향이 정확히 그쪽이다.
+- **소스 생성기다. 런타임 리플렉션이 없다.** cold start 가 WPF 의 유일한 실질 약점이므로
+  (ADR-003) 시작 시각에 값을 치르는 물건을 넣을 수 없다.
+- **UI 프레임워크 중립이다.** WPF 타입을 끌고 오지 않아 `App` 이 `Core` 의 포트만 아는 규칙을
+  침범하지 않는다 (`CLAUDE.md` §1). `PaneSelection` 이 `ListView.SelectedItems` 를 모르는 것과
+  같은 선이다.
+- Microsoft 관리(.NET Foundation), MIT, 전이 의존 없음.
+
+**대가**
+
+- 외부 의존이 0 개에서 1 개가 된다. 이 ADR 이 그 값을 명시적으로 치른 기록이다.
+- 생성된 멤버(`CopySelectionCommand` 등)가 소스에 보이지 않는다. 처음 읽는 사람은
+  `[RelayCommand]` 를 모르면 그 이름을 찾을 수 없다.
+- 모든 ViewModel 이 `partial` 이어야 한다.
+
+**기각한 대안**
+
+- **손으로 구현** — `SetProperty` 와 `RelayCommand` 를 직접 쓰면 결국 같은 물건을 다시 만든다.
+  의존을 줄이는 대신 우리가 유지보수할 코드가 늘고, 그쪽이 더 비싸다.
+- **Prism** — DI 컨테이너·모듈·네비게이션까지 함께 온다. v1 축은 멀티페인 하나이고(ADR-004)
+  화면 구조는 창 하나에 페인 둘이다. 네비게이션 프레임워크를 쓸 자리가 없다.
+- **ReactiveUI** — Rx 조합은 강력하지만 학습·디버깅 비용이 크고, 우리 상태 변화는
+  "폴더를 열고 목록을 채운다" 로 대부분 선형이다. 스트림으로 표현해 얻는 것이 없다.

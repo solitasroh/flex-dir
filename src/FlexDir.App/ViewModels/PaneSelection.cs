@@ -61,6 +61,9 @@ public sealed partial class PaneSelection : ObservableObject
         }
 
         // 선택을 푼 항목이라도 다음 Shift 범위는 여기서 시작한다 — 방금 클릭한 자리다.
+        // 단 마지막 선택을 푼 경우는 기준점도 없앤다: 선택이 비면 Anchor 는 null 이다
+        // (Clear·Retain·ReplaceWith 도 같은 계약을 지킨다). 기준점이 없으면 다음 Shift 는
+        // SelectRange 가 단일 선택으로 물러난다.
         Anchor = selected.Count == 0 ? null : name;
 
         NotifySelectionChanged();

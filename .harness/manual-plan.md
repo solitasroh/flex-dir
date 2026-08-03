@@ -45,6 +45,31 @@
       남은 것은 XAML `InputBindings` 의 제스처 매핑뿐이다.
 - [ ] **상호작용 상태** — 이름변경 인라인 편집 · 스플리터 드래그 중 · 페인 간 드래그앤드롭
 
+**`ThumbnailRequestScheduler` 를 부를 주체를 정해야 한다.** 자율 phase 가 이 클래스를 만들었지만
+`src/` 안에 **부르는 곳이 없다** — 생성하는 곳도, 폴더 전환에 `Reset()` 을, 스크롤에
+`SetVisibleRange()` 를 부르는 곳도 없다. 그대로 두면 썸네일이 한 장도 나오지 않는다.
+`SetVisibleRange` 를 부르는 것이 스크롤 이벤트인데 `*.xaml.cs` 에는 로직을 둘 수 없어
+(`CLAUDE.md` §2) 배선 지점이 자명하지 않다. 그래서 착수 전에 정한다:
+
+- [ ] **소유자** — `ThumbnailRequestScheduler` 는 ViewModel 계층의 물건이다
+      (`FlexDir.App/ViewModels/`, `IThumbnailSource`·`IUiDispatcher` 를 받고
+      `FileItemViewModel.Icon`·`Thumbnail` 을 채운다). 페인당 하나를 페인의 ViewModel 쪽이
+      소유한다 — View 가 소유하면 같은 상태가 두 계층에 갈라진다.
+      `PaneViewModel` 에 직접 넣을지, 얇은 소유 클래스를 하나 둘지는 그때 정한다
+      (`PaneViewModel` 은 이미 1,244줄이다).
+- [ ] **`Reset()` 시점** — 폴더 전환. View 가 알 필요 없다: ViewModel 이 폴더를 바꾸는 지점을
+      이미 안다(`LoadAsync`). 이전 폴더의 진행 중 요청이 남으면 새 폴더의 행에 옛 그림이 붙는다.
+- [ ] **`SetVisibleRange()` 시점** — 스크롤·뷰 전환·목록 갱신. 코드비하인드 금지를 지키려면
+      스크롤을 **attached behavior**(별도 클래스)로 받아 ViewModel 의 메서드/커맨드로 넘긴다.
+      `*.xaml.cs` 에 스크롤 핸들러를 두는 것은 금지다 — `scripts/check-structure.ps1` 이 막는다.
+- [ ] **`ViewMode` → 아이콘 크기 매핑** — `SetVisibleRange(visible, requestedSize)` 의
+      `requestedSize` 를 정하는 규칙이 아직 어디에도 없다. `docs/DESIGN.md` §2 의 값이 정본이다:
+      Details **16** · 목록 **16** · 타일 **32** · 큰 아이콘 **96**.
+      `ViewMode` 를 아는 쪽이 ViewModel 이므로 매핑도 ViewModel 에 둔다. 크기가 스케줄러
+      캐시 키에 들어가므로(같은 확장자도 크기마다 따로 조회한다) 뷰를 바꾸면 그 크기로 다시 묻는다.
+- [ ] **종료** — 창을 닫을 때 `DisposeAsync`. 상주 프로세스라 창만 닫히고 프로세스는 남는다
+      (ADR-003) — 그때 진행 중 요청과 BGRA 버퍼가 함께 정리되는지 확인한다.
+
 그리고 `docs/DESIGN.md` §10 의 미결 두 건은 실물을 보고 판단한다:
 
 - [ ] #4 밀도 옵션(24/28)을 설정으로 — v1 범위 밖으로 두었으나 실물 확인 후 재검토
@@ -89,3 +114,7 @@ phases/ 자율 실행 (Core + ViewModel)
 
 B 를 마지막에 두는 이유: 화면이 붙기 전에 Shell 구현체가 실물 폴더에서 동작하는지
 확인할 수 있고, 그 단계의 버그를 UI 버그와 섞지 않을 수 있다.
+
+단, §B 의 **`ThumbnailRequestScheduler` 배선**은 A 착수 전에 결정해 둔다. 코드비하인드 금지와
+부딪히는 항목이라 View 를 짜기 시작한 뒤에 정하면 이미 `*.xaml.cs` 에 스크롤 핸들러가 들어가
+있게 된다. 결정만 앞으로 당기는 것이고 구현은 B 에서 한다.
