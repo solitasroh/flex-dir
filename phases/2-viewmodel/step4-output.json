@@ -1,0 +1,8 @@
+{
+  "step": 4,
+  "name": "two-pane",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 4 (two-pane) 완료했습니다.\n\n## 만든 것\n\n**`src/FlexDir.App/ViewModels/WorkspaceViewModel.cs`** (신규, 유일한 소스 변경 — `PaneViewModel` 은 한 줄도 안 고쳤습니다)\n\n- `enum PaneSide { Left, Right }` 를 같은 파일에 선언 (CLAUDE.md §6)\n- 상태는 `activeSide` 하나. `ActivePane`·`InactivePane` 은 필드 없는 표현식 속성이고 `ActiveSide` 가 바뀔 때 둘 다 `PropertyChanged` 를 냅니다. `SwitchPane` 은 반대쪽으로 `Activate` 를 부를 뿐 별도 토글 상태가 없습니다.\n- 두 페인 사이의 연결 경로는 `OpenOtherPaneLocationAsync` 하나뿐이고, 그것도 커맨드 실행 때만 움직입니다. 반대편 `CurrentLocation` 이 null 이면 `Task.CompletedTask`.\n- 클램프에 `Math.Clamp` 를 쓰지 않았습니다 — NaN 은 모든 관계 비교가 false 라서 그대로 통과하고 그러면 페인 하나가 사라집니다. `GlobalViewState.Validate` 와 같은 부정형으로 썼고 자른 뒤 `SetProperty` 에 넣으므로 경계를 넘어 계속 끌어도 알림은 한 번입니다.\n- `RestoreAsync`·`PersistAsync` 모두 저장소 예외를 삼킵니다(`OperationCanceledException` 만 통과). 복원값은 `SplitterRatio` setter 를 지나므로 저장된 `0.02` 도 `0.15` 로 잘립니다. `WindowPlacement` 는 노출까지만 — 창에 적용하지 않습니다.\n\n**`tests/FlexDir.App.Tests/ViewModels/WorkspaceViewModelTests.cs`** — 28개(20 메서드 + Theory 8 케이스). 두 페인과 워크스페이스가 `InMemoryViewStateStore` 하나를 공유하게 해서, 폴더별 기억이 공유돼도 이미 열린 페인의 정렬·선택이 서로 흔들리지 않는 것을 확인합니다.\n\n## AC 결과\n\n```\ndotnet build --nologo -warnaserror   → 경고 0, 오류 0\ndotnet test --nologo                 → Core.Tests 292 + App.Tests 157 통과 (App.Tests 3회 반복 안정)\npwsh -File scripts/check-structure.ps1 → 구조 게이트 통과 (App→Shell 참조 없음, 코드비하인드 0)\n```\n\n체크리스트: 상태 공유 경로 없음(같은 폴더 양쪽 정렬·선택 독립 테스트로 확인) · 클래스명 `WorkspaceViewModel` · XAML·`*.xaml.cs` 없음 · `IList<PaneViewModel>` 같은 N분할 구조 없음.\n\n`phases/2-viewmodel/index.json` step 4 를 `completed` 로 갱신했고, 커밋은 하지 않았습니다(하네스 담당).\n",
+  "stderr": ""
+}
