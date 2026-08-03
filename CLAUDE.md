@@ -44,7 +44,29 @@ ViewModel 로직뿐이다.
 이유: "손에 붙는가" 를 판정하는 셸 커맨드는 존재하지 않는다. 전작은 25 step 전부
 자가 채점을 통과하고도 쓰이지 않았다.
 
-## 6. 커밋
+## 6. 코드를 쓰는 순서 (TDD Guard 훅이 강제한다)
+
+`Write`·`Edit` 앞에 훅이 걸려 있다. 아래를 어기면 **편집이 거부된다.**
+
+1. **새 소스 디렉터리는 먼저 만든다.** `mkdir -p src/FlexDir.Core/Sorting` 같은 식으로.
+   디렉터리가 없으면 훅이 테스트 프로젝트를 찾지 못해 무조건 거부한다.
+2. **테스트를 먼저 쓴다.** 소스가 `Foo.cs` 면 테스트 파일명은 정확히 `FooTests.cs` 다.
+   **인터페이스도 예외가 아니다** — `IFolderSource.cs` 에는 `IFolderSourceTests.cs` 가 필요하다.
+   파일 안의 클래스 이름은 달라도 된다.
+3. **테스트 위치는 소스가 속한 프로젝트의 `.Tests` 다.** `src/FlexDir.Core/X/Foo.cs` →
+   `tests/FlexDir.Core.Tests/X/FooTests.cs`. `FlexDir.App` 의 소스를 `FlexDir.Core.Tests` 로
+   보내면 찾지 못한다.
+4. **새 소스는 테스트가 실패(red)하는 상태에서만 쓸 수 있다.** 이미 통과하면 거부된다.
+5. Core 포트를 구현하는 fake 는 `tests/FlexDir.Core.Tests/Fakes/` 에 둔다.
+   `FlexDir.App.Tests` 가 그 프로젝트를 참조해 재사용한다.
+
+검사 제외: `*.xaml.cs` · `Program.cs` · `GlobalUsings.cs` · `AssemblyInfo.cs` ·
+생성 코드(`*.g.cs`·`*.Designer.cs`) · `*.Tests` 프로젝트 안의 모든 파일.
+
+동작이 없는 선언(열거형만 담은 파일 등)은 별도 파일로 두지 말고, 테스트할 동작이 있는
+파일에 함께 선언한다. 억지 테스트를 만들지 않기 위해서다.
+
+## 7. 커밋
 
 - Conventional Commits (`feat:` `fix:` `docs:` `refactor:` `chore:` `test:`).
 - 메시지에 AI·에이전트·생성 도구 이름을 넣지 않는다. `Co-Authored-By` 도 넣지 않는다.
