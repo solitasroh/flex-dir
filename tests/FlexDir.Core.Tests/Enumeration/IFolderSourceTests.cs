@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 
 using FlexDir.Core.Enumeration;
 using FlexDir.Core.Errors;
@@ -46,6 +47,30 @@ public class FakeFolderSourceTests : FolderSourceContract
 
         Assert.Single(seen);
         Assert.Equal(LocationErrorKind.AccessDenied, error.Kind);
+    }
+
+    [Fact]
+    public async Task ContractViolation_ThrowsSomethingOtherThanTheContractException()
+    {
+        var folder = Folder(@"C:\Temp");
+        var failure = new IOException("핸들이 유효하지 않다.");
+        var source = new FakeFolderSource { ContractViolation = (1, failure) };
+        source.Folders[folder] = [Item(folder, "a.txt"), Item(folder, "b.txt")];
+
+        var seen = new List<FileItem>();
+
+        // 계약대로면 여기서 LocationAccessException 이 나온다. 구현체가 P/Invoke 위에 서므로
+        // 그럼에도 다른 예외가 나올 수 있고, 호출자의 방어를 재려면 그 상황을 만들 수 있어야 한다.
+        var thrown = await Assert.ThrowsAsync<IOException>(async () =>
+        {
+            await foreach (var item in source.EnumerateAsync(folder, CancellationToken.None))
+            {
+                seen.Add(item);
+            }
+        });
+
+        Assert.Single(seen);
+        Assert.Same(failure, thrown);
     }
 
     [Fact]

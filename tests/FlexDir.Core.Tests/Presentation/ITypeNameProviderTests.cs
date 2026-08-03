@@ -73,6 +73,31 @@ public class FakeTypeNameProviderTests
     }
 
     [Fact]
+    public async Task GetTypeNameAsync_WhenTheLookupFails_ReturnsAnEmptyString()
+    {
+        var provider = new FakeTypeNameProvider();
+        provider.UnknownExtensions.Add("xyz");
+
+        // 계약이다 — 실패는 예외가 아니다. 예외로 만들면 호출자가 항목마다 잡아야 한다.
+        Assert.Equal(string.Empty, await provider.GetTypeNameAsync("xyz", isDirectory: false, CancellationToken.None));
+
+        // 실패도 조회다. 기록에 남지 않으면 "확장자당 한 번" 을 재는 눈금이 어긋난다.
+        Assert.Equal(1, provider.CountFor("xyz", isDirectory: false));
+    }
+
+    [Fact]
+    public async Task Failure_InjectsAContractViolation()
+    {
+        var provider = new FakeTypeNameProvider();
+        provider.Failure = new InvalidOperationException("shell 이 답하지 않는다.");
+
+        // 계약대로면 여기서 예외가 나오지 않는다. 구현체가 COM 위에 서므로 그럼에도
+        // 나올 수 있고, 호출자의 방어를 재려면 그 상황을 만들 수 있어야 한다.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await provider.GetTypeNameAsync("txt", isDirectory: false, CancellationToken.None));
+    }
+
+    [Fact]
     public async Task GetTypeNameAsync_WhenAlreadyCanceled_Throws()
     {
         var provider = new FakeTypeNameProvider();

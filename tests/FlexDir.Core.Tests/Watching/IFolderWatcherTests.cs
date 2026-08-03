@@ -68,6 +68,41 @@ public class FakeFolderWatcherTests : FolderWatcherContract
     }
 
     [Fact]
+    public async Task AStaleStream_KeepsItsChangesToItself()
+    {
+        var watcher = new FakeFolderWatcher();
+
+        _ = watcher.WatchAsync(Folder(@"C:\A"), CancellationToken.None);
+        var stale = watcher.Current!;
+
+        var current = watcher.WatchAsync(Folder(@"C:\B"), CancellationToken.None);
+
+        // 세대가 채널을 공유하면 낡은 세대에 밀어넣은 변경을 새 세대가 읽어 가고, 그러면
+        // "낡은 감시가 밀어넣었다" 는 테스트가 실제로는 새 감시를 잰다.
+        stale.Push(new FolderChange(FolderChangeKind.Added, "ghost.txt"));
+        watcher.Complete();
+
+        Assert.Empty(await Drain(current));
+    }
+
+    [Fact]
+    public async Task Finished_CompletesWhenTheConsumerLetsGo()
+    {
+        var watcher = new FakeFolderWatcher();
+        watcher.Complete();
+
+        var changes = watcher.WatchAsync(Folder(@"C:\Temp"), CancellationToken.None);
+        var stream = watcher.Current!;
+
+        // 소비를 시작하지도 않았다. 취소만 보고 기다리면 아직 진행 중인 것을 끝났다고 본다.
+        Assert.False(stream.Finished.IsCompleted);
+
+        Assert.Empty(await Drain(changes));
+
+        Assert.True(stream.Finished.IsCompleted);
+    }
+
+    [Fact]
     public async Task Complete_EndsTheStreamWithoutCancellation()
     {
         var folder = Folder(@"C:\Temp");

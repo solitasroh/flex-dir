@@ -31,6 +31,18 @@ public sealed class FakeFolderSource : IFolderSource
     /// <summary>N 번째 항목을 낸 뒤 예외를 던진다. null 이면 던지지 않는다.</summary>
     public (int AfterItems, LocationErrorKind Kind)? FailureInjection { get; set; }
 
+    /// <summary>
+    /// N 번째 항목을 낸 뒤 던질 예외. null 이면 던지지 않는다.
+    /// <para>
+    /// <b>계약 위반을 주입하는 knob 이다.</b> 열거 실패는
+    /// <see cref="LocationAccessException"/> 이어야 하지만 (<see cref="IFolderSource"/>) 구현체는
+    /// <c>FindFirstFileExW</c> P/Invoke 위에 서므로 다른 예외가 나올 수 있고, 그때 호출자가
+    /// 페인을 '읽는 중' 에 남기지 않는지 재려면 그 상황을 만들 수 있어야 한다
+    /// (<see cref="FakeTypeNameProvider.Failure"/> 와 같은 이유).
+    /// </para>
+    /// </summary>
+    public (int AfterItems, Exception Error)? ContractViolation { get; set; }
+
     /// <summary><see cref="EnumerateAsync"/> 가 호출된 폴더의 순서. 취소·격리 검증에 쓴다.</summary>
     public List<LocationId> EnumerateCalls { get; } = [];
 
@@ -97,6 +109,11 @@ public sealed class FakeFolderSource : IFolderSource
 
     private void ThrowIfInjected(int yielded, LocationId folder)
     {
+        if (ContractViolation is { } violation && yielded == violation.AfterItems)
+        {
+            throw violation.Error;
+        }
+
         if (FailureInjection is { } failure && yielded == failure.AfterItems)
         {
             throw new LocationAccessException(failure.Kind, folder);

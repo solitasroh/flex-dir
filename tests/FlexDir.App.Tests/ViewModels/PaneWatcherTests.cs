@@ -6,9 +6,11 @@ using System.IO;
 using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
 
+using FlexDir.Core.Enumeration;
 using FlexDir.Core.Formatting;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
+using FlexDir.Core.Presentation;
 using FlexDir.Core.Tests.Fakes;
 using FlexDir.Core.Watching;
 
@@ -316,26 +318,88 @@ public class PaneWatcherTests
     public async Task AStaleWatch_DoesNotTouchTheNewFolderList()
     {
         // 이전 폴더의 변경이 새 폴더 목록에 섞이는 것은 전작 잔버그의 원천이었다.
-        var docs = Folder(@"C:\Temp\Docs", "a.txt", "ghost.txt");
+        //
+        // 폴더를 옮긴 뒤에 낡은 스트림에 밀어넣는 것으로는 이것을 재지 못한다 — 그 스트림은
+        // 이미 취소돼 읽는 사람이 없다. 새는 창은 낡은 감시가 <b>이미 변경을 집어 다시 읽는
+        // 중</b>일 때 폴더가 바뀌는 경우다. 조회는 syscall 한 번이라 취소가 중간에 끊지 못하고,
+        // 그래서 세대 판정(WatchRun.IsStale) 없이는 낡은 폴더의 항목이 새 목록에 붙는다.
+        var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var pics = Folder(@"C:\Temp\Pics", "p1.jpg");
-        await using var pane = CreatePane();
+        var held = new HeldItemReads(source);
+        await using var pane = new PaneViewModel(
+            held, watcher, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
 
         await pane.NavigateAsync(docs);
+
+        // 감시는 호출자의 스레드 밖에서 시작된다 (UI 스레드에서 shell 을 부르지 않는다).
+        await WaitForAsync(() => watcher.Current is not null, "Docs 의 감시가 걸린다");
+        var stale = watcher.Current!;
+
+        // ghost.txt 는 Docs 에만 있다. 확장자는 이미 조회된 것을 쓴다 — 새 확장자면 유형 이름
+        // 조회가 취소를 관측해 낡은 적용이 그 자리에서 죽고, 그러면 이 테스트가 세대 판정이
+        // 아니라 취소를 재게 된다.
+        Add(docs, "ghost.txt");
+        stale.Push(new FolderChange(FolderChangeKind.Added, "ghost.txt"));
+
+        // 낡은 감시가 ghost.txt 를 다시 읽는 중이다. 여기서 폴더를 옮긴다.
+        await held.Reached.WaitAsync(Limit);
         await pane.NavigateAsync(pics);
 
-        // ghost.txt 는 Docs 에만 있다. 낡은 감시가 살아 있으면 Docs 기준으로 해석돼
-        // 지금 보이는 Pics 목록에 붙는다.
-        watcher.Push(new FolderChange(FolderChangeKind.Added, "ghost.txt"));
-        Add(pics, "p2.jpg");
-        watcher.Push(new FolderChange(FolderChangeKind.Added, "p2.jpg"));
+        // 이제서야 조회가 값을 들고 돌아온다. 토큰은 이미 취소돼 있다.
+        held.Open();
 
-        await WaitAsync(
-            pane,
-            () => pane.Items.Any(row => row.Name == "p2.jpg"),
-            "새 폴더의 변경은 반영된다");
+        // 낡은 감시 루프가 완전히 끝날 때까지 기다린다 — 그러지 않으면 아직 적용되지 않은
+        // 것을 "반영되지 않았다" 고 보는 헛된 단정이 된다.
+        await stale.Finished.WaitAsync(Limit);
 
-        Assert.Equal(["p1.jpg", "p2.jpg"], pane.Items.Select(row => row.Name));
+        Assert.Equal(["p1.jpg"], pane.Items.Select(row => row.Name));
         Assert.Equal(pics, pane.CurrentLocation);
+        Assert.Equal(StatusSummary.ForItems(1, Culture), pane.StatusText);
+    }
+
+    // ── 유형 이름 캐시 ────────────────────────────────────────────
+
+    [Fact]
+    public async Task TypeNameLookups_ArriveFromTheWatchAndTheEnumerationAtOnce()
+    {
+        // 유형 이름 캐시를 두 경로가 <b>동시에</b> 만진다 — 감시 갱신(ApplyAsync→RowAsync)과
+        // 새 폴더의 열거(FillAsync→BuildRowsAsync→RowAsync)다. RowAsync 가 의도적으로
+        // dispatcher 밖이라 UI 스레드가 이 둘을 직렬화해 주지 않는다.
+        //
+        // 이 테스트가 재는 것은 그 창이 <b>실재한다</b> 는 것뿐이다. 자료 경합 자체는 한 번의
+        // 실행으로 재현되지 않으므로, 캐시의 잠금이 왜 필요한지를 여기서 못 박는다 —
+        // 이 창이 없다고 믿으면 잠금이 불필요해 보여 지워진다.
+        var docs = Folder(@"C:\Temp\Docs", "a.md");
+        var pics = Folder(@"C:\Temp\Pics", "b.jpg");
+        var held = new HeldTypeNames(typeNames, "aa", "jpg");
+        await using var pane = new PaneViewModel(
+            source, watcher, held, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+
+        await pane.NavigateAsync(docs);
+        await WaitForAsync(() => watcher.Current is not null, "Docs 의 감시가 걸린다");
+        var stale = watcher.Current!;
+
+        Add(docs, "ghost.aa");
+        stale.Push(new FolderChange(FolderChangeKind.Added, "ghost.aa"));
+
+        // 감시 갱신이 'aa' 의 유형 이름을 조회하는 중이다.
+        await WaitForAsync(() => held.InFlight >= 1, "감시 갱신이 유형 이름을 조회한다");
+
+        // 그 조회가 아직 끝나지 않은 채로 폴더를 옮긴다. 열거는 'jpg' 를 조회해야 첫 줄을
+        // 만들 수 있으므로 같은 시점에 캐시로 들어온다.
+        var opening = pane.NavigateAsync(pics);
+
+        await WaitForAsync(() => held.InFlight >= 2, "열거가 같은 시점에 유형 이름을 조회한다");
+
+        held.Open();
+        await opening;
+        await stale.Finished.WaitAsync(Limit);
+
+        Assert.Equal(2, held.PeakInFlight);
+
+        // 낡은 감시의 갱신은 버려진다. 새 폴더의 목록은 그대로다.
+        Assert.Equal(["b.jpg"], pane.Items.Select(row => row.Name));
+        Assert.Equal("JPG", Assert.Single(pane.Items).TypeText);
     }
 
     // ── 감시가 죽었을 때 ──────────────────────────────────────────
@@ -516,6 +580,103 @@ public class PaneWatcherTests
     {
         Assert.True(LocationId.TryParse(path, out var location, out var error), $"파싱 실패: {error}");
         return location;
+    }
+
+    /// <summary>
+    /// 지정한 확장자의 유형 이름 조회를 문 앞에 세우는 덧옷. 두 경로를 <b>같은 시점에</b>
+    /// 캐시 안에 세워야 동시 진입이 실재함을 잴 수 있다.
+    /// </summary>
+    private sealed class HeldTypeNames(ITypeNameProvider inner, params string[] extensions)
+        : ITypeNameProvider
+    {
+        private readonly HashSet<string> held = [.. extensions];
+        private readonly TaskCompletionSource open = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Lock gate = new();
+
+        private int inFlight;
+
+        /// <summary>지금 문 앞에 서 있는 조회의 수.</summary>
+        public int InFlight
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return inFlight;
+                }
+            }
+        }
+
+        /// <summary>동시에 문 앞에 서 있던 최대 수.</summary>
+        public int PeakInFlight { get; private set; }
+
+        public void Open() => open.TrySetResult();
+
+        public async ValueTask<string> GetTypeNameAsync(
+            string extension,
+            bool isDirectory,
+            CancellationToken ct)
+        {
+            if (isDirectory || !held.Contains(extension))
+            {
+                return await inner.GetTypeNameAsync(extension, isDirectory, ct);
+            }
+
+            lock (gate)
+            {
+                inFlight++;
+                PeakInFlight = Math.Max(PeakInFlight, inFlight);
+            }
+
+            try
+            {
+                // 취소를 관측하지 않는다. 붙잡힌 조회가 취소로 풀리면 두 경로를 같은 시점에
+                // 세울 수 없다 — 실제 shell 조회도 시작한 뒤에는 취소가 끊지 못한다.
+                await open.Task;
+            }
+            finally
+            {
+                lock (gate)
+                {
+                    inFlight--;
+                }
+            }
+
+            return await inner.GetTypeNameAsync(extension, isDirectory, ct);
+        }
+    }
+
+    /// <summary>
+    /// 단건 조회를 문 앞에 세우는 덧옷. <see cref="Reached"/> 로 도착을 보고 <see cref="Open"/>
+    /// 으로 통과시킨다 — 그 사이에 폴더를 옮기면 낡은 감시가 조회 결과를 들고 돌아오는 상황이
+    /// 만들어진다.
+    /// <para>
+    /// 통과할 때 취소를 관측하지 않는 이유: 실제 <c>TryGetItemAsync</c> 는 syscall 한 번이라
+    /// 시작한 조회를 취소가 중간에 끊지 못한다. 그 창이 곧 낡은 감시가 새 목록을 건드릴 수
+    /// 있는 창이고, <c>WatchRun.IsStale</c> 이 막는 것이 그것이다.
+    /// </para>
+    /// </summary>
+    private sealed class HeldItemReads(IFolderSource inner) : IFolderSource
+    {
+        private readonly TaskCompletionSource reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource open = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>조회가 문에 닿은 시점.</summary>
+        public Task Reached => reached.Task;
+
+        public void Open() => open.TrySetResult();
+
+        public IAsyncEnumerable<FileItem> EnumerateAsync(LocationId folder, CancellationToken ct)
+            => inner.EnumerateAsync(folder, ct);
+
+        public async Task<FileItem?> TryGetItemAsync(LocationId item, CancellationToken ct)
+        {
+            reached.TrySetResult();
+
+            await open.Task;
+
+            return await inner.TryGetItemAsync(item, CancellationToken.None);
+        }
     }
 
     /// <summary>
