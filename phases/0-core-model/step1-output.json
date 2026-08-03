@@ -1,0 +1,8 @@
+{
+  "step": 1,
+  "name": "file-item",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": null,
+  "stderr": ""
+}

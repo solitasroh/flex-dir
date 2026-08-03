@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "file-item",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-03T18:42:36+0900",
+      "summary": "src/FlexDir.Core/Model/FileItem.cs — FileItem(sealed record, 위치는 LocationId) + FileItemFlags(None·Directory·Hidden·System·ReparsePoint·Offline·CloudPlaceholder) 를 같은 파일에 선언. 파생 속성 IsDirectory·Extension·NameWithoutExtension·IsContentAccessRisky 는 생성 시점에 한 번 계산하는 get-only 자동속성이다(정렬 때 재계산 없음). 주의: 그래서 'item with { Name = ... }' 는 파생값을 갱신하지 않는다 — 이름이 바뀌면 새로 만들어라(진실원천은 파일시스템이므로 감시 갱신 경로가 정상 경로다). 확장자 규칙: 선행 '.' 은 구분자가 아니고(.bashrc → \"\"), 마지막 '.' 뒤만 취하며(report.tar.gz → gz), ToLowerInvariant 로 정규화하고, Directory 는 항상 \"\"(My.Folder). Path.GetExtension·파일시스템 접근 없음. src/FlexDir.Core/Model/FileAttributeMapping.cs — FromWin32Attributes(uint) 순수 함수, 비트값은 private const uint(RECALL_ON_DATA_ACCESS 0x00400000 · RECALL_ON_OPEN 0x00040000 둘 다 CloudPlaceholder 하나로 합침), 매핑 안 된 비트는 무시. P/Invoke·InteropServices 없음. tests/FlexDir.Core.Tests/Model/{FileItemTests,FileAttributeMappingTests}.cs 추가 — 전체 58 tests green, 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-03T18:49:29+0900"
     },
     {
       "step": 2,
