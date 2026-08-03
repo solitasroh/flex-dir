@@ -555,6 +555,181 @@ public class PaneViewModelTests
         Assert.Contains(nameof(PaneViewModel.CanGoUp), changed);
     }
 
+    // ── 선택 ──────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Selection_SurvivesAReorderOfTheList()
+    {
+        // 정렬 전환이 하는 일은 목록 재배치다 (PaneViewModel.SortItems 도 ReplaceAll 이다).
+        // 선택은 이름으로 보관하므로 순서가 바뀌어도 같은 항목이 선택돼 있다
+        // (docs/UI_GUIDE.md §원칙 4). 정렬 명령 자체는 다음 step 이다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("b.txt");
+        var summary = pane.StatusText;
+
+        pane.Items.ReplaceAll(pane.Items.Reverse().ToList());
+
+        Assert.Equal(["c.txt", "b.txt", "a.txt"], pane.Items.Select(row => row.Name));
+        Assert.Equal(["b.txt"], pane.Selection.SelectedNames);
+        Assert.Equal("b.txt", pane.Selection.Anchor);
+        Assert.Equal(summary, pane.StatusText);
+    }
+
+    [Fact]
+    public async Task Selection_SurvivesARefreshThatRebuildsEveryRow()
+    {
+        // 갱신은 FileItemViewModel 인스턴스를 전부 교체한다 — 참조로 보관했다면 여기서 끊긴다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("b.txt");
+        pane.Selection.Toggle("c.txt");
+
+        await pane.RefreshAsync();
+
+        Assert.Equal(2, pane.Selection.Count);
+        Assert.True(pane.Selection.IsSelected("b.txt"));
+        Assert.True(pane.Selection.IsSelected("c.txt"));
+    }
+
+    [Fact]
+    public async Task Selection_DropsTheNamesThatDisappearedFromTheFolder()
+    {
+        // 남기면 상태표시줄의 선택 개수가 실제와 어긋난다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("b.txt");
+        pane.Selection.Toggle("c.txt");
+
+        Folder(@"C:\Temp", "a.txt", "b.txt");
+        await pane.RefreshAsync();
+
+        Assert.Equal(["b.txt"], pane.Selection.SelectedNames);
+        Assert.Equal(StatusSummary.ForSelection(2, 1, 1024, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task Selection_IsClearedWhenTheFolderChanges()
+    {
+        // 다른 폴더의 이름이 남으면 새 폴더의 엉뚱한 항목이 선택된다.
+        var docs = Folder(@"C:\Temp\Docs", "a.txt", "b.txt");
+        var pics = Folder(@"C:\Temp\Pics", "a.txt", "p.jpg");
+        var pane = CreatePane();
+        await pane.NavigateAsync(docs);
+        pane.Selection.SelectSingle("a.txt");
+
+        await pane.NavigateAsync(pics);
+
+        Assert.Equal(0, pane.Selection.Count);
+        Assert.Null(pane.Selection.Anchor);
+        Assert.Equal(StatusSummary.ForItems(2, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task Selection_IsClearedWhenGoingBack()
+    {
+        var root = Folder(@"C:\Temp", @"Docs\");
+        var docs = Folder(@"C:\Temp\Docs", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(root);
+        await pane.NavigateAsync(docs);
+        pane.Selection.SelectSingle("a.txt");
+
+        await pane.GoBackAsync();
+
+        Assert.Equal(0, pane.Selection.Count);
+    }
+
+    // ── 선택 요약 ─────────────────────────────────────────────────
+
+    [Fact]
+    public async Task StatusText_WithNothingSelected_CountsTheItems()
+    {
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        Assert.Equal(StatusSummary.ForItems(2, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task StatusText_WithASelection_SumsTheSelectedSizes()
+    {
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        pane.Selection.SelectSingle("a.txt");
+        Assert.Equal(StatusSummary.ForSelection(3, 1, 1024, Culture), pane.StatusText);
+
+        pane.Selection.Toggle("c.txt");
+        Assert.Equal(StatusSummary.ForSelection(3, 2, 2048, Culture), pane.StatusText);
+
+        pane.Selection.Clear();
+        Assert.Equal(StatusSummary.ForItems(3, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task StatusText_CountsDirectoriesAsZeroBytes()
+    {
+        // SizeFormatter.ForItem 과 같은 규칙이다 — 폴더 용량 계산은 v1 범위 밖이다.
+        var folder = Folder(@"C:\Temp", @"Docs\", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        pane.Selection.SelectSingle("Docs");
+        Assert.Equal(StatusSummary.ForSelection(2, 1, 0, Culture), pane.StatusText);
+
+        pane.Selection.Toggle("a.txt");
+        Assert.Equal(StatusSummary.ForSelection(2, 2, 1024, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task StatusText_WhileEnumerating_PrefersTheProgress()
+    {
+        // 열거 중에는 총 개수가 아직 확정되지 않았다 — 선택 요약을 내면 거짓말이 된다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("a.txt");
+
+        source.YieldDelayMilliseconds = 50;
+        var pending = pane.RefreshAsync();
+
+        Assert.Equal(PaneStatus.Enumerating, pane.Status);
+        Assert.Equal(StatusSummary.ForEnumerating(0, Culture), pane.StatusText);
+
+        // 열거 중에 선택이 바뀌어도 진행 표시가 먼저다.
+        pane.Selection.Toggle("b.txt");
+        Assert.Equal(StatusSummary.ForEnumerating(0, Culture), pane.StatusText);
+
+        await pending;
+
+        Assert.Equal(StatusSummary.ForSelection(3, 2, 2048, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task StatusText_OnError_KeepsTheReason()
+    {
+        var folder = Folder(@"C:\Temp", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        source.FailureInjection = (0, LocationErrorKind.AccessDenied);
+        await pane.RefreshAsync();
+
+        var reason = LocationErrorMessages.Describe(LocationErrorKind.AccessDenied, folder);
+        Assert.Equal(reason, pane.StatusText);
+
+        // 목록이 비었으므로 남은 선택은 개수가 아니라 사유를 덮지 않아야 한다.
+        pane.Selection.SelectSingle("a.txt");
+        Assert.Equal(reason, pane.StatusText);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane() => new(source, typeNames, dispatcher, Culture, TimeZoneInfo.Utc);

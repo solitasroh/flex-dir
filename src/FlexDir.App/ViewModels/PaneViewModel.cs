@@ -1,3 +1,5 @@
+using System.ComponentModel;
+
 using CommunityToolkit.Mvvm.ComponentModel;
 
 using FlexDir.App.Navigation;
@@ -67,9 +69,18 @@ public sealed partial class PaneViewModel : ObservableObject
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
+
+        // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
+        Selection.PropertyChanged += OnSelectionChanged;
     }
 
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
+
+    /// <summary>
+    /// 선택. 이름으로 보관하므로 정렬·뷰 전환·갱신을 지나도 같은 항목이 선택돼 있다
+    /// (CLAUDE.md §4).
+    /// </summary>
+    public PaneSelection Selection { get; } = new();
 
     public LocationId? CurrentLocation
     {
@@ -205,11 +216,20 @@ public sealed partial class PaneViewModel : ObservableObject
 
         await dispatcher.InvokeAsync(() =>
         {
+            var movedAway = !location.Equals(currentLocation);
+
             // 목록은 건드리지 않는다. 먼저 비우면 폴더 전환마다 빈 화면이 번쩍인다
             // (docs/UI_GUIDE.md §상태 표현).
             SetLocation(location);
             Status = PaneStatus.Enumerating;
             StatusText = StatusSummary.ForEnumerating(0, culture);
+
+            if (movedAway)
+            {
+                // 다른 폴더의 이름이 남으면 새 폴더의 엉뚱한 항목이 선택된다. 같은 폴더를
+                // 다시 읽는 것(새로 고침·감시 갱신)은 선택을 유지한다 (CLAUDE.md §4).
+                Selection.Clear();
+            }
         }).ConfigureAwait(false);
 
         var shown = 0;
@@ -299,8 +319,15 @@ public sealed partial class PaneViewModel : ObservableObject
                 Items.ReplaceAll([]);
             }
 
+            if (Selection.Count > 0)
+            {
+                // 같은 폴더를 다시 읽었다. 사라진 이름만 떨군다 — 남기면 상태표시줄의 선택
+                // 개수가 실제와 어긋난다. 선택이 비어 있으면 목록을 훑을 이유가 없다.
+                Selection.Retain([.. Items.Select(row => row.Name)]);
+            }
+
             Status = shown == 0 ? PaneStatus.Empty : PaneStatus.Idle;
-            StatusText = shown == 0 ? StatusSummary.Empty : StatusSummary.ForItems(shown, culture);
+            RefreshStatusText();
         }).ConfigureAwait(false);
 
         return new LoadResult(false, null);
@@ -363,11 +390,60 @@ public sealed partial class PaneViewModel : ObservableObject
 
     private void SortItems()
     {
-        // 열거 중이므로 선택이 없다 — 여기서만 Reset 알림이 안전하다.
+        // Reset 알림이 나가지만 선택은 PaneSelection 이 이름으로 들고 있어 재배치로 잃지 않는다.
+        // View 의 선택을 Selection 에서 다시 맞추는 것은 수동 UI phase 의 일이다.
         var sorted = new List<FileItemViewModel>(Items);
         sorted.Sort((left, right) => FileItemComparer.Default.Compare(left.Item, right.Item));
 
         Items.ReplaceAll(sorted);
+    }
+
+    /// <summary>
+    /// 상태표시줄 문구를 개수·선택으로 다시 만든다.
+    /// <para>
+    /// 열거 중에는 진행 표시가 선택 요약보다 우선이다 — 총 개수가 아직 확정되지 않았다.
+    /// 오류 상태에서도 덮지 않는다: 사유가 개수보다 먼저다 (docs/UI_GUIDE.md §상태 표현).
+    /// </para>
+    /// </summary>
+    private void RefreshStatusText()
+    {
+        if (Status is PaneStatus.Enumerating or PaneStatus.Error)
+        {
+            return;
+        }
+
+        // ForSelection 은 선택이 0 개면 ForItems 와 같은 문자열을 낸다 — 여기서 분기하지 않는다.
+        StatusText = Items.Count == 0
+            ? StatusSummary.Empty
+            : StatusSummary.ForSelection(Items.Count, Selection.Count, SelectedBytes(), culture);
+    }
+
+    /// <summary>
+    /// 선택한 항목의 크기 합. 디렉터리는 0 으로 센다 — 폴더 용량 계산은 v1 범위 밖이며
+    /// <c>SizeFormatter.ForItem</c> 과 같은 규칙이어야 한다 (docs/PRD.md §3).
+    /// </summary>
+    private long SelectedBytes()
+    {
+        var total = 0L;
+
+        foreach (var row in Items)
+        {
+            if (!row.IsDirectory && Selection.IsSelected(row.Name))
+            {
+                total += row.Item.Size;
+            }
+        }
+
+        return total;
+    }
+
+    private void OnSelectionChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        // 개수가 같아도 무엇이 선택됐는지 바뀌면 크기 합이 달라진다. 내용 변경 알림을 본다.
+        if (args.PropertyName == nameof(PaneSelection.SelectedNames))
+        {
+            RefreshStatusText();
+        }
     }
 
     private void SetLocation(LocationId location)
