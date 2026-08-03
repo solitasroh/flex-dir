@@ -1,0 +1,8 @@
+{
+  "step": 2,
+  "name": "folder-watcher-port",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "**Step 2 (folder-watcher-port) 완료.** AC 통과 (exit 0).\n\n## 상황\n\n이 step 의 소스·테스트 6개 파일은 **이전 시도에서 이미 작성되어 있었다** (untracked 상태). 직전 커밋 `e16420e` 이 그 이유를 기록한다 — fake 의 `Reader.ReadAsync` 에 취소 토큰을 넘기지 않아 반복자 dispose 가 풀리지 않고 `dotnet test` 가 무한 대기했고, 게이트가 '실패'가 아니라 '매달림'이 되어 실행기까지 교착됐다. 현재 코드는 그 버그가 고쳐진 상태(`ReadAsync(ct)` + 이유 주석)이므로, 새로 쓰지 않고 명세 대조와 검증을 했다.\n\n## 검증 결과\n\n```\ndotnet build --nologo -warnaserror   → 경고 0 / 오류 0\ndotnet test --nologo                 → 254 통과 / 0 실패 / 0 건너뜀\npwsh -File scripts/check-structure.ps1 → 구조 게이트 통과\nAC 체인 exit code: 0\n```\n\n240 → 254 (+14: `FolderChangeTests` 5 · 계약 4 · fake knob 5). 하네스 게이트 형태(`--blame-hang --blame-hang-timeout 120s`)로도 exit 0 — 매달림 없음.\n\n## 체크리스트\n\n- **취소 시 무한 대기 없이 끝나는가** — `FolderWatcherContract` 가 모든 대기에 5초 `WaitAsync` 상한을 건다 (`FolderWatcherContract.cs:28`). 감시는 변경을 기다리는 스트림이라 종료 신호를 놓친 구현체는 실패하지 않고 매달리므로, 타임아웃이 없으면 게이트가 무의미하다. 실측 248ms.\n- **`Overflow` 가 열거형에 있고 계약이 덮는가** — `FolderChangeKind.Overflow` (`FolderChange.cs:23`), 계약의 `Overflow_IsReported` (`FolderWatcherContract.cs:83`).\n- **Core 에 `FileSystemWatcher` 사용이 없는가** — 없다. 두 곳의 언급은 모두 XML 문서 주석의 `<c>` 태그이며 \"구현체는 `FlexDir.Shell` 의 몫\" 이라는 서술이다.\n\n## 명세 대조에서 남긴 판단 하나\n\nstep 지시서의 `FolderChange.cs` 스켈레톤에는 `using FlexDir.Core.Locations;` 가 있지만 실제 파일에는 없다. `FolderChange` 는 `LocationId` 를 담지 않으므로(전체 경로를 싣지 않는 것이 이 step 의 요구사항) 쓰이지 않는 using 이라 그대로 뒀다. `IFolderWatcher.cs` 는 `LocationId` 를 실제로 쓰므로 using 이 있다.\n\n`phases/1-core-pipeline/index.json` step 2 를 `completed` + `summary` (fake 경로와 `Push`·`PushOverflow`·`Complete` 포함) 로 갱신했고, JSON 파싱을 확인했다. 커밋은 하지 않았다.\n",
+  "stderr": ""
+}
