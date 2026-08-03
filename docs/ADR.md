@@ -183,7 +183,7 @@ v2 에서 UNC·PIDL 을 같은 타입으로 확장한다. 이 추상화가 없�
 
 ## ADR-012 — TDD Guard 에 C# 지원을 추가한다
 
-**상태**: 확정 · **미착수**
+**상태**: **완료** (harness 0.2.0)
 
 **맥락**: harness 플러그인의 `tdd-guard.mjs` 는 `ts·go·py·rs` 만 안다.
 `.cs` 는 `if (!langKey) allow()` 로 무조건 통과한다. 즉 `tdd.enabled: true` 로
@@ -192,5 +192,17 @@ v2 에서 UNC·PIDL 을 같은 타입으로 확장한다. 이 추상화가 없�
 **근거**: 하네스 자신의 원칙 — *"게이트는 꺼져 있는 것보다 켜져 있는 것처럼
 보이는 것이 위험하다."* 확정한 게이트가 거짓으로 시작해서는 안 된다.
 
-**조치**: `claude-harness-plugin` 저장소의 `LANGS` 에 `cs` 항목을 추가한다.
-그때까지 `tdd.enabled` 는 `false` 로 둔다 — 켜진 척하지 않는다.
+**조치 (완료)**: `claude-harness-plugin` 에 `cs` 지원을 넣고 0.2.0 으로 올렸다.
+
+- 테스트 위치: `<프로젝트>.Tests/<같은 경로>/FooTests.cs` (평평한 배치와 `tests/` 하위 모음도 인정)
+- `dotnet test` 는 파일 경로를 받지 않으므로 러너가 인자를 직접 계산하는
+  `target()` 계약을 추가했다. **테스트 프로젝트만** 지정해 솔루션 전체 빌드를 피한다.
+- 검사 제외: `*.g.cs` · `*.Designer.cs` · `*.generated.cs` · **`*.xaml.cs`** ·
+  `AssemblyInfo.cs` · `GlobalUsings.cs` · `Program.cs` · `bin`/`obj`.
+  코드비하인드는 `InitializeComponent` 만 있어야 정상이므로 테스트 대상이 아니다.
+
+`harness.config.json` 의 `tdd` 를 켰다.
+
+**남은 한계**: 콜드 `dotnet test` 는 기본 `timeoutMs`(60초)를 넘길 수 있고, 넘기면
+**차단이 아니라 조용한 통과**가 된다. 그 조짐이 보이면 `verifyRed: false` 로 내리고
+Quality Gate 에 맡긴다. 방치하면 이 ADR 이 막으려던 상태로 되돌아간다.
