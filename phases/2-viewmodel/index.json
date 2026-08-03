@@ -61,8 +61,10 @@
     {
       "step": 7,
       "name": "watcher-integration",
-      "status": "pending",
-      "started_at": "2026-08-03T22:21:06+09:00"
+      "status": "completed",
+      "started_at": "2026-08-03T22:21:06+09:00",
+      "summary": "PaneViewModel 에 IFolderWatcher 주입(생성자 2번째 인자) + IAsyncDisposable. 감시는 EnumerationRun 과 세대를 공유하는 WatchRun 으로 돈다 — 폴더를 옮기면 이전 감시를 취소하고 낡은 알림은 버린다(반영 직전 IsStale 재확인). 열거와 동시에 감시를 시작해 그 사이의 변경을 모아두고 열거 완료 후 적용한다(WatchRun.Enumerated, LoadAsync 의 finally 가 반드시 켠다). 묶음은 개수로만 끊는다 — 64개(WatchBatchSize) 또는 MoveNextAsync 가 아직 안 끝났을 때(스트림이 잠시 빔). 시간 디바운스 없음. 반영 순서: ChangeBatch.From → IFolderSource.TryGetItemAsync 재확인(null 은 Removals) → ListReconciler.Apply → MergeItems + Selection.ReplaceWith + StatusText 재계산. MergeItems 는 RemoveAt·Insert·Move·인덱서 교체만 쓴다(Reset 금지 — ListView 선택이 날아간다). 오버플로는 RefreshAsync(CancellationToken.None) 로 전체 재열거하고 선택은 Retain 이 복원한다. 감시 스트림 예외는 목록과 Status 를 건드리지 않고 감시만 중단한다. DisposeAsync 는 감시·열거를 모두 취소하고 완료를 기다린다. 테스트 tests/FlexDir.App.Tests/ViewModels/PaneWatcherTests.cs(16개, 알림 기반 대기 — Task.Delay 로 재우지 않는다). phase 2 완료: 남은 수동 작업은 FlexDir.Shell 의 IFolderWatcher(FileSystemWatcher) 등 포트 구현체, View(XAML), FlexDir.Host 의 DI 조립이다.",
+      "completed_at": "2026-08-03T22:56:58+0900"
     }
   ],
   "created_at": "2026-08-03T20:38:25+09:00"
