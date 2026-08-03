@@ -27,6 +27,7 @@ public class PaneViewModelTests
 
     private readonly FakeFolderSource source = new();
     private readonly FakeTypeNameProvider typeNames = new();
+    private readonly InMemoryViewStateStore viewStates = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 초기 상태 ─────────────────────────────────────────────────
@@ -50,15 +51,17 @@ public class PaneViewModelTests
     public void Ctor_NullArguments_Throw()
     {
         Assert.Throws<ArgumentNullException>(
-            () => new PaneViewModel(null!, typeNames, dispatcher, Culture, TimeZoneInfo.Utc));
+            () => new PaneViewModel(null!, typeNames, viewStates, dispatcher, Culture, TimeZoneInfo.Utc));
         Assert.Throws<ArgumentNullException>(
-            () => new PaneViewModel(source, null!, dispatcher, Culture, TimeZoneInfo.Utc));
+            () => new PaneViewModel(source, null!, viewStates, dispatcher, Culture, TimeZoneInfo.Utc));
         Assert.Throws<ArgumentNullException>(
-            () => new PaneViewModel(source, typeNames, null!, Culture, TimeZoneInfo.Utc));
+            () => new PaneViewModel(source, typeNames, null!, dispatcher, Culture, TimeZoneInfo.Utc));
         Assert.Throws<ArgumentNullException>(
-            () => new PaneViewModel(source, typeNames, dispatcher, null!, TimeZoneInfo.Utc));
+            () => new PaneViewModel(source, typeNames, viewStates, null!, Culture, TimeZoneInfo.Utc));
         Assert.Throws<ArgumentNullException>(
-            () => new PaneViewModel(source, typeNames, dispatcher, Culture, null!));
+            () => new PaneViewModel(source, typeNames, viewStates, dispatcher, null!, TimeZoneInfo.Utc));
+        Assert.Throws<ArgumentNullException>(
+            () => new PaneViewModel(source, typeNames, viewStates, dispatcher, Culture, null!));
     }
 
     // ── 목록 채우기 ───────────────────────────────────────────────
@@ -208,7 +211,7 @@ public class PaneViewModelTests
         source.Folders[folder] = [new FileItem("report.txt", folder.Combine("report.txt"), 1536, modified, FileItemFlags.None)];
 
         var zone = TimeZoneInfo.CreateCustomTimeZone("flexdir-test", TimeSpan.FromHours(9), "flexdir-test", "flexdir-test");
-        var pane = new PaneViewModel(source, typeNames, dispatcher, Culture, zone);
+        var pane = new PaneViewModel(source, typeNames, viewStates, dispatcher, Culture, zone);
 
         await pane.NavigateAsync(folder);
 
@@ -732,7 +735,8 @@ public class PaneViewModelTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private PaneViewModel CreatePane() => new(source, typeNames, dispatcher, Culture, TimeZoneInfo.Utc);
+    private PaneViewModel CreatePane()
+        => new(source, typeNames, viewStates, dispatcher, Culture, TimeZoneInfo.Utc);
 
     /// <summary>폴더를 등록한다. 이름이 <c>\</c> 로 끝나면 디렉터리다.</summary>
     private LocationId Folder(string path, params string[] names)

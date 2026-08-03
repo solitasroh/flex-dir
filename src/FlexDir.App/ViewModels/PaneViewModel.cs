@@ -1,6 +1,7 @@
 using System.ComponentModel;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 using FlexDir.App.Navigation;
 using FlexDir.App.Threading;
@@ -12,6 +13,7 @@ using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
 using FlexDir.Core.Presentation;
 using FlexDir.Core.Sorting;
+using FlexDir.Core.ViewState;
 
 namespace FlexDir.App.ViewModels;
 
@@ -36,6 +38,7 @@ public sealed partial class PaneViewModel : ObservableObject
 {
     private readonly EnumerationSession session;
     private readonly ITypeNameProvider typeNames;
+    private readonly IViewStateStore viewStates;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -51,21 +54,30 @@ public sealed partial class PaneViewModel : ObservableObject
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
 
+    private ViewMode viewMode = FolderViewState.Default.Mode;
+    private IReadOnlyList<SortOrder> sort = FolderViewState.Default.Sort;
+
+    /// <summary><see cref="sort"/> 에서 만든다. 정렬이 바뀔 때만 새로 만든다.</summary>
+    private FileItemComparer comparer = FileItemComparer.Default;
+
     public PaneViewModel(
         IFolderSource folderSource,
         ITypeNameProvider typeNames,
+        IViewStateStore viewStates,
         IUiDispatcher dispatcher,
         IFormatProvider culture,
         TimeZoneInfo timeZone)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(typeNames);
+        ArgumentNullException.ThrowIfNull(viewStates);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(culture);
         ArgumentNullException.ThrowIfNull(timeZone);
 
         session = new EnumerationSession(folderSource);
         this.typeNames = typeNames;
+        this.viewStates = viewStates;
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
@@ -108,6 +120,35 @@ public sealed partial class PaneViewModel : ObservableObject
     {
         get => statusText;
         private set => SetProperty(ref statusText, value);
+    }
+
+    /// <summary>목록을 그리는 방식. 폴더마다 기억한다 (docs/PRD.md §2).</summary>
+    public ViewMode ViewMode
+    {
+        get => viewMode;
+        private set => SetProperty(ref viewMode, value);
+    }
+
+    /// <summary>
+    /// 정렬 기준. v1 은 항상 키 하나다 — <see cref="FileItemComparer"/> 는 다중 키를 받지만
+    /// 그것을 만드는 조작이 UI 에 없다. 없는 조작을 위한 상태를 쌓지 않는다.
+    /// </summary>
+    public IReadOnlyList<SortOrder> Sort
+    {
+        get => sort;
+        private set
+        {
+            // 리스트는 참조 비교라 SetProperty 로 걸러지지 않는다. 저장·복원 왕복은 매번
+            // 다른 인스턴스를 내므로 내용으로 판정해야 같은 폴더를 다시 읽을 때 조용하다.
+            if (sort.SequenceEqual(value))
+            {
+                return;
+            }
+
+            sort = [.. value];
+            comparer = new FileItemComparer(sort);
+            OnPropertyChanged();
+        }
     }
 
     public bool CanGoBack => history.CanGoBack;
@@ -168,6 +209,38 @@ public sealed partial class PaneViewModel : ObservableObject
         return CurrentLocation is { } current ? OpenAsync(current, ct) : Task.CompletedTask;
     }
 
+    /// <summary>
+    /// 컬럼 헤더 클릭. 같은 키를 다시 누르면 방향만 반전하고, 다른 키는 오름차순으로
+    /// 시작한다 (탐색기와 같은 동작).
+    /// <para>
+    /// 열거를 다시 시작하지 않는다 — 이미 받은 항목을 다시 배치할 뿐이다. 10만 항목
+    /// 폴더에서 헤더 한 번에 몇 초를 다시 기다리게 할 수 없다 (docs/UI_GUIDE.md §원칙 3).
+    /// 열거 중이면 이후 도착하는 배치가 새 정렬로 붙는다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task ChangeSortAsync(SortKey key)
+    {
+        var current = sort[0];
+
+        Sort = [current.Key == key ? new SortOrder(key, !current.Descending) : new SortOrder(key)];
+        SortItems();
+
+        return SaveViewStateAsync();
+    }
+
+    /// <summary>
+    /// 뷰 모드를 바꾼다. 목록을 다시 읽지 않는다 — 같은 데이터의 다른 표현일 뿐이고
+    /// 뷰 전환은 <c>DataTemplate</c> 교체다 (ADR-002).
+    /// </summary>
+    [RelayCommand]
+    private Task ChangeViewModeAsync(ViewMode mode)
+    {
+        ViewMode = mode;
+
+        return SaveViewStateAsync();
+    }
+
     /// <summary>낡아진 열거의 결과. 상태를 건드리지 않고 물러난다.</summary>
     private static LoadResult Stale => new(true, null);
 
@@ -211,16 +284,29 @@ public sealed partial class PaneViewModel : ObservableObject
 
     private async Task<LoadResult> LoadAsync(LocationId location, CancellationToken ct)
     {
-        // 이전 열거를 접고 새 세대를 연다.
+        // 이전 열거를 접고 새 세대를 연다. 뷰 상태 조회보다 먼저다 — 폴더 전환의 순서를
+        // 정하는 것이 이 호출이고, 앞에 await 를 두면 느린 저장소가 그 순서를 뒤집는다.
         var run = session.Start(location);
+
+        // 열거를 시작하기 전에 읽는다. 첫 배치부터 그 폴더의 정렬로 붙어야 한다.
+        var view = await LoadViewStateAsync(location, ct).ConfigureAwait(false);
 
         await dispatcher.InvokeAsync(() =>
         {
+            // 저장소가 느리면 그 사이에 다른 폴더로 옮겨갔을 수 있다. 낡은 폴더의 뷰 상태와
+            // 경로를 지금 반영하면 화면이 현재 폴더와 어긋난다.
+            if (run.IsStale)
+            {
+                return;
+            }
+
             var movedAway = !location.Equals(currentLocation);
 
             // 목록은 건드리지 않는다. 먼저 비우면 폴더 전환마다 빈 화면이 번쩍인다
             // (docs/UI_GUIDE.md §상태 표현).
             SetLocation(location);
+            ViewMode = view.Mode;
+            Sort = view.Sort;
             Status = PaneStatus.Enumerating;
             StatusText = StatusSummary.ForEnumerating(0, culture);
 
@@ -349,7 +435,7 @@ public sealed partial class PaneViewModel : ObservableObject
     {
         // 배치 안에서만 정렬한다. 배치마다 전체를 다시 정렬하면 항목이 쌓일수록 느려진다.
         var items = new List<FileItem>(batch);
-        items.Sort(FileItemComparer.Default);
+        items.Sort(comparer);
 
         var rows = new List<FileItemViewModel>(items.Count);
 
@@ -393,9 +479,49 @@ public sealed partial class PaneViewModel : ObservableObject
         // Reset 알림이 나가지만 선택은 PaneSelection 이 이름으로 들고 있어 재배치로 잃지 않는다.
         // View 의 선택을 Selection 에서 다시 맞추는 것은 수동 UI phase 의 일이다.
         var sorted = new List<FileItemViewModel>(Items);
-        sorted.Sort((left, right) => FileItemComparer.Default.Compare(left.Item, right.Item));
+        sorted.Sort((left, right) => comparer.Compare(left.Item, right.Item));
 
         Items.ReplaceAll(sorted);
+    }
+
+    /// <summary>
+    /// 폴더에 기억된 뷰 상태. 없으면 <see cref="FolderViewState.Default"/> 다 —
+    /// 이전 폴더의 설정을 물려주지 않는다. 폴더별 기억이 존재 이유다 (docs/PRD.md §2).
+    /// </summary>
+    private async Task<FolderViewState> LoadViewStateAsync(LocationId folder, CancellationToken ct)
+    {
+        try
+        {
+            return await viewStates.TryLoadAsync(folder, ct).ConfigureAwait(false)
+                ?? FolderViewState.Default;
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // 뷰 상태는 캐시다 (CLAUDE.md §4). 폴더를 못 여는 것과는 전혀 다른 사건이므로
+            // 상태표시줄에 올리지 않는다 — 목록이 멀쩡한데 오류로 보이면 사용자는 파일이
+            // 사라진 줄 안다.
+            return FolderViewState.Default;
+        }
+    }
+
+    /// <summary>현재 폴더의 뷰 상태를 저장한다. 아직 아무 폴더도 열지 않았으면 대상이 없다.</summary>
+    private async Task SaveViewStateAsync()
+    {
+        if (CurrentLocation is not { } folder)
+        {
+            return;
+        }
+
+        try
+        {
+            await viewStates
+                .SaveAsync(folder, new FolderViewState(ViewMode, Sort), CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // 읽기와 같은 이유로 삼킨다. 다음에 열 때 기본값으로 보일 뿐이다.
+        }
     }
 
     /// <summary>
