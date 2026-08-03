@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- exe. Application 진입점과 DI 조립만. 로직 없음 (ARCHITECTURE §1). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlexDir.Core\FlexDir.Core.csproj" />
+    <ProjectReference Include="..\FlexDir.Shell\FlexDir.Shell.csproj" />
+    <ProjectReference Include="..\FlexDir.App\FlexDir.App.csproj" />
+  </ItemGroup>
+
+</Project>

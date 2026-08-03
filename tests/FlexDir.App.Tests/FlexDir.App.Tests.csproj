@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlexDir.App\FlexDir.App.csproj" />
+    <ProjectReference Include="..\..\src\FlexDir.Core\FlexDir.Core.csproj" />
+
+    <!-- Core 포트의 fake 와 계약 테스트 기반 클래스를 재사용한다.
+         Core 포트를 구현하는 fake 는 FlexDir.Core.Tests 에 있어야 한다 — TDD Guard 가
+         소스가 속한 프로젝트의 .Tests 만 후보로 보기 때문이다. -->
+    <ProjectReference Include="..\FlexDir.Core.Tests\FlexDir.Core.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- View(XAML) + ViewModel. FlexDir.Shell 을 참조하지 않는다 (CLAUDE.md §1).
+       구현체는 FlexDir.Host 가 주입한다. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FlexDir.Core\FlexDir.Core.csproj" />
+  </ItemGroup>
+
+</Project>
