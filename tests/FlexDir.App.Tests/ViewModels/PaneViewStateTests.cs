@@ -36,6 +36,9 @@ public class PaneViewStateTests
     private readonly FakeFolderSource source = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly InMemoryViewStateStore viewStates = new();
+    private readonly FakeFileOperations operations = new();
+    private readonly FakeClipboardBridge clipboard = new();
+    private readonly FakeItemActivator activator = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 기본값 ────────────────────────────────────────────────────
@@ -272,7 +275,15 @@ public class PaneViewStateTests
         // (CLAUDE.md §4 — 뷰 상태는 캐시다).
         var folder = Folder(@"C:\Temp", ("a.txt", 300), ("b.txt", 100));
         var pane = new PaneViewModel(
-            source, typeNames, new FailingViewStateStore(), dispatcher, Culture, TimeZoneInfo.Utc);
+            source,
+            typeNames,
+            new FailingViewStateStore(),
+            operations,
+            clipboard,
+            activator,
+            dispatcher,
+            Culture,
+            TimeZoneInfo.Utc);
 
         await pane.NavigateAsync(folder);
 
@@ -338,7 +349,7 @@ public class PaneViewStateTests
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()
-        => new(source, typeNames, viewStates, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, typeNames, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
 
     /// <summary>크기를 함께 준다 — 이름 순서와 크기 순서가 달라야 정렬 전환이 보인다.</summary>
     private LocationId Folder(string path, params (string Name, long Size)[] entries)

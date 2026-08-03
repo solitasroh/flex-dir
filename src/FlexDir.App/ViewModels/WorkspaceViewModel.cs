@@ -149,6 +149,36 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 활성 페인의 선택을 반대편 페인의 현재 폴더로 복사한다 — 2분할이 있는 이유다
+    /// (docs/PRD.md §2).
+    /// <para>
+    /// 조작 자체는 페인이 한다. 여기서 정하는 것은 <b>어디로</b> 보내는가 뿐이다 —
+    /// 워크스페이스가 파일 조작 포트를 직접 들면 실패 사유를 어느 페인의 상태표시줄에
+    /// 올려야 할지 알 수 없다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task CopyToOtherPaneAsync(CancellationToken ct)
+    {
+        // 반대편이 아직 아무 곳도 열지 않았으면 보낼 곳이 없다.
+        return InactivePane.CurrentLocation is { } destination
+            ? ActivePane.CopySelectionToAsync(destination, ct)
+            : Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// 활성 페인의 선택을 반대편 페인의 현재 폴더로 이동한다. 양쪽이 같은 폴더면
+    /// 아무 일도 하지 않는다 (제자리 이동).
+    /// </summary>
+    [RelayCommand]
+    private Task MoveToOtherPaneAsync(CancellationToken ct)
+    {
+        return InactivePane.CurrentLocation is { } destination
+            ? ActivePane.MoveSelectionToAsync(destination, ct)
+            : Task.CompletedTask;
+    }
+
+    /// <summary>
     /// 기억된 전역 상태. 실패하면 <see cref="GlobalViewState.Default"/> 로 조용히 넘어간다 —
     /// 전역 뷰 상태는 캐시다 (CLAUDE.md §4). 창이 뜨지 않는 것과는 전혀 다른 사건이다.
     /// </summary>

@@ -11,6 +11,7 @@ using FlexDir.Core.Errors;
 using FlexDir.Core.Formatting;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
+using FlexDir.Core.Operations;
 using FlexDir.Core.Presentation;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.ViewState;
@@ -36,9 +37,15 @@ public enum PaneStatus
 /// </summary>
 public sealed partial class PaneViewModel : ObservableObject
 {
+    /// <summary>새 폴더의 기본 이름. 겹치면 구현체가 유일한 이름을 만든다.</summary>
+    private const string NewFolderName = "새 폴더";
+
     private readonly EnumerationSession session;
     private readonly ITypeNameProvider typeNames;
     private readonly IViewStateStore viewStates;
+    private readonly IFileOperations fileOperations;
+    private readonly IClipboardBridge clipboard;
+    private readonly IItemActivator activator;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -53,6 +60,7 @@ public sealed partial class PaneViewModel : ObservableObject
     private LocationId? currentLocation;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
+    private string? renamingName;
 
     private ViewMode viewMode = FolderViewState.Default.Mode;
     private IReadOnlyList<SortOrder> sort = FolderViewState.Default.Sort;
@@ -64,6 +72,9 @@ public sealed partial class PaneViewModel : ObservableObject
         IFolderSource folderSource,
         ITypeNameProvider typeNames,
         IViewStateStore viewStates,
+        IFileOperations fileOperations,
+        IClipboardBridge clipboard,
+        IItemActivator activator,
         IUiDispatcher dispatcher,
         IFormatProvider culture,
         TimeZoneInfo timeZone)
@@ -71,6 +82,9 @@ public sealed partial class PaneViewModel : ObservableObject
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(typeNames);
         ArgumentNullException.ThrowIfNull(viewStates);
+        ArgumentNullException.ThrowIfNull(fileOperations);
+        ArgumentNullException.ThrowIfNull(clipboard);
+        ArgumentNullException.ThrowIfNull(activator);
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(culture);
         ArgumentNullException.ThrowIfNull(timeZone);
@@ -78,6 +92,9 @@ public sealed partial class PaneViewModel : ObservableObject
         session = new EnumerationSession(folderSource);
         this.typeNames = typeNames;
         this.viewStates = viewStates;
+        this.fileOperations = fileOperations;
+        this.clipboard = clipboard;
+        this.activator = activator;
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
@@ -149,6 +166,20 @@ public sealed partial class PaneViewModel : ObservableObject
             comparer = new FileItemComparer(sort);
             OnPropertyChanged();
         }
+    }
+
+    /// <summary>
+    /// 이름 편집 중인 항목의 이름. 편집 중이 아니면 null.
+    /// <para>
+    /// 인라인 편집기를 띄우는 것은 View 의 일이다 — 여기 있는 것은 "무엇을 편집하는가"
+    /// 뿐이고, 이름으로 들고 있는 이유는 선택과 같다 (갱신이 행 인스턴스를 교체한다).
+    /// 새로 만든 폴더처럼 아직 목록에 없는 이름일 수도 있다.
+    /// </para>
+    /// </summary>
+    public string? RenamingName
+    {
+        get => renamingName;
+        private set => SetProperty(ref renamingName, value);
     }
 
     public bool CanGoBack => history.CanGoBack;
@@ -241,8 +272,205 @@ public sealed partial class PaneViewModel : ObservableObject
         return SaveViewStateAsync();
     }
 
+    /// <summary>
+    /// 선택한 항목을 다른 폴더로 복사한다. 페인 간 복사가 이 경로를 쓴다.
+    /// <para>
+    /// 대상 폴더가 현재 폴더여도 막지 않는다 — shell 이 사본을 만드는 정상 조작이다.
+    /// </para>
+    /// </summary>
+    public Task CopySelectionToAsync(LocationId destinationFolder, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(destinationFolder);
+
+        var items = SelectedLocations();
+
+        return items.Count == 0
+            ? Task.CompletedTask
+            : RunAsync(token => fileOperations.CopyAsync(items, destinationFolder, token), ct);
+    }
+
+    /// <summary>선택한 항목을 다른 폴더로 이동한다. 페인 간 이동이 이 경로를 쓴다.</summary>
+    public Task MoveSelectionToAsync(LocationId destinationFolder, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(destinationFolder);
+
+        // 제자리 이동은 아무 일도 아니다. 그대로 shell 에 넘기면 오류 대화상자가 뜬다.
+        if (destinationFolder.Equals(currentLocation))
+        {
+            return Task.CompletedTask;
+        }
+
+        var items = SelectedLocations();
+
+        return items.Count == 0
+            ? Task.CompletedTask
+            : RunAsync(token => fileOperations.MoveAsync(items, destinationFolder, token), ct);
+    }
+
+    /// <summary>선택이 있는지. 조작 커맨드의 <c>CanExecute</c> 다.</summary>
+    private bool HasSelection => Selection.Count > 0;
+
+    /// <summary>선택이 정확히 하나인지. 무엇의 이름을 바꾸는지 정해져야 한다.</summary>
+    private bool HasSingleSelection => Selection.Count == 1;
+
     /// <summary>낡아진 열거의 결과. 상태를 건드리지 않고 물러난다.</summary>
     private static LoadResult Stale => new(true, null);
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void CopySelection()
+    {
+        var items = SelectedLocations();
+
+        // CanExecute 로 막지만 그것과 실행 사이에 감시 갱신이 끼어들 수 있다.
+        if (items.Count > 0)
+        {
+            clipboard.SetCopy(items);
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private void CutSelection()
+    {
+        var items = SelectedLocations();
+
+        if (items.Count > 0)
+        {
+            clipboard.SetCut(items);
+        }
+    }
+
+    /// <summary>
+    /// 클립보드의 항목을 <b>현재 폴더</b>로 붙여넣는다. 잘라내기였으면 이동이다.
+    /// 목록은 손대지 않는다 — 감시가 갱신한다 (CLAUDE.md §4).
+    /// </summary>
+    [RelayCommand]
+    private Task PasteAsync(CancellationToken ct)
+    {
+        // 아직 아무 폴더도 열지 않았으면 붙여넣을 자리가 없다.
+        if (currentLocation is not { } folder)
+        {
+            return Task.CompletedTask;
+        }
+
+        // 다른 앱이 클립보드를 채우는 것은 관측할 수 없다 — 물어보는 것이 유일한 방법이다.
+        if (!clipboard.TryGetPaste(out var items, out var isMove) || items.Count == 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        return RunAsync(
+            token => isMove
+                ? fileOperations.MoveAsync(items, folder, token)
+                : fileOperations.CopyAsync(items, folder, token),
+            ct);
+    }
+
+    /// <summary>선택한 항목을 휴지통으로 보낸다 (영구 삭제 경로는 v1 에 없다).</summary>
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private Task DeleteSelectionAsync(CancellationToken ct)
+    {
+        var items = SelectedLocations();
+
+        return items.Count == 0
+            ? Task.CompletedTask
+            : RunAsync(token => fileOperations.DeleteAsync(items, token), ct);
+    }
+
+    /// <summary>
+    /// 현재 폴더에 새 폴더를 만들고 <b>그 이름의 편집을 시작한다</b> (탐색기와 같은 흐름).
+    /// <para>
+    /// 편집 대상은 요청한 이름이 아니라 만들어진 위치의 이름이다 — 이름이 겹치면 구현체가
+    /// 유일한 이름을 만들고, 요청한 이름으로 편집을 열면 없는 항목의 이름을 바꾸게 된다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task CreateFolderAsync(CancellationToken ct)
+    {
+        if (currentLocation is not { } folder)
+        {
+            return;
+        }
+
+        try
+        {
+            var created = await fileOperations
+                .CreateFolderAsync(folder, NewFolderName, ct)
+                .ConfigureAwait(false);
+
+            // 목록에 넣지 않는다 — 감시가 갱신한다 (CLAUDE.md §4).
+            await dispatcher.InvokeAsync(() => RenamingName = created.Name).ConfigureAwait(false);
+        }
+        catch (LocationAccessException error)
+        {
+            await ShowReasonAsync(error).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 더블클릭·Enter. 폴더면 이 페인에서 열고, 파일이면 연결 프로그램을 실행한다.
+    /// <para>
+    /// 폴더 진입을 <see cref="IItemActivator"/> 에 맡기지 않는다 — shell 이 새 탐색기 창을
+    /// 띄운다. 클라우드 자리표시자는 따로 분기하지 않는다: 다운로드를 트리거하는 것은
+    /// 사용자가 의도한 행위이고, 접근을 피해야 하는 것은 썸네일뿐이다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task ActivateAsync(FileItemViewModel? item, CancellationToken ct)
+    {
+        // 빈 곳을 더블클릭하면 대상이 없다.
+        if (item is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return item.IsDirectory
+            ? NavigateAsync(item.Item.Location, ct)
+            : RunAsync(token => activator.ActivateAsync(item.Item.Location, token), ct);
+    }
+
+    /// <summary>이름 편집을 시작한다. 선택이 정확히 하나일 때만.</summary>
+    [RelayCommand(CanExecute = nameof(HasSingleSelection))]
+    private void BeginRename()
+    {
+        if (Selection.Count != 1)
+        {
+            return;
+        }
+
+        RenamingName = Selection.SelectedNames.First();
+    }
+
+    [RelayCommand]
+    private void CancelRename() => RenamingName = null;
+
+    /// <summary>
+    /// 편집을 확정한다. 이름이 비었거나 그대로면 편집만 취소한다.
+    /// <para>
+    /// 실패하면 사유만 상태표시줄에 올리고 <b>목록은 건드리지 않는다</b> — 성공했을 때도
+    /// 마찬가지다. 진실원천은 파일시스템이고 갱신은 감시가 한다 (CLAUDE.md §4).
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task CommitRenameAsync(string? newName, CancellationToken ct)
+    {
+        // 편집 중이 아니면 확정할 것이 없다.
+        if (renamingName is not { } original || currentLocation is not { } folder)
+        {
+            return Task.CompletedTask;
+        }
+
+        // 성공이든 실패든 편집은 여기서 닫힌다.
+        RenamingName = null;
+
+        if (string.IsNullOrWhiteSpace(newName)
+            || StringComparer.OrdinalIgnoreCase.Equals(newName, original))
+        {
+            return Task.CompletedTask;
+        }
+
+        // 위치는 폴더와 이름으로 만든다 — 새로 만든 폴더는 아직 목록에 없다.
+        return RunAsync(token => fileOperations.RenameAsync(folder.Combine(original), newName, token), ct);
+    }
 
     private async Task OpenAsync(LocationId location, CancellationToken ct)
     {
@@ -563,13 +791,64 @@ public sealed partial class PaneViewModel : ObservableObject
         return total;
     }
 
+    /// <summary>
+    /// 선택한 항목의 위치. <b>화면 순서</b>로 낸다 — <c>PaneSelection</c> 은 집합이라 순서를
+    /// 보장하지 않고, 조작의 항목 순서가 실행마다 달라지면 재현이 안 된다.
+    /// </summary>
+    private List<LocationId> SelectedLocations()
+    {
+        var items = new List<LocationId>(Selection.Count);
+
+        foreach (var row in Items)
+        {
+            if (Selection.IsSelected(row.Name))
+            {
+                items.Add(row.Item.Location);
+            }
+        }
+
+        return items;
+    }
+
+    /// <summary>
+    /// 조작을 돌리고 실패를 상태표시줄로 옮긴다. 예외를 밖으로 던지지 않는다 — 커맨드에서
+    /// 새는 예외는 잡을 사람이 없다.
+    /// <para>
+    /// <see cref="Status"/> 는 건드리지 않는다. 조작이 실패한 것과 폴더를 열 수 없는 것은
+    /// 다른 사건이고, 목록은 여전히 맞다.
+    /// </para>
+    /// </summary>
+    private async Task RunAsync(Func<CancellationToken, Task> operation, CancellationToken ct)
+    {
+        try
+        {
+            await operation(ct).ConfigureAwait(false);
+        }
+        catch (LocationAccessException error)
+        {
+            await ShowReasonAsync(error).ConfigureAwait(false);
+        }
+    }
+
+    private Task ShowReasonAsync(LocationAccessException error)
+        => dispatcher.InvokeAsync(
+            () => StatusText = LocationErrorMessages.Describe(error.Kind, error.Location));
+
     private void OnSelectionChanged(object? sender, PropertyChangedEventArgs args)
     {
         // 개수가 같아도 무엇이 선택됐는지 바뀌면 크기 합이 달라진다. 내용 변경 알림을 본다.
-        if (args.PropertyName == nameof(PaneSelection.SelectedNames))
+        if (args.PropertyName != nameof(PaneSelection.SelectedNames))
         {
-            RefreshStatusText();
+            return;
         }
+
+        RefreshStatusText();
+
+        // 선택이 조작 커맨드의 CanExecute 다. 알리지 않으면 툴바 버튼이 그대로 회색이다.
+        CopySelectionCommand.NotifyCanExecuteChanged();
+        CutSelectionCommand.NotifyCanExecuteChanged();
+        DeleteSelectionCommand.NotifyCanExecuteChanged();
+        BeginRenameCommand.NotifyCanExecuteChanged();
     }
 
     private void SetLocation(LocationId location)
