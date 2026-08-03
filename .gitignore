@@ -5,3 +5,6 @@
 
 # 실행기 진행 로그. 매 step 커밋에 로그 변경이 섞이는 것을 막는다.
 .harness/*.log
+
+# --blame-hang 이 hang 을 감지했을 때 남기는 덤프·시퀀스 파일.
+TestResults/

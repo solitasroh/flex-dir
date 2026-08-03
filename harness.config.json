@@ -16,11 +16,11 @@
   "maxRetries": 3,
   "timeoutSec": 1800,
 
-  "//verify": "실측(warm) 합계 9.4s — build 1.4 / test 3.9 / 구조게이트 4.1. 콜드 첫 빌드는 8.3s. check-structure.ps1 은 ADR-006 의 구조 게이트로 코드비하인드·App→Shell 참조·Core 순수성 셋을 본다(참조 방향은 컴파일이 막아주지 않는다 — ProjectReference 를 추가하면 그냥 빌드된다). 한계: 테스트가 0개면 dotnet test 도 exit 0 이므로, 게이트의 테스트 절반은 첫 테스트가 들어온 뒤부터 유효하다.",
+  "//verify": "실측(warm) 합계 9.4s — build 1.4 / test 3.9 / 구조게이트 4.1. 콜드 첫 빌드는 8.3s. check-structure.ps1 은 ADR-006 의 구조 게이트로 코드비하인드·App→Shell 참조·Core 순수성 셋을 본다(참조 방향은 컴파일이 막아주지 않는다 — ProjectReference 를 추가하면 그냥 빌드된다). 한계: 테스트가 0개면 dotnet test 도 exit 0 이므로, 게이트의 테스트 절반은 첫 테스트가 들어온 뒤부터 유효하다. --blame-hang 은 필수다 — 1-core-pipeline step 2 에서 취소 토큰을 넘기지 않은 fake 때문에 반복자 dispose 가 풀리지 않아 dotnet test 가 무한 대기했고, 게이트가 '실패'가 아니라 '매달림'이 되어 실행기까지 교착됐다. hang 은 실패로 만들어야 진단이 가능하다.",
   "verify": {
     "fast": [
       "dotnet build --nologo -warnaserror",
-      "dotnet test --nologo",
+      "dotnet test --nologo --blame-hang --blame-hang-timeout 120s",
       "pwsh -File scripts/check-structure.ps1"
     ],
     "full": [
