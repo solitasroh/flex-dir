@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO;
 
 using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
@@ -276,6 +277,44 @@ public class PaneViewModelTests
         Assert.Equal(["DIR", "DIR", "FILE", "FILE"], pane.Items.Select(row => row.TypeText));
     }
 
+    [Fact]
+    public async Task TypeNames_AFailedLookup_LeavesTheColumnBlankAndIsNotRetried()
+    {
+        // 계약대로 실패한 경우다 — 빈 문자열 (ITypeNameProvider). 재시도하지 않는다:
+        // 유형 이름을 못 읽는 폴더에서 파일마다 shell 호출이 나가면 그것만으로 멈춘다
+        // (docs/PRD.md §4 — 썸네일 추출 실패와 같은 판단).
+        var folder = Folder(@"C:\Temp", [.. Enumerable.Range(0, 10).Select(index => $"doc{index}.txt")]);
+        typeNames.UnknownExtensions.Add("txt");
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        Assert.Equal(1, typeNames.CountFor("txt", isDirectory: false));
+        Assert.All(pane.Items, row => Assert.Equal(string.Empty, row.TypeText));
+        Assert.Equal(PaneStatus.Idle, pane.Status);
+    }
+
+    [Fact]
+    public async Task TypeNames_WhenTheLookupThrows_TheFolderStillOpens()
+    {
+        // 계약은 "실패는 빈 문자열" 이지만 구현체는 COM 위에 선다. 예외가 열거 밖으로 새면
+        // Status 가 Enumerating 에 남고, 그러면 RefreshStatusText 가 빠져(오류 사유도 안 나온다)
+        // 페인이 '읽는 중' 에서 영구 정지한다 — 회복 경로가 없다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
+        typeNames.Failure = new InvalidOperationException("shell 이 답하지 않는다.");
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        Assert.Equal(["a.txt", "b.txt"], pane.Items.Select(row => row.Name));
+        Assert.Equal(PaneStatus.Idle, pane.Status);
+        Assert.Equal(StatusSummary.ForItems(2, Culture), pane.StatusText);
+
+        // 유형 컬럼만 빈칸이다. 실패도 캐시되므로 파일마다 다시 묻지 않는다.
+        Assert.All(pane.Items, row => Assert.Equal(string.Empty, row.TypeText));
+        Assert.Equal(1, typeNames.CountFor("txt", isDirectory: false));
+    }
+
     // ── 오류 ──────────────────────────────────────────────────────
 
     [Fact]
@@ -302,6 +341,44 @@ public class PaneViewModelTests
     {
         var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
         source.FailureInjection = (1, LocationErrorKind.AccessDenied);
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        Assert.Equal(PaneStatus.Error, pane.Status);
+        Assert.Empty(pane.Items);
+    }
+
+    [Fact]
+    public async Task NavigateAsync_WhenEnumerationThrowsOffContract_DoesNotStayReading()
+    {
+        // 열거 실패는 LocationAccessException 이어야 하지만 (IFolderSource) 구현체는
+        // FindFirstFileExW P/Invoke 위에 선다. 예외가 밖으로 새면 Status 가 Enumerating 에 남고,
+        // 그 상태에서는 RefreshStatusText 도 물러나므로 사유조차 나오지 않는다 — 페인이
+        // '읽는 중' 에서 영구 정지하고 회복 경로가 없다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
+        source.ContractViolation = (0, new IOException("핸들이 유효하지 않다."));
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        Assert.Equal(PaneStatus.Error, pane.Status);
+        Assert.Empty(pane.Items);
+
+        // 사유 문구가 없는 예외다. 분류할 수 없는 실패의 문구는 이미 하나 있다.
+        Assert.Equal(LocationErrorMessages.Describe(LocationErrorKind.Unknown, folder), pane.StatusText);
+
+        // 경로는 되돌리지 않는다 (docs/PRD.md §4).
+        Assert.Equal(folder, pane.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task NavigateAsync_OffContractFailureMidEnumeration_DropsTheRowsAlreadyShown()
+    {
+        // 계약 예외 경로는 목록을 비운다 (NavigateAsync_FailureMidEnumeration_...). 예외 종류로
+        // 가르면 이쪽만 남아, 읽다 만 폴더의 일부가 완전한 목록처럼 보인다.
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt", "c.txt");
+        source.ContractViolation = (1, new IOException("핸들이 유효하지 않다."));
         var pane = CreatePane();
 
         await pane.NavigateAsync(folder);

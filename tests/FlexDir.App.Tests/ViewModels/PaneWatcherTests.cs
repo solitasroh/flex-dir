@@ -7,6 +7,7 @@ using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
 
 using FlexDir.Core.Enumeration;
+using FlexDir.Core.Errors;
 using FlexDir.Core.Formatting;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
@@ -420,6 +421,40 @@ public class PaneWatcherTests
         Assert.Equal(["a.txt", "b.txt"], pane.Items.Select(row => row.Name));
         Assert.Equal(PaneStatus.Idle, pane.Status);
         Assert.Equal(StatusSummary.ForItems(2, Culture), pane.StatusText);
+    }
+
+    [Fact]
+    public async Task AfterAFailedEnumeration_WatchUpdatesDoNotBuildAList()
+    {
+        // 열거가 실패한 폴더다. 알림만으로 목록을 채우면 상태표시줄에는 사유가 남아 있는데
+        // 항목은 보이는 상태가 된다 — 읽지도 못한 폴더의 내용으로 보인다. 열거 실패 시 목록을
+        // 비우는 이유(FillAsync)와 같다.
+        var locked = Folder(@"C:\Temp\Locked", "secret.txt");
+        source.FailureInjection = (0, LocationErrorKind.AccessDenied);
+        var pane = CreatePane();
+
+        var opening = pane.NavigateAsync(locked);
+
+        await WaitForAsync(() => watcher.Current is not null, "감시가 걸린다");
+        var watching = watcher.Current!;
+        watching.Push(new FolderChange(FolderChangeKind.Added, "secret.txt"));
+
+        await opening;
+
+        Assert.Equal(PaneStatus.Error, pane.Status);
+
+        // 적용하지 않고 감시를 접는다 — 이 폴더에서 올 수 있는 것은 오해를 부르는 갱신뿐이고,
+        // 회복은 새로 고침이다 (그때 감시도 새로 걸린다).
+        await WaitForAsync(
+            () => watching.Finished.IsCompleted,
+            "열거가 실패한 폴더의 감시를 접는다");
+
+        Assert.Empty(pane.Items);
+        Assert.Equal(
+            LocationErrorMessages.Describe(LocationErrorKind.AccessDenied, locked),
+            pane.StatusText);
+
+        await pane.DisposeAsync();
     }
 
     // ── 상태표시줄 ────────────────────────────────────────────────

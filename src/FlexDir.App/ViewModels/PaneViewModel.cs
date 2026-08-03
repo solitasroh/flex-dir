@@ -67,11 +67,32 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private readonly TimeZoneInfo timeZone;
     private readonly PaneHistory history = new();
 
-    /// <summary>확장자 → 유형 이름. 확장자마다 한 번만 조회한다 (docs/SHELL_NOTES.md §아이콘).</summary>
+    /// <summary>
+    /// 확장자 → 유형 이름. 확장자마다 한 번만 조회한다 (docs/SHELL_NOTES.md §아이콘).
+    /// <para>
+    /// <see cref="typeNameGate"/> 로 감싼다. 이 캐시는 UI 스레드 밖에서 <b>두 경로가 동시에</b>
+    /// 만진다 — 열거(<see cref="BuildRowsAsync"/>)와 감시 갱신(<see cref="ApplyAsync"/>)이고,
+    /// <see cref="RowAsync"/> 는 성능 때문에 의도적으로 dispatcher 밖이라 UI 스레드가 둘을
+    /// 직렬화해 주지 않는다. 잠금 없는 <c>Dictionary</c> 는 동시 쓰기에 내부 구조가 깨져
+    /// 조회가 매달릴 수 있다.
+    /// </para>
+    /// </summary>
     private readonly Dictionary<string, string> fileTypeNames = new(StringComparer.Ordinal);
 
     /// <summary>디렉터리의 유형 이름. 확장자가 없으므로 사전과 따로 둔다.</summary>
     private string? directoryTypeName;
+
+    /// <summary>
+    /// 유형 이름 캐시의 잠금. 조회 자체는 이 잠금 <b>밖에서</b> 한다 — shell 조회는 동기
+    /// 블로킹이고 네트워크·클라우드 항목에서 초 단위로 멈춘다 (docs/SHELL_NOTES.md §아이콘 함정 1).
+    /// <para>
+    /// 그래서 같은 확장자를 겹쳐 물으면 조회가 두 번 나갈 수 있다. 막지 않는다: 지켜야 할 규칙은
+    /// "파일마다 묻지 마라"(10만 항목에 확장자 열 종류면 열 번)이고, 진행 중인 조회를 공유하려면
+    /// 결과 대신 <c>Task</c> 를 캐시해야 하는데 그러면 폴더를 옮겨 <b>취소된</b> 조회가 사전에
+    /// 남아 다음 폴더까지 오염시킨다.
+    /// </para>
+    /// </summary>
+    private readonly Lock typeNameGate = new();
 
     /// <summary>진행 중인 감시. 폴더를 옮길 때마다 교체된다.</summary>
     private WatchRun? watch;
@@ -548,16 +569,23 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 정하는 것이 이 호출이고, 앞에 await 를 두면 느린 저장소가 그 순서를 뒤집는다.
         var run = session.Start(location);
         var watching = StartWatching(run);
+        var listed = false;
 
         try
         {
-            return await FillAsync(run, location, ct).ConfigureAwait(false);
+            var result = await FillAsync(run, location, ct).ConfigureAwait(false);
+
+            // 열거가 실패했으면 이 폴더의 목록은 만들어지지 않았다. 그 사실을 감시에 알려야
+            // 알림만으로 목록을 채우는 것을 막을 수 있다.
+            listed = result.Error is null;
+
+            return result;
         }
         finally
         {
             // 열거가 어떻게 끝났든(성공·실패·낡음) 모아둔 변경을 풀어준다. 이걸 놓치면 감시
             // 루프가 영원히 기다리고 DisposeAsync 가 매달린다.
-            watching.MarkEnumerated();
+            watching.MarkEnumerated(listed);
         }
     }
 
@@ -637,7 +665,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 }).ConfigureAwait(false);
             }
         }
-        catch (LocationAccessException error)
+        // 예외 <b>종류</b>로 가르지 않는다. 계약은 LocationAccessException 이지만
+        // (IFolderSource) 구현체는 FindFirstFileExW P/Invoke 위에 서고, 계약을 어긴 예외가
+        // 여기서 새면 Status 가 Enumerating 에 남는다 — 그 상태에서는 RefreshStatusText 도
+        // 물러나므로(사유조차 나오지 않는다) 페인이 '읽는 중' 에서 영구 정지한다.
+        // 취소만 통과시키고 나머지는 전부 "열지 못했다" 로 다룬다.
+        catch (Exception error) when (error is not OperationCanceledException)
         {
             if (run.IsStale)
             {
@@ -645,16 +678,22 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 return Stale;
             }
 
+            // 사유 문구가 없는 예외에는 분류할 수 없는 실패의 문구를 쓴다. 예외 메시지를 그대로
+            // 올리지 않는다 — 문구를 만드는 곳은 LocationErrorMessages 한 곳이어야 한다.
+            var failure = error as LocationAccessException
+                ?? new LocationAccessException(LocationErrorKind.Unknown, location);
+
             await dispatcher.InvokeAsync(() =>
             {
                 // 경로는 되돌리지 않는다 (docs/PRD.md §4). 목록은 비운다 — 이전 폴더의
-                // 항목이 남으면 잘못된 폴더의 내용으로 보인다.
+                // 항목이 남으면 잘못된 폴더의 내용으로 보이고, 읽다 만 폴더의 일부가 남으면
+                // 완전한 목록처럼 보인다.
                 Items.ReplaceAll([]);
                 Status = PaneStatus.Error;
-                StatusText = LocationErrorMessages.Describe(error.Kind, error.Location);
+                StatusText = LocationErrorMessages.Describe(failure.Kind, failure.Location);
             }).ConfigureAwait(false);
 
-            return new LoadResult(false, error);
+            return new LoadResult(false, failure);
         }
 
         if (run.IsStale)
@@ -734,25 +773,68 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private async ValueTask<string> TypeNameAsync(FileItem item, CancellationToken ct)
     {
-        if (item.IsDirectory)
+        if (Cached(item) is { } known)
         {
-            return directoryTypeName ??= await typeNames
-                .GetTypeNameAsync(string.Empty, isDirectory: true, ct)
-                .ConfigureAwait(false);
+            return known;
         }
 
-        if (fileTypeNames.TryGetValue(item.Extension, out var cached))
+        var typeName = await LookupTypeNameAsync(item, ct).ConfigureAwait(false);
+
+        lock (typeNameGate)
         {
-            return cached;
+            if (item.IsDirectory)
+            {
+                directoryTypeName = typeName;
+            }
+            else
+            {
+                // 실패한 조회도 남는다 — 재시도하지 않는다 (docs/PRD.md §4). 재시도하면 유형
+                // 이름을 못 읽는 폴더에서 파일마다 shell 호출이 나간다.
+                fileTypeNames[item.Extension] = typeName;
+            }
         }
-
-        var typeName = await typeNames
-            .GetTypeNameAsync(item.Extension, isDirectory: false, ct)
-            .ConfigureAwait(false);
-
-        fileTypeNames[item.Extension] = typeName;
 
         return typeName;
+    }
+
+    /// <summary>이미 조회한 유형 이름. 없으면 null 이다 — 빈 문자열은 조회된 결과다.</summary>
+    private string? Cached(FileItem item)
+    {
+        lock (typeNameGate)
+        {
+            return item.IsDirectory
+                ? directoryTypeName
+                : fileTypeNames.GetValueOrDefault(item.Extension);
+        }
+    }
+
+    /// <summary>
+    /// 유형 이름을 묻는다. <b>실패는 빈 문자열이다</b> (<see cref="ITypeNameProvider"/>).
+    /// <para>
+    /// 계약을 어기고 예외를 내는 구현체가 있어도 폴더가 통째로 열리지 않아야 한다. 열거 경로에서
+    /// 이 예외가 새면 <see cref="Status"/> 가 <see cref="PaneStatus.Enumerating"/> 에 남고,
+    /// 그 상태에서는 <see cref="RefreshStatusText"/> 도 물러나므로 사유조차 나오지 않는다 —
+    /// 페인이 '읽는 중' 에서 영구 정지한다. 감시 경로에서는 갱신이 조용히 멈춘다.
+    /// </para>
+    /// <para>
+    /// 취소만 그대로 내보낸다. 이미 떠난 폴더의 줄을 계속 만들 이유가 없다.
+    /// </para>
+    /// </summary>
+    private async ValueTask<string> LookupTypeNameAsync(FileItem item, CancellationToken ct)
+    {
+        try
+        {
+            return await typeNames
+                .GetTypeNameAsync(
+                    item.IsDirectory ? string.Empty : item.Extension,
+                    item.IsDirectory,
+                    ct)
+                .ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            return string.Empty;
+        }
     }
 
     /// <summary>
@@ -846,6 +928,20 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     {
         // 열거가 끝날 때까지 모아둔다. 취소로도 풀리므로 폴더를 옮기면 모아둔 것은 버려진다.
         await watching.Enumerated.WaitAsync(watching.Token).ConfigureAwait(false);
+
+        if (!watching.Listed)
+        {
+            // 열거가 실패한 폴더다. 알림을 적용하면 상태표시줄에는 사유가 남아 있는데 항목은
+            // 보이는 상태가 된다 — 읽지도 못한 폴더의 내용으로 보인다 (FillAsync 가 실패 시
+            // 목록을 비우는 것과 같은 이유).
+            //
+            // 감시도 여기서 접는다. 이 폴더에서 올 수 있는 것은 오해를 부르는 갱신뿐이고,
+            // 회복은 새로 고침이다 — 그때 감시도 새로 걸린다 (docs/PRD.md §4).
+            pending.Clear();
+            watching.Cancel();
+
+            return;
+        }
 
         var batch = ChangeBatch.From(pending);
         pending.Clear();
@@ -1234,10 +1330,22 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         /// <summary>열거가 끝났는가. 그때까지 모인 변경은 적용하지 않고 들고 있는다.</summary>
         public Task Enumerated => enumerated.Task;
 
+        /// <summary>
+        /// 이 폴더의 목록이 실제로 만들어졌는가. 열거가 실패했으면 false 다 —
+        /// <see cref="Enumerated"/> 는 "끝났는가" 만 말하므로 성공과 실패를 가르지 못한다.
+        /// </summary>
+        public bool Listed { get; private set; }
+
         /// <summary>감시 루프. <see cref="DisposeAsync"/> 만 이것을 기다린다.</summary>
         public Task Loop { get; set; } = Task.CompletedTask;
 
-        public void MarkEnumerated() => enumerated.TrySetResult();
+        public void MarkEnumerated(bool listed)
+        {
+            // 신호보다 먼저 쓴다. 기다리던 쪽이 풀린 뒤에 쓰면 그쪽이 옛 값을 본다.
+            Listed = listed;
+
+            enumerated.TrySetResult();
+        }
 
         public void Cancel() => cts.Cancel();
     }
