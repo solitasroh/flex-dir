@@ -37,7 +37,8 @@
     {
       "step": 4,
       "name": "view-state",
-      "status": "pending"
+      "status": "pending",
+      "started_at": "2026-08-03T19:03:47+0900"
     },
     {
       "step": 5,
