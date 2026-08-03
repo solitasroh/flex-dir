@@ -1,0 +1,8 @@
+{
+  "step": 3,
+  "name": "list-reconcile",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 3 (list-reconcile) 완료. AC 3개 전부 통과했습니다.\n\n## 만든 파일\n\n**`src/FlexDir.Core/Enumeration/ChangeBatch.cs`** — 알림 묶음 → \"무엇을 다시 읽어야 하는가\" 번역 (순수 함수)\n\n- `Overflow` 가 하나라도 있으면 즉시 `RequiresFullRefresh=true` + 나머지 3개 목록은 빈 채로 반환\n- 이름 합치기는 `Dictionary<string,bool>(OrdinalIgnoreCase)`(이름→제거인가) + 처음 등장 순서 리스트. 마지막 알림이 최종 상태를 정한다 (`Added→Removed` 는 제거, `Removed→Added` 는 갱신)\n- `Renamed` 는 `OldName` 을 `Removals` 에 **넣지 않고** `NewName` 만 `NeedsRefresh` 에 넣는다. `Renames` 는 사슬(`a→b`, `b→c`) 적용을 위해 순서를 보존하고 같은 쌍은 한 번만 낸다\n\n**`src/FlexDir.Core/Enumeration/ListReconciler.cs`** — `ReconcileResult(Items, Selection)` + `Apply(...)`\n\n- 적용 순서 **rename → remove → upsert**, 마지막에 `List.Sort(comparer)` 로 전체 재정렬\n- 선택 유지: rename 은 `selected.Remove(old)` 가 성공하면 `Add(new)` 로 이어지고, 제거는 선택에서도 빠지고, 그 밖의 선택은 그대로 남는다. 반환 `Selection` 은 정렬된 결과 목록을 훑어 **실제 존재하는 이름만 목록의 표기로** 낸다\n- 파일시스템 접근 0 — 다시 읽어온 항목은 호출자가 `upserts` 로 넘긴다\n\n구현 중 걸린 함정 하나: 이름 변경 항목을 `item with { Name = newName }` 으로 만들면 **`Extension` 이 옛 이름으로 남는다.** record 복사 생성자는 필드를 그대로 옮겨 `Extension = ExtensionOf(Name, Flags)` 초기화식이 다시 돌지 않기 때문입니다. `new FileItem(...)` 으로 다시 만들고 `report.txt → report.md` 테스트로 못 박았습니다 (유형 컬럼·아이콘 캐시가 그 값을 키로 씁니다).\n\n## 검증\n\n```\ndotnet build --nologo -warnaserror   경고 0개 오류 0개\ndotnet test --nologo                 통과 285 (Enumeration 51)\nscripts/check-structure.ps1          구조 게이트 통과\n```\n\n체크리스트 — 이름 변경 시 선택이 이어지는 테스트 있음(`RenamingASelectedItem_CarriesTheSelectionToTheNewName` + upsert 가 따라오는 실제 경로 버전), 두 함수 모두 I/O 없음, `FlexDir.Core` 순수 .NET 유지.\n\n`index.json` step 3 을 `completed` 로 갱신했습니다. 커밋은 하지 않았습니다 (하네스 담당).\n",
+  "stderr": ""
+}

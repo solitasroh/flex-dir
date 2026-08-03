@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "list-reconcile",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-03T20:28:09+0900",
+      "summary": "src/FlexDir.Core/Enumeration/ChangeBatch.cs — sealed record ChangeBatch(NeedsRefresh, Removals, Renames, RequiresFullRefresh) + static From(IReadOnlyList<FolderChange>). Overflow 가 하나라도 있으면 즉시 RequiresFullRefresh=true 와 빈 목록 3개로 반환(개별 목록을 들고 다니면 '부분 처리로 충분하다' 는 착각이 된다). 이름은 Dictionary<string,bool>(OrdinalIgnoreCase, 이름→제거인가) + List<string>(처음 등장 순서·처음 본 표기)로 합치고 마지막 알림이 최종 상태를 정한다(Added→Removed 는 Removals, Removed→Added 는 NeedsRefresh). Renamed 는 OldName 을 Removals 에 넣지 않고(제거로 처리하면 선택이 풀린다, ADR-011) NewName 을 NeedsRefresh 에 넣으며 Renames 는 사슬(a→b, b→c) 적용을 위해 순서를 보존한다 — 같은 (OldName,NewName) 쌍은 HashSet<string>(oldName+'\\0'+newName, OrdinalIgnoreCase)로 한 번만 낸다. OldName 이 null·빈 문자열인 Renamed 는 NeedsRefresh 만 남기고 rename 쌍을 만들지 않는다. src/FlexDir.Core/Enumeration/ListReconciler.cs — sealed record ReconcileResult(Items, Selection) + static ListReconciler.Apply(current, selection, upserts, removals, renames, comparer). 순수 함수(파일시스템 접근 0, 다시 읽어온 항목은 호출자가 upserts 로 넘긴다). 이름을 키로 하는 Dictionary(OrdinalIgnoreCase) + HashSet(OrdinalIgnoreCase) 선택 집합에 rename→remove→upsert 순으로 적용(rename 을 먼저 하지 않으면 옛 이름이 남아 중복이 된다), 마지막에 List.Sort(comparer) 로 전체 재정렬(삽입 위치 탐색보다 정확성 우선). 선택 유지가 존재 이유다 — rename 은 selected.Remove(old) 성공 시 Add(new) 로 이어지고, removals 는 선택에서도 빠지고, 그 밖의 선택은 그대로 남는다. 반환 Selection 은 정렬된 결과 목록을 훑어 실제 존재하는 이름만 목록의 표기·순서로 낸다(표기가 갈리면 View 비교 방식에 따라 선택이 사라지고, 없는 이름이 남으면 상태표시줄 개수가 어긋난다). 이름 변경 항목은 record 의 with 를 쓰지 않고 new FileItem(...) 으로 다시 만든다 — 복사 생성자는 필드를 그대로 옮겨 초기화식이 다시 돌지 않아 Extension·NameWithoutExtension 이 옛 이름으로 남는다(테스트로 못 박음). 위치는 Location.TryGetParent + Combine(newName) 으로 갱신한다. 테스트 tests/FlexDir.Core.Tests/Enumeration/ChangeBatchTests.cs 14개 · ListReconcilerTests.cs 17개(핵심: RenamingASelectedItem_CarriesTheSelectionToTheNewName, upsert 가 따라오는 실제 경로 포함). Core.Tests 285 통과, 구조 게이트 통과. phase 2 의 감시 통합은 IFolderWatcher 스트림 → ChangeBatch.From → (TryGetItemAsync 로 다시 읽기) → ListReconciler.Apply 순으로 이 두 함수를 엮는다.",
+      "completed_at": "2026-08-03T20:37:41+0900"
     }
   ],
   "created_at": "2026-08-03T19:28:48+0900"
