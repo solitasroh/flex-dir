@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "natural-sort",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-03T18:49:42+0900",
+      "summary": "src/FlexDir.Core/Sorting/NaturalStringComparer.cs — IComparer<string> 싱글턴(Instance). 문자/ASCII숫자 런으로 쪼개 앞에서부터 비교: 숫자 런은 선행 0 제거 → 길이 → SequenceCompareTo(파싱 없음, 20자리 안전), 문자 런은 OrdinalIgnoreCase span 비교. 한쪽만 숫자면 상대 문자 런이 빈 span 이 되어 숫자가 문자보다 앞선다. char.IsAsciiDigit 만 숫자로 본다(비ASCII 숫자는 문자 런). 최종 판정 순서: 길이(짧은 쪽 먼저) → 선행 0 표기차(적은 쪽 먼저, 첫 발생 지점을 기억했다가 마지막에만 적용 — img001b < img1c) → string.CompareOrdinal(readme/README 동률 방지, 대문자 먼저). null 은 가장 앞. StrCmpLogicalW·CompareInfo·long.Parse 없음. src/FlexDir.Core/Sorting/FileItemComparer.cs — SortKey(Name·Size·Type·Modified)·SortOrder(record, Descending 기본 false)를 같은 파일에 선언. 생성자에서 keys 를 방어 복사([.. keys]), 빈 keys 는 ArgumentException. directoriesFirst(기본 true)는 방향과 무관하게 폴더를 위에 고정한다. 키별 결과를 Math.Sign 으로 정규화한 뒤 Descending 이면 부호만 뒤집는다. Size 는 디렉터리를 0 으로 본다(폴더 용량 계산 없음). Type 은 Extension 만 NaturalStringComparer 로 비교하고 동률이면 0 을 내 다음 키로 넘긴다 — 이름 fallback 을 Type 안에 넣지 않은 이유는 (a) 사용자가 지정한 2번째 키를 가로채지 않고 (b) 내림차순에서도 최종 tie-break 가 '이름 오름차순' 으로 남기 때문이다. 모든 키 동률 시 tie-break 는 항상 이름 오름차순(방향 무시). Default = [Name asc] + 폴더 먼저. 파일시스템 접근 없음. tests/FlexDir.Core.Tests/Sorting/{NaturalStringComparerTests,FileItemComparerTests}.cs 39개 추가 — 전체 97 tests green, 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-03T18:56:25+0900"
     },
     {
       "step": 3,
