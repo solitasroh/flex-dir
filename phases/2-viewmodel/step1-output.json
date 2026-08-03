@@ -1,0 +1,8 @@
+{
+  "step": 1,
+  "name": "pane-viewmodel",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 1 (pane-viewmodel) 완료했습니다. JSON 도 유효합니다.\n\n## 상황\n\n이 step 의 파일 12개가 **이전 시도에서 이미 작성돼 있었습니다** (untracked, 커밋 안 됨). 전부 읽어 스펙 대조 후 AC 를 직접 실행해 검증했습니다. 추가·수정할 것은 없었습니다 — 스펙이 요구한 소스 5개 + fake 2개 + 테스트 5개가 정확히 그대로 있고 초과 파일은 없습니다.\n\n## AC 결과\n\n```\ndotnet build --nologo -warnaserror  → 경고 0개, 오류 0개\ndotnet test --nologo               → Core.Tests 292 통과 / App.Tests 72 통과 (실패 0, 건너뜀 0)\npwsh -File scripts/check-structure.ps1 → 구조 게이트 통과\n```\n\n## 검증 체크리스트\n\n| 항목 | 결과 |\n|---|---|\n| `FlexDir.App` → `FlexDir.Shell` 미참조 | 통과 (구조 게이트) |\n| `PaneViewModel` 이 `System.Windows.*`·`Dispatcher` 직접 사용 안 함 | 통과 — `src/FlexDir.App` 전체에서 유일한 매치는 `IUiDispatcher.cs:7` 의 문서 주석 |\n| 권한 오류에서 경로 유지 · `NotFound` 만 상위로 | 통과 — `OpenAsync` 가 `LocationErrorKind.NotFound` 만 걸러 한 단계 올라가고, `AccessDenied` 는 `CurrentLocation` 을 실패한 경로로 남긴다 |\n| 목록을 먼저 비우고 시작하지 않음 | 통과 — `LoadAsync` 진입 시 `Items` 를 건드리지 않고 첫 배치에서만 `ReplaceAll` |\n| XAML / 코드비하인드 | 0개 |\n\n## 핵심 구현 결정 (다음 step 이 쓸 것)\n\n- **열거 격리 3중 확인**: `run.IsStale` 을 배치 조립 후 · 디스패처 안 · 종료 직전에 본다. 실제 `Dispatcher` 는 동작을 UI 스레드에서 직렬화하므로 디스패처 안의 재확인이 낡은 배치 유입을 막는다.\n- **정렬**: 배치는 그 배치만 `FileItemComparer.Default` 로 정렬해 붙이고, 배치가 2개 이상이었으면 열거 종료 시 `SortItems()` 로 한 번 전체 정렬.\n- **탐색 정책은 `OpenAsync` 가 쥔다**: `LoadAsync` 는 상태만 반영하고 오류를 `LoadResult` 로 올린다. `NotFound` 자동 이동은 `history.Navigate(parent)` 로 기록도 남겨 뒤로가 사라진 폴더 시도로 돌아간다.\n- **유형 이름 캐시**: `Dictionary<string,string>`(Ordinal) + `directoryTypeName` 필드. 확장자당 1회 조회 — 배치를 넘어서도 1회.\n- **파싱 실패 문구는 `PaneViewModel` 안**(`DescribeParseError`). `LocationErrorMessages` 는 열거 실패(`LocationErrorKind`)만 다루므로 섞지 않았다.\n\n지시대로 커밋은 하지 않았습니다.\n",
+  "stderr": ""
+}
