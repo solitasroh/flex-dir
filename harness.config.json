@@ -1,7 +1,9 @@
 {
   "project": "flex-dir",
   "phasesDir": "phases",
-  "agent": "auto",
+
+  "//agent": "auto 로 두면 안 된다 — 실행기가 codex 를 먼저 고르는데, 이 저장소의 TDD·Danger 가드는 Claude Code 플러그인 훅이고 codex 는 .codex/hooks.json 을 본다. 그 파일이 없으므로 codex 로 돌리면 두 가드가 조용히 사라진다. Quality Gate 는 실행기가 직접 돌려 살아남지만, 테스트 우선 강제가 없어진다.",
+  "agent": "claude",
 
   "//guardrails": "매 step 프롬프트에 통째로 복사된다. 구현이 실제로 참조할 규칙만 넣는다. PRD·ADR·DESIGN 은 제외하고 필요한 step 지시서에서 경로로 지정해 읽게 한다. DECISIONS.md(실패 부검)는 루트에 두고 넣지 않는다. SHELL_NOTES.md 도 제외 — 자율 실행 대상은 Core·ViewModel(ADR-009)이라 shell 지식이 필요 없고, shell 작업은 수동이라 그때 직접 읽는다. 대신 경로 정규화·열거·오류 매핑·네트워크를 다루는 step 지시서의 '먼저 읽을 것'에 docs/SHELL_NOTES.md 를 반드시 명시할 것.",
   "guardrails": [
