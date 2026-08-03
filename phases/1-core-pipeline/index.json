@@ -2,9 +2,29 @@
   "project": "flex-dir",
   "phase": "1-core-pipeline",
   "steps": [
-    { "step": 0, "name": "folder-source-port", "status": "pending" },
-    { "step": 1, "name": "enumeration-session", "status": "pending" },
-    { "step": 2, "name": "folder-watcher-port", "status": "pending" },
-    { "step": 3, "name": "list-reconcile", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "folder-source-port",
+      "status": "completed",
+      "started_at": "2026-08-03T19:28:48+0900",
+      "summary": "포트 src/FlexDir.Core/Enumeration/IFolderSource.cs — EnumerateAsync(LocationId, CancellationToken) 는 IAsyncEnumerable<FileItem>(열 수 없으면 LocationAccessException, 오류를 스트림에 섞지 않는다), TryGetItemAsync 는 Task<FileItem?>(없음은 null, 권한 문제는 예외). 계약 tests/FlexDir.Core.Tests/Enumeration/FolderSourceContract.cs (abstract, IFolderSource 만 본다; CreateSource(LocationId folder, IReadOnlyList<FileItem> items) 오버라이드 + protected static 헬퍼 Folder(path)·Item(folder, name)·Canceled() 재사용 가능; 열거 순서는 계약이 아니다). fake tests/FlexDir.Core.Tests/Fakes/FakeFolderSource.cs — 주입 속성 Folders(Dictionary<LocationId, List<FileItem>>, 미등록 폴더는 NotFound) · YieldDelayMilliseconds(항목마다 await) · FailureInjection((int AfterItems, LocationErrorKind Kind)?, 마지막 항목 뒤 주입도 던진다) · EnumerateCalls(호출 시점 기록) · CancellationsObserved(항목마다 ct 관측). tests/FlexDir.Core.Tests/Enumeration/IFolderSourceTests.cs 의 FakeFolderSourceTests 가 계약을 통과시키고 knob 4개를 따로 검증한다. 이후 열거·ViewModel 테스트는 이 fake 를 주입해 쓴다. Core.Tests 230 통과.",
+      "completed_at": "2026-08-03T19:36:54+0900"
+    },
+    {
+      "step": 1,
+      "name": "enumeration-session",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "folder-watcher-port",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "list-reconcile",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-08-03T19:28:48+0900"
 }
