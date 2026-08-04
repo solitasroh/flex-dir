@@ -8,4 +8,12 @@
     <ProjectReference Include="..\FlexDir.Core\FlexDir.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 감시의 Error 경로(버퍼 오버플로)는 실물로 결정적으로 재현할 수 없다.
+         FileSystemWatcher 를 만드는 자리를 테스트가 바꿔 끼울 수 있게 열어준다. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>FlexDir.Shell.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>

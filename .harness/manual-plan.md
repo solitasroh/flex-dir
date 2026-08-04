@@ -28,6 +28,24 @@
 | `IItemActivator` | `ShellExecuteEx` | — |
 | `IContextMenuProvider` | `IContextMenu` + `IContextMenu2/3` 메시지 펌핑 | §컨텍스트 메뉴 |
 
+### 진행
+
+| 포트 | 상태 |
+|---|---|
+| `IViewStateStore` | ✅ `JsonViewStateStore` — 계약 12 + 파일 고유 10 |
+| `IFolderWatcher` | ✅ `FileSystemFolderWatcher` — 계약 4 + 실물 5 |
+| 나머지 여섯 | 미착수 |
+
+**사람이 확인해야 하는 것** (자동 테스트가 닿지 않는 자리):
+
+- [ ] **실제 버퍼 오버플로** — 큰 폴더에 파일 수백 개를 한 번에 복사해 `Overflow` 가 실제로
+      올라오고 목록이 전체 새로고침으로 회복되는지. 자동 테스트는 `Error` 를 직접 올려
+      "Error → Overflow" 만 잰다. 넘치게 만드는 것은 OS 가 이벤트를 쏟아내는 속도에
+      기대야 해서 결정적으로 재현할 수 없고, 매 턴 도는 게이트에 간헐적 실패를 넣을 수 없다.
+- [ ] **감시 중 폴더 삭제** — `FileSystemWatcher` 는 이때도 `Error` 를 낸다. 전체 새로고침이
+      "경로 없음" 으로 이어지는지 (`docs/PRD.md` §4 는 상위로 이동하라고 정했다).
+- [ ] **네트워크 경로에서의 감시** — v2 범위지만 실패 방식은 지금 봐 두는 편이 낫다.
+
 - **`IContextMenuProvider` 는 포트 정의부터 수동이다.** 창 핸들과 네이티브 메뉴 메시지
   펌핑이 필요해 ViewModel 테스트로 채점할 수 없다(자율 phase 2 step 5 에서 의도적으로 제외).
 - 각 구현체 테스트는 자율 phase 가 만든 **계약 기반 클래스를 상속**한다 —
