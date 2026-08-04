@@ -19,6 +19,13 @@ namespace FlexDir.Core.Tests.Enumeration;
 public abstract class FolderSourceContract
 {
     /// <summary>
+    /// 이 계약이 열거할 폴더. <b>구현체가 정한다</b> — 계약이 경로를 고정하면 실제
+    /// 파일시스템 구현체는 그 폴더가 실물로 존재해야 하고, 고정된 경로를 테스트가 만들고
+    /// 지우는 것은 사용자의 폴더를 지울 수 있다. fake 는 아무 경로나 낸다.
+    /// </summary>
+    protected abstract LocationId SourceFolder { get; }
+
+    /// <summary>
     /// <paramref name="folder"/> 에 <paramref name="items"/> 가 들어 있는 구현체를 낸다.
     /// 실제 구현체 테스트는 임시 디렉터리를 만들어 같은 이름의 파일을 두면 된다 —
     /// 계약이 보는 것은 <see cref="FileItem.Name"/> 과 <see cref="FileItem.Location"/> 뿐이다.
@@ -30,7 +37,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task RegisteredItems_AreAllYielded()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var source = CreateSource(folder, [Item(folder, "a.txt"), Item(folder, "b.txt"), Item(folder, "c.txt")]);
 
         var names = new List<string>();
@@ -51,7 +58,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task CanceledToken_Enumerate_Throws()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var source = CreateSource(folder, [Item(folder, "a.txt")]);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
@@ -65,7 +72,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task CancelingMidEnumeration_StopsYielding()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var source = CreateSource(folder, [Item(folder, "a.txt"), Item(folder, "b.txt"), Item(folder, "c.txt")]);
 
         using var cts = new CancellationTokenSource();
@@ -90,7 +97,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task UnknownFolder_ThrowsNotFound()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var source = CreateSource(folder, [Item(folder, "a.txt")]);
         var missing = folder.Combine("__flex-dir-missing__");
 
@@ -112,7 +119,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task TryGetItem_MissingItem_ReturnsNull()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var source = CreateSource(folder, [Item(folder, "a.txt")]);
 
         Assert.Null(await source.TryGetItemAsync(folder.Combine("gone.txt"), CancellationToken.None));
@@ -121,7 +128,7 @@ public abstract class FolderSourceContract
     [Fact]
     public async Task TryGetItem_ExistingItem_ReturnsIt()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = SourceFolder;
         var expected = Item(folder, "a.txt");
         var source = CreateSource(folder, [expected]);
 

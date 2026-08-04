@@ -22,6 +22,9 @@ namespace FlexDir.Core.Tests.Enumeration;
 /// </summary>
 public class FakeFolderSourceTests : FolderSourceContract
 {
+    // fake 는 파일시스템을 보지 않으므로 경로가 실물로 존재할 필요가 없다.
+    protected override LocationId SourceFolder => Folder(@"C:\Temp\Docs");
+
     protected override IFolderSource CreateSource(LocationId folder, IReadOnlyList<FileItem> items)
     {
         var source = new FakeFolderSource();
