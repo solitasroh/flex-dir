@@ -17,6 +17,9 @@ namespace FlexDir.Core.Tests.Watching;
 /// </summary>
 public class FakeFolderWatcherTests : FolderWatcherContract
 {
+    // fake 는 파일시스템을 보지 않으므로 경로가 실물로 존재할 필요가 없다.
+    protected override LocationId WatchedFolder => Folder(@"C:\Temp\Docs");
+
     protected override IFolderWatcher CreateWatcher(LocationId folder) => new FakeFolderWatcher();
 
     protected override Task CauseAsync(IFolderWatcher watcher, FolderChange change)

@@ -28,8 +28,15 @@ public abstract class FolderWatcherContract
     private static readonly TimeSpan Limit = TimeSpan.FromSeconds(5);
 
     /// <summary>
+    /// 이 계약이 감시할 폴더. <b>구현체가 정한다</b> — 계약이 경로를 고정하면 실제
+    /// <c>FileSystemWatcher</c> 구현체는 그 폴더가 실물로 존재해야 하고, 고정된 경로를
+    /// 테스트가 만들고 지우는 것은 사용자의 폴더를 지울 수 있다. fake 는 아무 경로나 낸다.
+    /// </summary>
+    protected abstract LocationId WatchedFolder { get; }
+
+    /// <summary>
     /// <paramref name="folder"/> 를 감시하는 구현체를 낸다. 실제 구현체 테스트는
-    /// 임시 디렉터리를 만들어 그 경로를 받으면 된다.
+    /// 임시 디렉터리를 만들어 <see cref="WatchedFolder"/> 로 내면 된다.
     /// </summary>
     protected abstract IFolderWatcher CreateWatcher(LocationId folder);
 
@@ -51,7 +58,7 @@ public abstract class FolderWatcherContract
     [Fact]
     public async Task CanceledToken_YieldsNothing_AndEnds()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = WatchedFolder;
         var watcher = CreateWatcher(folder);
 
         var received = await WithTimeout(DrainAsync(watcher.WatchAsync(folder, Canceled())));
@@ -62,7 +69,7 @@ public abstract class FolderWatcherContract
     [Fact]
     public async Task Canceling_EndsTheStream_WithoutHanging()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = WatchedFolder;
         var watcher = CreateWatcher(folder);
 
         using var cts = new CancellationTokenSource();
@@ -82,7 +89,7 @@ public abstract class FolderWatcherContract
     [Fact]
     public async Task Overflow_IsReported()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = WatchedFolder;
         var watcher = CreateWatcher(folder);
 
         // 오버플로를 삼키면 목록이 stale 인 채로 남는다. 소비자에게 반드시 닿아야 한다.
@@ -94,7 +101,7 @@ public abstract class FolderWatcherContract
     [Fact]
     public async Task Renamed_CarriesTheOldName()
     {
-        var folder = Folder(@"C:\Temp\Docs");
+        var folder = WatchedFolder;
         var watcher = CreateWatcher(folder);
 
         var change = await FirstChangeAsync(
