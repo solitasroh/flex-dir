@@ -34,7 +34,24 @@
 |---|---|
 | `IViewStateStore` | ✅ `JsonViewStateStore` — 계약 12 + 파일 고유 10 |
 | `IFolderWatcher` | ✅ `FileSystemFolderWatcher` — 계약 4 + 실물 5 |
-| 나머지 여섯 | 미착수 |
+| `IFolderSource` | ✅ `FileSystemFolderSource` — 계약 6 + 실물 9 |
+| 나머지 다섯 | 미착수 |
+
+### SHELL_NOTES 와 다르게 간 곳 — ADR 로 올릴지 판단 필요
+
+`IFolderSource` 를 `FindFirstFileExW` P/Invoke 가 아니라
+`System.IO.Enumeration.FileSystemEnumerator<T>` 로 구현했다. §열거 가 P/Invoke 를 지시한
+근거는 둘이었고 — 8.3 단축 이름 조회를 건너뛰는 것, `Directory.EnumerateFiles` 가 플래그를
+못 주고 예외 기반이라는 것 — 이 API 는 `Directory.EnumerateFiles` 가 아니라 **그 밑의 저수준
+primitive** 로, Windows 에서 `NtQueryDirectoryFile` 로 내려가 8.3 이름을 아예 묻지 않고
+항목별 예외도 없다. 즉 같은 목표를 unsafe 코드와 150줄 interop 없이 얻는다.
+
+**포기한 것**: shell 네임스페이스(내 PC · 네트워크)는 이 API 로 열거할 수 없다. v1 은
+로컬만 다루므로(ADR-010) 지금은 손해가 아니지만, v2 에서 PIDL 열거가 필요해지면 그때는
+P/Invoke 를 **따로** 세워야 한다 — 이 클래스를 확장하는 것이 아니라.
+
+`SHGetFileInfoW`·`IShellItemImageFactory`·`IFileOperation` 은 대체 API 가 없으므로
+예정대로 손으로 P/Invoke 한다.
 
 **사람이 확인해야 하는 것** (자동 테스트가 닿지 않는 자리):
 
@@ -44,7 +61,13 @@
       기대야 해서 결정적으로 재현할 수 없고, 매 턴 도는 게이트에 간헐적 실패를 넣을 수 없다.
 - [ ] **감시 중 폴더 삭제** — `FileSystemWatcher` 는 이때도 `Error` 를 낸다. 전체 새로고침이
       "경로 없음" 으로 이어지는지 (`docs/PRD.md` §4 는 상위로 이동하라고 정했다).
-- [ ] **네트워크 경로에서의 감시** — v2 범위지만 실패 방식은 지금 봐 두는 편이 낫다.
+- [ ] **네트워크 경로에서의 감시·열거** — v2 범위지만 실패 방식은 지금 봐 두는 편이 낫다.
+- [ ] **권한 없는 폴더** — 관리자 권한 없이는 테스트에서 만들 수 없다. 실제로 `AccessDenied`
+      가 올라오고 경로가 유지되며 사유가 상태표시줄에 뜨는지 (`docs/PRD.md` §4).
+- [ ] **클라우드 자리표시자** — OneDrive 미다운로드 파일에서 `CloudPlaceholder` 플래그가 서고,
+      스크롤해도 다운로드가 트리거되지 않는지. 이것이 SHELL_NOTES §열거 함정 3 의 핵심이다.
+- [ ] **10만 항목 폴더에서 첫 항목까지 150ms** (`docs/PRD.md` §5). 자동 테스트는 2000개까지만
+      세고 시간은 재지 않는다 — 기계마다 다른 수치를 게이트에 넣을 수 없다.
 
 - **`IContextMenuProvider` 는 포트 정의부터 수동이다.** 창 핸들과 네이티브 메뉴 메시지
   펌핑이 필요해 ViewModel 테스트로 채점할 수 없다(자율 phase 2 step 5 에서 의도적으로 제외).
