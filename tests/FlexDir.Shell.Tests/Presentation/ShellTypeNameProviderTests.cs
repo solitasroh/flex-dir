@@ -11,7 +11,7 @@ namespace FlexDir.Shell.Tests.Presentation;
 /// <b>문구 자체는 검증하지 않는다.</b> "텍스트 문서" 는 로케일과 설치된 프로그램에 따라
 /// 달라지므로 기계마다 다른 값을 게이트에 넣을 수 없다. 대신 <b>성질</b>을 잰다 —
 /// 비어 있지 않은가, 확장자마다 갈리는가, 대소문자를 같은 것으로 보는가, 확장자마다
-/// 한 번만 묻는가.
+/// 한 번만 묻는가, 그리고 <b>STA 에서 도는가</b>.
 /// </para>
 /// <para>
 /// 조회 자체를 바꿔 끼울 수 있게 열어둔 이유는 캐시와 실패 처리를 결정적으로 재기
@@ -20,20 +20,41 @@ namespace FlexDir.Shell.Tests.Presentation;
 /// </summary>
 public sealed class ShellTypeNameProviderTests
 {
+    // ── 아파트먼트 ──────────────────────────────────────────────────
+    // SHGetFileInfo 는 STA 를 요구하고 스레드풀은 MTA 다 (docs/SHELL_NOTES.md §COM 아파트먼트).
+    // Task.Run 으로 돌리면 이 테스트가 실패한다 — 실제로 그렇게 썼다가 여기서 잡혔다.
+
+    [Fact]
+    public async Task Lookup_RunsOnAnStaThread()
+    {
+        var apartment = ApartmentState.Unknown;
+
+        using var provider = new ShellTypeNameProvider((_, _) =>
+        {
+            apartment = Thread.CurrentThread.GetApartmentState();
+
+            return "유형";
+        });
+
+        await provider.GetTypeNameAsync("txt", false, CancellationToken.None);
+
+        Assert.Equal(ApartmentState.STA, apartment);
+    }
+
     // ── 실제 shell 에 물어본다 ──────────────────────────────────────
 
     [Fact]
     public async Task KnownExtension_HasAName()
     {
-        var name = await new ShellTypeNameProvider().GetTypeNameAsync("txt", false, CancellationToken.None);
+        using var provider = new ShellTypeNameProvider();
 
-        Assert.NotEmpty(name);
+        Assert.NotEmpty(await provider.GetTypeNameAsync("txt", false, CancellationToken.None));
     }
 
     [Fact]
     public async Task DifferentExtensions_HaveDifferentNames()
     {
-        var provider = new ShellTypeNameProvider();
+        using var provider = new ShellTypeNameProvider();
 
         var text = await provider.GetTypeNameAsync("txt", false, CancellationToken.None);
         var executable = await provider.GetTypeNameAsync("exe", false, CancellationToken.None);
@@ -45,7 +66,7 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task ExtensionCase_DoesNotMatter()
     {
-        var provider = new ShellTypeNameProvider();
+        using var provider = new ShellTypeNameProvider();
 
         Assert.Equal(
             await provider.GetTypeNameAsync("txt", false, CancellationToken.None),
@@ -57,7 +78,7 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task Directory_AndExtensionlessFile_AreDifferent()
     {
-        var provider = new ShellTypeNameProvider();
+        using var provider = new ShellTypeNameProvider();
 
         var folder = await provider.GetTypeNameAsync(string.Empty, true, CancellationToken.None);
         var file = await provider.GetTypeNameAsync(string.Empty, false, CancellationToken.None);
@@ -72,9 +93,9 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task UnregisteredExtension_StillHasAName()
     {
-        var name = await new ShellTypeNameProvider().GetTypeNameAsync("zzzzz", false, CancellationToken.None);
+        using var provider = new ShellTypeNameProvider();
 
-        Assert.NotEmpty(name);
+        Assert.NotEmpty(await provider.GetTypeNameAsync("zzzzz", false, CancellationToken.None));
     }
 
     // 파일을 건드리지 않는다 — 센티널 이름 + SHGFI_USEFILEATTRIBUTES (SHELL_NOTES §아이콘).
@@ -82,10 +103,9 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task NoFileNeedsToExist()
     {
-        var name = await new ShellTypeNameProvider()
-            .GetTypeNameAsync("존재하지않는확장자", false, CancellationToken.None);
+        using var provider = new ShellTypeNameProvider();
 
-        Assert.NotEmpty(name);
+        Assert.NotEmpty(await provider.GetTypeNameAsync("존재하지않는확장자", false, CancellationToken.None));
     }
 
     // ── 캐시·실패·취소 (조회를 바꿔 끼워 결정적으로 잰다) ───────────
@@ -94,9 +114,11 @@ public sealed class ShellTypeNameProviderTests
     public async Task SameExtension_IsLookedUpOnce()
     {
         var calls = 0;
-        var provider = new ShellTypeNameProvider((extension, isDirectory) =>
+
+        using var provider = new ShellTypeNameProvider((_, _) =>
         {
             calls++;
+
             return "유형";
         });
 
@@ -113,9 +135,11 @@ public sealed class ShellTypeNameProviderTests
     public async Task DirectoryAndFile_AreCachedSeparately()
     {
         var calls = 0;
-        var provider = new ShellTypeNameProvider((extension, isDirectory) =>
+
+        using var provider = new ShellTypeNameProvider((_, isDirectory) =>
         {
             calls++;
+
             return isDirectory ? "폴더" : "파일";
         });
 
@@ -131,7 +155,7 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task FailedLookup_YieldsEmptyString()
     {
-        var provider = new ShellTypeNameProvider((_, _) => throw new InvalidOperationException("shell 실패"));
+        using var provider = new ShellTypeNameProvider((_, _) => throw new InvalidOperationException("shell 실패"));
 
         Assert.Equal(
             string.Empty,
@@ -144,9 +168,11 @@ public sealed class ShellTypeNameProviderTests
     public async Task FailedLookup_IsNotRetried()
     {
         var calls = 0;
-        var provider = new ShellTypeNameProvider((_, _) =>
+
+        using var provider = new ShellTypeNameProvider((_, _) =>
         {
             calls++;
+
             throw new InvalidOperationException("shell 실패");
         });
 
@@ -160,7 +186,7 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task CanceledToken_Throws()
     {
-        var provider = new ShellTypeNameProvider();
+        using var provider = new ShellTypeNameProvider();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await provider.GetTypeNameAsync("txt", false, new CancellationToken(canceled: true)));
@@ -169,12 +195,17 @@ public sealed class ShellTypeNameProviderTests
     [Fact]
     public async Task NullExtension_Throws()
     {
-        var provider = new ShellTypeNameProvider();
+        using var provider = new ShellTypeNameProvider();
 
         await Assert.ThrowsAsync<ArgumentNullException>(
             async () => await provider.GetTypeNameAsync(null!, false, CancellationToken.None));
     }
 
     [Fact]
-    public void ImplementsThePort() => Assert.IsAssignableFrom<ITypeNameProvider>(new ShellTypeNameProvider());
+    public void ImplementsThePort()
+    {
+        using var provider = new ShellTypeNameProvider();
+
+        Assert.IsAssignableFrom<ITypeNameProvider>(provider);
+    }
 }

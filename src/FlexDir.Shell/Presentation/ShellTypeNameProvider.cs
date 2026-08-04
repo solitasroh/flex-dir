@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 using FlexDir.Core.Presentation;
+using FlexDir.Shell.Interop;
 
 namespace FlexDir.Shell.Presentation;
 
@@ -19,9 +20,12 @@ namespace FlexDir.Shell.Presentation;
 /// 10만 항목 폴더에 확장자가 열 종류면 shell 호출도 열 번이다.
 /// </para>
 /// </summary>
-public sealed partial class ShellTypeNameProvider : ITypeNameProvider
+public sealed partial class ShellTypeNameProvider : ITypeNameProvider, IDisposable
 {
     private readonly ConcurrentDictionary<(string Extension, bool IsDirectory), string> names = new();
+
+    // 스레드 하나로 충분하다. 확장자마다 한 번만 묻고 그 뒤로는 캐시가 답하므로 큐가 길지 않다.
+    private readonly StaWorkQueue worker = new(1, "type-names");
 
     private readonly Func<string, bool, string> lookup;
 
@@ -52,10 +56,13 @@ public sealed partial class ShellTypeNameProvider : ITypeNameProvider
             return ValueTask.FromResult(cached);
         }
 
-        // shell 호출은 동기 블로킹이다 (docs/SHELL_NOTES.md §아이콘 함정 1).
-        // UI 스레드에 두면 안 된다 (CLAUDE.md §3).
-        return new ValueTask<string>(Task.Run(() => Resolve(key), ct));
+        // shell 호출은 동기 블로킹이고(docs/SHELL_NOTES.md §아이콘 함정 1) UI 스레드에 두면
+        // 안 된다 (CLAUDE.md §3). 그리고 스레드풀이 아니라 STA 워커여야 한다 —
+        // SHGetFileInfo 는 STA 를 요구한다 (docs/SHELL_NOTES.md §COM 아파트먼트).
+        return new ValueTask<string>(worker.RunAsync(() => Resolve(key), ct));
     }
+
+    public void Dispose() => worker.Dispose();
 
     private string Resolve((string Extension, bool IsDirectory) key)
     {
