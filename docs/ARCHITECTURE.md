@@ -17,7 +17,13 @@ FlexDir.Host        → Core · Shell · App
                     exe. Application 진입점과 DI 조립만. 로직 없음
 
 FlexDir.Core.Tests  → Core
-FlexDir.App.Tests   → App, Core
+                    포트의 fake 와 계약 기반 클래스(*Contract)를 둔다
+
+FlexDir.App.Tests   → App, Core, Core.Tests
+FlexDir.Shell.Tests → Shell, Core, Core.Tests
+
+                    두 테스트 프로젝트가 Core.Tests 를 참조하는 이유는 하나다 —
+                    fake 와 실물 구현체가 같은 계약 클래스를 상속해 같은 검증을 받는 것
 ```
 
 **`App` 이 `Shell` 을 참조하면 컴파일이 깨진다.** 이것이 구조 게이트다.
