@@ -2,6 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
+
+    <!-- LibraryImport(소스 생성 P/Invoke)가 문자열을 고정하려면 unsafe 가 필요하다.
+         interop 이 이 어셈블리의 존재 이유이므로 여기서만 켠다 — FlexDir.Core 는 순수하게
+         남고, 구조 게이트가 그것을 검사한다 (CLAUDE.md §1). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>
