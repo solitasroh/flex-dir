@@ -210,7 +210,13 @@ public sealed class FileSystemFolderSource : IFolderSource
     {
         var win32 = captured;
 
-        if (win32 == 0 && (error.HResult & 0xFFFF0000) == unchecked((int)0x80070000))
+        // 마스크를 int 로 못박아야 한다. 0xFFFF0000 은 uint 리터럴이라 그대로 쓰면 양쪽이
+        // long 으로 승격되고, 음수 HResult 가 부호 확장돼(0xFFFFFFFF80070005) 비교가 영원히
+        // 거짓이 된다 — 코드가 조용히 0 으로 남아 진단이 사라진다.
+        const int FacilityWin32 = unchecked((int)0x80070000);
+        const int FacilityMask = unchecked((int)0xFFFF0000);
+
+        if (win32 == 0 && (error.HResult & FacilityMask) == FacilityWin32)
         {
             win32 = error.HResult & 0xFFFF;
         }

@@ -1,4 +1,5 @@
 using FlexDir.Core.Enumeration;
+using FlexDir.Core.Errors;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
 using FlexDir.Core.Tests.Enumeration;
@@ -136,6 +137,27 @@ public sealed class FileSystemFolderSourceTests : FolderSourceContract, IDisposa
         }
 
         Assert.Equal(2000, (await NamesAsync()).Count);
+    }
+
+    // 열거자 생성자가 실패하는 경로에서는 잡아둔 Win32 코드에 닿을 수 없어 HResult 에서
+    // 꺼낸다. 그 추출이 조용히 0 을 내면 분류는 타입 폴백으로 맞아도 진단이 사라진다 —
+    // 실제로 부호 확장 때문에 그런 적이 있고, 테스트는 분류만 봐서 놓쳤다.
+    // 파일을 폴더로 열거하면 ERROR_DIRECTORY(267) 가 결정적으로 나온다.
+    [Fact]
+    public async Task EnumeratingAFile_KeepsTheWin32Code()
+    {
+        var path = Path.Combine(root, "not-a-folder.txt");
+        File.WriteAllText(path, string.Empty);
+
+        var error = await Assert.ThrowsAsync<LocationAccessException>(async () =>
+        {
+            await foreach (var _ in new FileSystemFolderSource().EnumerateAsync(Folder(path), CancellationToken.None))
+            {
+            }
+        });
+
+        Assert.NotEqual(0, error.Win32Error);
+        Assert.NotEqual(LocationErrorKind.None, error.Kind);
     }
 
     // ── 단건 조회 ───────────────────────────────────────────────────
