@@ -22,8 +22,17 @@ public sealed class ActivationRouter
     private readonly WorkspaceViewModel workspace;
     private readonly IUsageLog usageLog;
     private readonly TimeProvider clock;
+    private readonly Func<CancellationToken, Task>? presentWindow;
 
-    public ActivationRouter(WorkspaceViewModel workspace, IUsageLog usageLog, TimeProvider clock)
+    /// <param name="presentWindow">
+    /// 창을 보이고 앞으로 가져오는 손. null 이면 창 없는 조립이다 (테스트·프로브).
+    /// 활성화가 곧 "창을 요구한 순간" 이므로 (ADR-003) 매 활성화마다 부른다.
+    /// </param>
+    public ActivationRouter(
+        WorkspaceViewModel workspace,
+        IUsageLog usageLog,
+        TimeProvider clock,
+        Func<CancellationToken, Task>? presentWindow = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(usageLog);
@@ -32,6 +41,7 @@ public sealed class ActivationRouter
         this.workspace = workspace;
         this.usageLog = usageLog;
         this.clock = clock;
+        this.presentWindow = presentWindow;
     }
 
     /// <summary>
@@ -48,6 +58,12 @@ public sealed class ActivationRouter
         // 기록이 먼저다. 폴더를 여는 데 실패해도 사용은 사용이다 — 게이트가 세는 것은
         // 성공한 조작이 아니라 앱을 쓴 날이다.
         await usageLog.RecordAsync(clock.GetLocalNow(), ct).ConfigureAwait(false);
+
+        // 창이 폴더보다 먼저다 — 사용자가 요구한 것은 창이고 폴더는 그 안의 내용이다.
+        if (presentWindow is { } present)
+        {
+            await present(ct).ConfigureAwait(false);
+        }
 
         if (FirstLocation(args) is { } location)
         {

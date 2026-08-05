@@ -51,6 +51,38 @@ public class ActivationRouterTests
     }
 
     [Fact]
+    public async Task ActivateAsync_PresentsTheWindowOnEveryActivation()
+    {
+        // 활성화 = 사용자가 창을 요구한 순간이다 (ADR-003). 첫 실행도, 상주 중 두 번째
+        // 실행도 같은 경로로 창이 나와야 한다 — 아니면 두 번째 실행이 아무 일도 하지
+        // 않는 것처럼 보인다.
+        var workspace = CreateWorkspace();
+        var presented = 0;
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now), _ =>
+        {
+            presented++;
+            return Task.CompletedTask;
+        });
+
+        await router.ActivateAsync([], CancellationToken.None);
+        await router.ActivateAsync([], CancellationToken.None);
+
+        Assert.Equal(2, presented);
+    }
+
+    [Fact]
+    public async Task ActivateAsync_WithoutAPresenter_StillWorks()
+    {
+        // 창 없는 조립(테스트·프로브)에서도 라우터는 동작해야 한다.
+        var workspace = CreateWorkspace();
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
+
+        await router.ActivateAsync([], CancellationToken.None);
+
+        Assert.Single(usage.Records);
+    }
+
+    [Fact]
     public async Task ActivateAsync_WithAFolder_OpensItInTheActivePane()
     {
         var folder = Folder(@"C:\Temp", "a.txt");

@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 
 using FlexDir.App.Threading;
+using FlexDir.App.Views;
 
 using FlexDir.Host.Composition;
 using FlexDir.Host.Diagnostics;
@@ -50,10 +51,22 @@ internal static class Program
         };
 
         var state = AppComposition.DefaultStateDirectory;
-        var composition = AppComposition.Create(
-            new WpfUiDispatcher(Dispatcher.CurrentDispatcher), state);
+        var uiDispatcher = new WpfUiDispatcher(Dispatcher.CurrentDispatcher);
+        var composition = AppComposition.Create(uiDispatcher, state);
 
-        var router = new ActivationRouter(composition.Workspace, composition.UsageLog, TimeProvider.System);
+        // 창은 활성화가 보여준다 (ActivationRouter) — 여기서는 만들기만 한다.
+        // 최소화 복원과 WindowShown 계측은 phase B 잔여다 (판단이 생기면 채점되는 클래스로).
+        var window = new MainWindow { DataContext = composition.Workspace };
+
+        var router = new ActivationRouter(
+            composition.Workspace,
+            composition.UsageLog,
+            TimeProvider.System,
+            _ => uiDispatcher.InvokeAsync(() =>
+            {
+                window.Show();
+                window.Activate();
+            }));
         using var lifetime = new CancellationTokenSource();
 
         // 실행 자체가 첫 활성화다. 기다리지 않는다 — 메시지 펌프가 아직 돌지 않았고,
@@ -69,7 +82,7 @@ internal static class Program
             DateTimeOffset.Now,
             lifetime.Token);
 
-        // 창은 phase B 에서 붙는다. 지금은 창 없이 상주하며 활성화 요청만 받는다.
+        // 첫 활성화가 위에서 창 표시를 큐에 넣었다 — 펌프가 돌기 시작하면 창이 뜬다.
         var code = application.Run();
 
         lifetime.Cancel();
