@@ -51,13 +51,23 @@ public sealed class NameEqualityConverter : IMultiValueConverter
 }
 
 /// <summary>
-/// 값이 매개변수와 같은가. 활성 페인 판정에 쓴다 —
-/// <c>ActiveSide</c> 를 <c>ConverterParameter</c> 의 <c>PaneSide</c> 와 비교한다.
+/// 값이 매개변수와 같은가. 활성 페인 판정(<c>ActiveSide</c> = <c>PaneSide</c>)과 정렬
+/// 화살표 표시(<c>Sort[0].Key</c> = 컬럼 키)가 쓴다. 대상이 <c>Visibility</c> 면 그대로
+/// 매핑한다 — WPF 는 bool→Visibility 를 자동 변환하지 않는다.
 /// </summary>
 public sealed class EnumEqualityConverter : IValueConverter
 {
     public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
-        => Equals(value, parameter);
+    {
+        var equal = Equals(value, parameter);
+
+        if (targetType == typeof(System.Windows.Visibility))
+        {
+            return equal ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        }
+
+        return equal;
+    }
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException("표시 전용이다.");

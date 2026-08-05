@@ -78,6 +78,18 @@ public class ViewConvertersTests
     }
 
     [Fact]
+    public void EnumEquality_TargetingVisibility_MapsToVisibleAndCollapsed()
+    {
+        // 정렬 화살표가 이 변환기로 나타난다 — WPF 는 bool→Visibility 를 자동 변환하지 않는다.
+        var converter = new EnumEqualityConverter();
+
+        Assert.Equal(System.Windows.Visibility.Visible, converter.Convert(
+            FlexDir.Core.Sorting.SortKey.Name, typeof(System.Windows.Visibility), FlexDir.Core.Sorting.SortKey.Name, Culture));
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            FlexDir.Core.Sorting.SortKey.Size, typeof(System.Windows.Visibility), FlexDir.Core.Sorting.SortKey.Name, Culture));
+    }
+
+    [Fact]
     public void ConvertBack_IsNotSupported()
     {
         // 전부 단방향 표시용이다. 역방향이 생기면 View→ViewModel 동기화가 부활한다 (ADR-011).

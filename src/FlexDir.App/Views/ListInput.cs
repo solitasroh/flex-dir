@@ -96,6 +96,14 @@ public static class ListInput
     private static void OnMouseDown(object sender, MouseButtonEventArgs args)
     {
         var list = (ItemsControl)sender;
+
+        // 행 컨테이너는 포커스를 받지 않으므로 (내장 선택 배제) 클릭이 키보드 포커스를
+        // 옮겨 주지 않는다. 여기서 목록에 준다 — 주소줄에 남으면 방향키가 주소를 편집한다.
+        if (list.Focusable)
+        {
+            list.Focus();
+        }
+
         var item = ItemAt(list, args.OriginalSource);
 
         if (item is null)
