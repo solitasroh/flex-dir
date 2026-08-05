@@ -132,7 +132,7 @@ public class PaneTypeAheadTests
     }
 
     [Fact]
-    public async Task TypeAhead_OnAnEmptyList_DoesNothing()
+    public void TypeAhead_OnAnEmptyList_DoesNothing()
     {
         var pane = CreatePane();
 

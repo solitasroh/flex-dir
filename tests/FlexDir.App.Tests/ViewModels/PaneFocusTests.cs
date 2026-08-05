@@ -67,7 +67,7 @@ public class PaneFocusTests
     }
 
     [Fact]
-    public async Task MoveFocus_OnAnEmptyList_DoesNothing()
+    public void MoveFocus_OnAnEmptyList_DoesNothing()
     {
         var pane = CreatePane();
 
