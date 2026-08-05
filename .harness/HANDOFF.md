@@ -8,15 +8,15 @@
 
 ## 한 줄
 
-자율 실행 3 phase · 수동 phase A(포트 **8/8**) · 수동 phase C(**Host 뼈대**) ·
-수동 **B-1(ViewModel 확장)** 이 끝났다. 앱은 여전히 창 없이 상주하는 프로세스지만,
-ViewModel 은 화면에 필요한 표면을 전부 갖췄다. **다음은 B-2 — 창 + Details 뷰**다.
+A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2 골격(창 + Details)** 까지 끝났다.
+**앱이 창을 띄운다** — 실행하면 MainWindow 가 뜨고 Details 로 탐색·선택·조작이 된다(코드상).
+**실물 확인은 아직이다** — `manual-plan.md` §B-2 사람 확인 항목이 다음 세션의 첫 일이다.
 
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 앞 (B-1 작업분, 푸시하지 않았다)
-테스트   892 통과   Core 341 · App 321 · Shell 190 · Host 40
+브랜치   main  ·  origin/main 보다 앞 (B-1·B-2 작업분, 푸시하지 않았다)
+테스트   936 통과   Core 341 · App 363 · Shell 190 · Host 42
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -253,7 +253,9 @@ B. View            ← 진행 중. B-1 완료 — 다음은 B-2 (창 + Details)
 ```
 B-1  ViewModel 확장   ✅ Rows · FocusedName · MoveFocus · TypeAhead · DropAsync
                      + 네비게이션 커맨드 4개.  화면 없이 전부 채점됐다 (App 258→321)
-B-2  창 + Details     MainWindow · DataContext · Details 뷰 하나
+B-2  창 + Details     ◐ 골격 완료 — MainWindow(Views/) · 입력 커맨드 · ListInput ·
+                     PaneChrome · 활성화가 창 표시. 남은 것: 사람 확인(manual-plan §B-2) ·
+                     WindowShown/FirstItem 계측 · 완전 종료 메뉴 · 스플리터 저장 배선
                      → 여기서 이미 매일 쓸 수 있다. 계측 둘을 붙인다
 B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
 B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
