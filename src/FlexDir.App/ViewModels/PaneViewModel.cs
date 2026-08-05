@@ -271,6 +271,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return ShowParseErrorAsync(address, error);
     }
 
+    // 네비게이션 넷은 커맨드로도 노출한다 — InputBindings 는 ICommand 만 물 수 있다
+    // (docs/DESIGN.md §9). 메서드는 그대로 둔다: Host 의 활성화 경로가 직접 부른다.
+
+    [RelayCommand]
     public Task GoBackAsync(CancellationToken ct = default)
     {
         var target = history.GoBack();
@@ -278,6 +282,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return target is null ? Task.CompletedTask : OpenAsync(target, ct);
     }
 
+    [RelayCommand]
     public Task GoForwardAsync(CancellationToken ct = default)
     {
         var target = history.GoForward();
@@ -286,6 +291,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>상위 폴더를 연다. 히스토리에 기록한다 — 뒤로가 자식으로 돌아간다.</summary>
+    [RelayCommand]
     public Task GoUpAsync(CancellationToken ct = default)
     {
         return CurrentLocation is { } current && current.TryGetParent(out var parent)
@@ -294,6 +300,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>현재 폴더를 다시 읽는다. 히스토리에 기록하지 않는다.</summary>
+    [RelayCommand]
     public Task RefreshAsync(CancellationToken ct = default)
     {
         return CurrentLocation is { } current ? OpenAsync(current, ct) : Task.CompletedTask;

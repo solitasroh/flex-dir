@@ -587,6 +587,42 @@ public class PaneViewModelTests
         Assert.Single(source.EnumerateCalls);
     }
 
+    // ── 네비게이션 커맨드 ─────────────────────────────────────────
+    // InputBindings 는 ICommand 만 물 수 있다 (docs/DESIGN.md §9 키보드 맵).
+    // 메서드와 커맨드가 같은 히스토리를 움직여야 한다.
+
+    [Fact]
+    public async Task NavigationCommands_DriveTheSameHistoryAsTheMethods()
+    {
+        var root = Folder(@"C:\Temp", @"Docs\");
+        var docs = Folder(@"C:\Temp\Docs", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(root);
+        await pane.NavigateAsync(docs);
+
+        await pane.GoBackCommand.ExecuteAsync(null);
+        Assert.Equal(root, pane.CurrentLocation);
+
+        await pane.GoForwardCommand.ExecuteAsync(null);
+        Assert.Equal(docs, pane.CurrentLocation);
+
+        await pane.GoUpCommand.ExecuteAsync(null);
+        Assert.Equal(root, pane.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task RefreshCommand_RereadsTheCurrentFolder()
+    {
+        var folder = Folder(@"C:\Temp", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        await pane.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal([folder, folder], source.EnumerateCalls);
+        Assert.Equal(folder, pane.CurrentLocation);
+    }
+
     // ── 새로 고침 ─────────────────────────────────────────────────
 
     [Fact]
