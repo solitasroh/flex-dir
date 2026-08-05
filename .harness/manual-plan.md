@@ -19,8 +19,9 @@
 
 | 포트 | 구현 | SHELL_NOTES 절 |
 |---|---|---|
-| `IFolderSource` | `FindFirstFileExW` + `FindExInfoBasic` + `FIND_FIRST_EX_LARGE_FETCH` | §열거 |
-| `ITypeNameProvider` · `IThumbnailSource` | `SHGetFileInfoW`(확장자당 1회) · `IShellItemImageFactory` | §아이콘 |
+| `IFolderSource` | ~~`FindFirstFileExW`~~ → `FileSystemEnumerator<T>` (ADR-014) | §열거 |
+| `ITypeNameProvider` | `SHGetFileInfoW`(확장자당 1회) | §아이콘 |
+| `IThumbnailSource` | `SHGetFileInfoW`+`SHGetImageList`(아이콘) · `IShellItemImageFactory`(썸네일) | §아이콘 |
 | `IFileOperations` | `IFileOperation` + **`FOFX_RECYCLEONDELETE`** | §파일 조작 |
 | `IClipboardBridge` | 탐색기 호환 클립보드 포맷 | §클립보드 |
 | `IFolderWatcher` | `FileSystemWatcher` + `InternalBufferSize` 확대 + `Error` 처리 | §폴더 감시 |
@@ -34,28 +35,36 @@
 |---|---|
 | `IViewStateStore` | ✅ `JsonViewStateStore` — 계약 12 + 파일 고유 10 |
 | `IFolderWatcher` | ✅ `FileSystemFolderWatcher` — 계약 4 + 실물 5 |
-| `IFolderSource` | ✅ `FileSystemFolderSource` — 계약 6 + 실물 9 |
-| 나머지 다섯 | 미착수 |
+| `IFolderSource` | ✅ `FileSystemFolderSource` — 계약 6 + 실물 10 |
+| `ITypeNameProvider` | ✅ `ShellTypeNameProvider` — 13. 첫 손 P/Invoke |
+| `IThumbnailSource` | ✅ `ShellThumbnailSource` — 23. 시스템 이미지 리스트 + `IShellItemImageFactory` |
+| `IItemActivator` | ⏳ 다음 — `ShellExecuteEx` |
+| `IFileOperations` · `IClipboardBridge` | 미착수 |
+| `IContextMenuProvider` | 미착수 — **포트 정의부터 수동** |
 
-### SHELL_NOTES 와 다르게 간 곳 — ADR 로 올릴지 판단 필요
+### SHELL_NOTES 와 다르게 간 곳 → **ADR-014 로 올렸다**
 
 `IFolderSource` 를 `FindFirstFileExW` P/Invoke 가 아니라
-`System.IO.Enumeration.FileSystemEnumerator<T>` 로 구현했다. §열거 가 P/Invoke 를 지시한
-근거는 둘이었고 — 8.3 단축 이름 조회를 건너뛰는 것, `Directory.EnumerateFiles` 가 플래그를
-못 주고 예외 기반이라는 것 — 이 API 는 `Directory.EnumerateFiles` 가 아니라 **그 밑의 저수준
-primitive** 로, Windows 에서 `NtQueryDirectoryFile` 로 내려가 8.3 이름을 아예 묻지 않고
-항목별 예외도 없다. 즉 같은 목표를 unsafe 코드와 150줄 interop 없이 얻는다.
-
-**포기한 것**: shell 네임스페이스(내 PC · 네트워크)는 이 API 로 열거할 수 없다. v1 은
-로컬만 다루므로(ADR-010) 지금은 손해가 아니지만, v2 에서 PIDL 열거가 필요해지면 그때는
-P/Invoke 를 **따로** 세워야 한다 — 이 클래스를 확장하는 것이 아니라.
+`System.IO.Enumeration.FileSystemEnumerator<T>` 로 구현했다. 근거와 포기한 것
+(shell 네임스페이스 열거 불가 — v2 에서는 PIDL 경로를 따로 세운다)은 `docs/ADR.md` ADR-014 에
+있고, `docs/SHELL_NOTES.md` §열거 에 포인터를 달았다.
 
 `SHGetFileInfoW`·`IShellItemImageFactory`·`IFileOperation` 은 대체 API 가 없으므로
 예정대로 손으로 P/Invoke 한다.
 
+### 확인용 프로브 → **`.harness/probe/` 로 확정 (ADR-015)**
+
+sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structure.ps1`)가 보지 않고,
+`harness.config.json` 의 `tdd.exclude` 에 들어가 TDD 가드도 비켜간다.
+`docs/ARCHITECTURE.md` §7 이 금지한 것은 **재는** 벤치마크 CLI 이고 프로브는 포트 구현체를
+실물에 물려 보는 손잡이라 목적이 다르다 — 그 구분을 ADR-015 가 적어 두었다.
+
+실행: `dotnet run --project .harness/probe -- <command>`
+
+**프로브로 확인한 것은 아래 사람 확인 항목에 결과를 적는다.** 기록이 없으면 다음 세션이
+같은 확인을 다시 한다.
+
 **사람이 확인해야 하는 것** (자동 테스트가 닿지 않는 자리).
-scratchpad 의 확인용 프로브로 실물에서 돌린 결과다 — 프로브는 저장소에 남기지 않는다
-(`docs/ARCHITECTURE.md` §7 은 별도 벤치마크 CLI 를 금지한다).
 
 - [x] **실제 버퍼 오버플로** — 재현됨. 버퍼를 최소값(4096)으로 낮추고 200자 이름의 파일
       20,000개를 여러 스레드에서 동시에 만들면 `Overflow` 6회, `Added` 17,959개 유실.
@@ -79,6 +88,21 @@ scratchpad 의 확인용 프로브로 실물에서 돌린 결과다 — 프로�
       다시 확인해야 한다 — SHELL_NOTES §열거 함정 3 의 핵심이고, 틀리면 스크롤만으로
       수 GB 를 내려받는다.
 - [ ] **네트워크 경로에서의 감시·열거** — v2 범위. 실패 방식만이라도 봐 두는 편이 낫다.
+- [x] **GDI 핸들 누수** — 새지 않는다. `probe leak` 으로 `C:\Windows\System32` 200개에
+      10회차(아이콘+썸네일 2,000 요청)를 돌려 **GDI 40 · USER 12 로 고정**, 이미지 폴더
+      (`C:\Windows\Web\Screen`)에서도 같다. `HICON`·`HBITMAP`·DC 를 `StaWorkQueue` 작업 안에서
+      만들고 그 안에서 해제한 결과다 (`docs/SHELL_NOTES.md` §아이콘 함정 3).
+      **다만 이것은 프로세스 반복 호출을 잰 것이지 UI 스크롤을 잰 것이 아니다** — 화면이
+      붙은 뒤(phase B) 대용량 폴더를 오래 스크롤하며 한 번 더 본다.
+- [x] **실물 썸네일** — `C:\Windows\Web\Screen` 의 jpg 6개가 96 요청에 **96×54 · 96×60**
+      으로 온다. 비율이 유지되고 요청 크기를 넘지 않으며 항목당 **34~45ms** 다.
+- [x] **`SIIGBF_THUMBNAILONLY` 동작** — 자동 테스트로 옮겼다
+      (`Thumbnail_ForItemWithoutAHandler_IsNull`·`Thumbnail_ForDirectory_IsNull`).
+      처리기가 등록될 리 없는 확장자를 쓰므로 기계에 의존하지 않는다.
+- [ ] **점보 아이콘의 메모리** — 96 을 물으면 `SHIL_JUMBO` 가 **256×256(256KB)** 을 준다
+      (48 로 내리면 96 자리에서 흐려진다). 축소는 View 가 하고, 스케줄러의 확장자 캐시는
+      비우지 않으므로 상주 프로세스(ADR-003)에서 계속 쌓인다. 확장자 100종이면 25MB 수준이라
+      지금은 두지만, phase B 에서 실제 사용량을 한 번 본다.
 
 - **`IContextMenuProvider` 는 포트 정의부터 수동이다.** 창 핸들과 네이티브 메뉴 메시지
   펌핑이 필요해 ViewModel 테스트로 채점할 수 없다(자율 phase 2 step 5 에서 의도적으로 제외).
@@ -97,30 +121,34 @@ scratchpad 의 확인용 프로브로 실물에서 돌린 결과다 — 프로�
       남은 것은 XAML `InputBindings` 의 제스처 매핑뿐이다.
 - [ ] **상호작용 상태** — 이름변경 인라인 편집 · 스플리터 드래그 중 · 페인 간 드래그앤드롭
 
-**`ThumbnailRequestScheduler` 를 부를 주체를 정해야 한다.** 자율 phase 가 이 클래스를 만들었지만
-`src/` 안에 **부르는 곳이 없다** — 생성하는 곳도, 폴더 전환에 `Reset()` 을, 스크롤에
-`SetVisibleRange()` 를 부르는 곳도 없다. 그대로 두면 썸네일이 한 장도 나오지 않는다.
-`SetVisibleRange` 를 부르는 것이 스크롤 이벤트인데 `*.xaml.cs` 에는 로직을 둘 수 없어
-(`CLAUDE.md` §2) 배선 지점이 자명하지 않다. 그래서 착수 전에 정한다:
+### `ThumbnailRequestScheduler` 배선 — **확정**
 
-- [ ] **소유자** — `ThumbnailRequestScheduler` 는 ViewModel 계층의 물건이다
-      (`FlexDir.App/ViewModels/`, `IThumbnailSource`·`IUiDispatcher` 를 받고
-      `FileItemViewModel.Icon`·`Thumbnail` 을 채운다). 페인당 하나를 페인의 ViewModel 쪽이
-      소유한다 — View 가 소유하면 같은 상태가 두 계층에 갈라진다.
-      `PaneViewModel` 에 직접 넣을지, 얇은 소유 클래스를 하나 둘지는 그때 정한다
-      (`PaneViewModel` 은 이미 1,244줄이다).
-- [ ] **`Reset()` 시점** — 폴더 전환. View 가 알 필요 없다: ViewModel 이 폴더를 바꾸는 지점을
-      이미 안다(`LoadAsync`). 이전 폴더의 진행 중 요청이 남으면 새 폴더의 행에 옛 그림이 붙는다.
-- [ ] **`SetVisibleRange()` 시점** — 스크롤·뷰 전환·목록 갱신. 코드비하인드 금지를 지키려면
-      스크롤을 **attached behavior**(별도 클래스)로 받아 ViewModel 의 메서드/커맨드로 넘긴다.
+자율 phase 가 이 클래스를 만들었지만 `src/` 안에 **부르는 곳이 없다** — 생성하는 곳도,
+폴더 전환에 `Reset()` 을, 스크롤에 `SetVisibleRange()` 를 부르는 곳도 없다. 그대로 두면
+썸네일이 한 장도 나오지 않는다. 배선 방식을 아래로 확정했다 (구현은 이 문서의 순서대로
+`IThumbnailSource` 다음).
+
+- [x] **소유자 = `PaneViewModel` 이 직접.** 페인당 하나이고, ctor 에 `IThumbnailSource` 를
+      하나 더 받아 `new ThumbnailRequestScheduler(source, dispatcher)` 를 필드로 든다.
+      얇은 소유 클래스를 따로 두지 않는다 — 스케줄러가 이미 정책을 전부 감싸고 있어
+      감쌀 것이 위임 메서드뿐이다. 약 30줄 증가.
+      View 가 소유하지 않는 이유는 그대로다: 같은 상태가 두 계층에 갈라진다.
+- [x] **`Reset()` = `LoadAsync`.** 폴더를 바꾸는 지점이 거기 하나다 (`PaneViewModel.cs:566`).
+      View 가 알 필요 없다. 이전 폴더의 진행 중 요청이 남으면 새 폴더의 행에 옛 그림이 붙는다.
+- [x] **`SetVisibleRange()` = attached behavior 가 `PaneViewModel` 의 메서드를 부른다.**
+      노출 형태는 `public void SetVisibleRange(IReadOnlyList<FileItemViewModel> visible)` —
+      **크기는 인자로 받지 않는다**(아래). 스크롤·뷰 전환·목록 갱신 셋 다 behavior 가
+      민다. "무엇이 보이는가" 를 아는 쪽이 View 뿐이기 때문이다.
       `*.xaml.cs` 에 스크롤 핸들러를 두는 것은 금지다 — `scripts/check-structure.ps1` 이 막는다.
-- [ ] **`ViewMode` → 아이콘 크기 매핑** — `SetVisibleRange(visible, requestedSize)` 의
-      `requestedSize` 를 정하는 규칙이 아직 어디에도 없다. `docs/DESIGN.md` §2 의 값이 정본이다:
-      Details **16** · 목록 **16** · 타일 **32** · 큰 아이콘 **96**.
-      `ViewMode` 를 아는 쪽이 ViewModel 이므로 매핑도 ViewModel 에 둔다. 크기가 스케줄러
-      캐시 키에 들어가므로(같은 확장자도 크기마다 따로 조회한다) 뷰를 바꾸면 그 크기로 다시 묻는다.
-- [ ] **종료** — 창을 닫을 때 `DisposeAsync`. 상주 프로세스라 창만 닫히고 프로세스는 남는다
-      (ADR-003) — 그때 진행 중 요청과 BGRA 버퍼가 함께 정리되는지 확인한다.
+- [x] **`ViewMode` → 아이콘 크기 = `PaneViewModel` 의 private 매핑.**
+      `docs/DESIGN.md` §2 가 정본이다: Details **16** · 목록 **16** · 타일 **32** · 큰 아이콘 **96**.
+      `ViewMode` 를 아는 쪽이 ViewModel 이므로 View 가 크기를 계산해 넘기지 않는다.
+      크기가 스케줄러 캐시 키에 들어가므로 뷰를 바꾸면 그 크기로 다시 묻는다.
+      별도 파일로 빼지 않는다 — `FakeThumbnailSource` 가 받은 `requestedSize` 로
+      `SetVisibleRange` 를 통해 관측되므로 public 표면 없이 테스트된다 (`CLAUDE.md` §6).
+- [x] **종료 = `PaneViewModel.DisposeAsync` 가 스케줄러를 함께 `DisposeAsync`.**
+      상주 프로세스라 창만 닫히고 프로세스는 남는다 (ADR-003) — 그때 진행 중 요청과
+      BGRA 버퍼가 함께 정리되는지 확인한다.
 
 그리고 `docs/DESIGN.md` §10 의 미결 두 건은 실물을 보고 판단한다:
 
@@ -152,7 +180,12 @@ scratchpad 의 확인용 프로브로 실물에서 돌린 결과다 — 프로�
       창을 닫아도 프로세스 유지(ADR-003, `docs/ARCHITECTURE.md` §6).
 - [ ] **계측** — cold start · 상주 중 창 표시 · 폴더 전환 후 첫 항목.
       별도 벤치마크 CLI 를 만들지 않는다(`docs/ARCHITECTURE.md` §7).
-- [ ] `IUsageLog` 구현 — 도그푸딩 게이트(ADR-007)의 입력. 게이트 자체는 **v1 완성 후** 켠다.
+- [ ] **`IUsageLog` — 포트 정의부터 여기서 한다 (확정).** `docs/ARCHITECTURE.md` §2 의 포트
+      목록에는 있으나 `FlexDir.Core` 에 아직 없다. 자율 phase 의 구멍이 아니라 **여기로
+      미룬 것**이다: 기록할 내용이 프로세스 수명에 달려 있어 — ADR-003 상주 프로세스라
+      "사용 시간" 이 창 표시 시간인지 프로세스 수명인지 Host 를 짜면서 갈린다 — 지금
+      인터페이스만 만들면 소비자 없는 추측성 정의가 된다. 포트 · 구현 · 배선을 한 번에 한다.
+      도그푸딩 게이트(ADR-007) 자체는 **v1 완성 후** 켠다.
 
 ## 순서
 
@@ -167,6 +200,10 @@ phases/ 자율 실행 (Core + ViewModel)
 B 를 마지막에 두는 이유: 화면이 붙기 전에 Shell 구현체가 실물 폴더에서 동작하는지
 확인할 수 있고, 그 단계의 버그를 UI 버그와 섞지 않을 수 있다.
 
-단, §B 의 **`ThumbnailRequestScheduler` 배선**은 A 착수 전에 결정해 둔다. 코드비하인드 금지와
+§B 의 **`ThumbnailRequestScheduler` 배선**은 **결정을 끝냈다**(위 §B). 코드비하인드 금지와
 부딪히는 항목이라 View 를 짜기 시작한 뒤에 정하면 이미 `*.xaml.cs` 에 스크롤 핸들러가 들어가
-있게 된다. 결정만 앞으로 당기는 것이고 구현은 B 에서 한다.
+있게 되기 때문이다. ViewModel 쪽 배선(`PaneViewModel` 소유·`Reset`·`SetVisibleRange`·
+`DisposeAsync`)은 `IThumbnailSource` 구현 직후 A 안에서 하고, attached behavior 만 B 에서 한다.
+
+**아직 열려 있는 것**: `docs/DESIGN.md` §9 (키보드 맵 · 상호작용 상태) — B 착수 전까지.
+`IContextMenuProvider` 포트 정의 — A 잔여.
