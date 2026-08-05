@@ -385,8 +385,10 @@
             <RowDefinition Height="24" />
         </Grid.RowDefinitions>
 
-        <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1) -->
-        <Grid Margin="4,4,4,0">
+        <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1). 비율은 복원·저장 대상이다 -->
+        <Grid Margin="4,4,4,0"
+              v:SplitterSync.Enabled="True"
+              v:SplitterSync.Ratio="{Binding SplitterRatio, Mode=TwoWay}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="320" />
                 <ColumnDefinition Width="6" />
