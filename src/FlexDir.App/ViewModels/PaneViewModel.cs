@@ -68,6 +68,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private readonly PaneHistory history = new();
 
     /// <summary>
+    /// 보이는 항목의 그림을 요청하는 정책. 페인당 하나이고 이 페인이 소유한다
+    /// (.harness/manual-plan.md §B).
+    /// <para>
+    /// View 가 소유하지 않는 이유: 같은 상태(무엇을 이미 물었는가)가 두 계층으로 갈린다.
+    /// 얇은 소유 클래스를 따로 두지도 않는다 — 스케줄러가 정책을 전부 감싸고 있어 감쌀 것이
+    /// 위임 메서드뿐이다.
+    /// </para>
+    /// </summary>
+    private readonly ThumbnailRequestScheduler thumbnails;
+
+    /// <summary>
     /// 확장자 → 유형 이름. 확장자마다 한 번만 조회한다 (docs/SHELL_NOTES.md §아이콘).
     /// <para>
     /// <see cref="typeNameGate"/> 로 감싼다. 이 캐시는 UI 스레드 밖에서 <b>두 경로가 동시에</b>
@@ -112,6 +123,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         IFolderSource folderSource,
         IFolderWatcher folderWatcher,
         ITypeNameProvider typeNames,
+        IThumbnailSource thumbnailSource,
         IViewStateStore viewStates,
         IFileOperations fileOperations,
         IClipboardBridge clipboard,
@@ -123,6 +135,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(folderWatcher);
         ArgumentNullException.ThrowIfNull(typeNames);
+        ArgumentNullException.ThrowIfNull(thumbnailSource);
         ArgumentNullException.ThrowIfNull(viewStates);
         ArgumentNullException.ThrowIfNull(fileOperations);
         ArgumentNullException.ThrowIfNull(clipboard);
@@ -143,6 +156,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
+        thumbnails = new ThumbnailRequestScheduler(thumbnailSource, dispatcher);
 
         // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
         Selection.PropertyChanged += OnSelectionChanged;
@@ -284,6 +298,29 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     {
         return CurrentLocation is { } current ? OpenAsync(current, ct) : Task.CompletedTask;
     }
+
+    /// <summary>
+    /// 화면에 보이는 항목이 바뀔 때 View 가 부른다 — 스크롤·뷰 전환·목록 갱신 셋 다.
+    /// "무엇이 보이는가" 를 아는 쪽이 View 뿐이기 때문이다.
+    /// <para>
+    /// <b>크기를 인자로 받지 않는다.</b> 크기는 <see cref="ViewMode"/> 가 정하고
+    /// (docs/DESIGN.md §2) 그것을 아는 쪽은 ViewModel 이다. View 가 계산해 넘기면 같은 표가
+    /// 두 계층으로 갈린다. 스케줄러가 크기를 받는 것과는 다른 층위다 — 거기서는 캐시 키의
+    /// 일부이고 뷰 모드를 알아서는 안 된다.
+    /// </para>
+    /// </summary>
+    public void SetVisibleRange(IReadOnlyList<FileItemViewModel> visible)
+    {
+        ArgumentNullException.ThrowIfNull(visible);
+
+        thumbnails.SetVisibleRange(visible, IconSize(ViewMode));
+    }
+
+    /// <summary>
+    /// 예약된 썸네일 작업이 모두 끝나면 완료된다. 테스트의 관측 지점이다 —
+    /// <see cref="SetVisibleRange"/> 는 스크롤 이벤트가 기다려 주지 않으므로 <c>void</c> 다.
+    /// </summary>
+    internal Task ThumbnailWork => thumbnails.WhenIdle;
 
     /// <summary>
     /// 컬럼 헤더 클릭. 같은 키를 다시 누르면 방향만 반전하고, 다른 키는 오름차순으로
@@ -604,6 +641,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             }
 
             var movedAway = !location.Equals(currentLocation);
+
+            // 폴더가 바뀐다. 이전 폴더의 진행 중 요청을 끊지 않으면 새 폴더의 행에 옛 그림이
+            // 붙는다. LoadAsync 본문이 아니라 이 블록 안에서 부르는 이유: 스케줄러는 UI
+            // 스레드에서만 부르기로 돼 있는데 폴더 전환은 UI 밖에서도 들어온다
+            // (Host 의 활성화 경로). 이 블록은 dispatcher 가 직렬화한다.
+            thumbnails.Reset();
 
             // 목록은 건드리지 않는다. 먼저 비우면 폴더 전환마다 빈 화면이 번쩍인다
             // (docs/UI_GUIDE.md §상태 표현).
@@ -1284,9 +1327,29 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return string.IsNullOrWhiteSpace(address) ? wording : $"{wording} — {address.Trim()}";
     }
 
+    /// <summary>
+    /// 뷰 모드가 정하는 아이콘·썸네일 크기 (docs/DESIGN.md §2 의 표가 정본이다).
+    /// <para>
+    /// 별도 파일로 빼지 않는다 — 관측은 <see cref="SetVisibleRange"/> 가 스케줄러에 넘긴
+    /// 크기로 하므로 public 표면 없이 테스트된다 (CLAUDE.md §6).
+    /// </para>
+    /// </summary>
+    private static int IconSize(ViewMode mode) => mode switch
+    {
+        ViewMode.Details => 16,
+        ViewMode.List => 16,
+        ViewMode.Tiles => 32,
+        ViewMode.LargeIcons => 96,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, "알 수 없는 뷰 모드다."),
+    };
+
     /// <summary>감시와 열거를 모두 접고 완료를 기다린다.</summary>
     public async ValueTask DisposeAsync()
     {
+        // 스케줄러를 먼저 접는다. 진행 중 요청과 BGRA 버퍼가 여기서 정리된다 — 상주
+        // 프로세스라 창만 닫히고 프로세스는 남는다 (ADR-003).
+        await thumbnails.DisposeAsync().ConfigureAwait(false);
+
         var current = Interlocked.Exchange(ref watch, null);
 
         current?.Cancel();

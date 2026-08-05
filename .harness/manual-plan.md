@@ -187,6 +187,14 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
       **크기는 인자로 받지 않는다**(아래). 스크롤·뷰 전환·목록 갱신 셋 다 behavior 가
       민다. "무엇이 보이는가" 를 아는 쪽이 View 뿐이기 때문이다.
       `*.xaml.cs` 에 스크롤 핸들러를 두는 것은 금지다 — `scripts/check-structure.ps1` 이 막는다.
+- [x] **확정문과 스케줄러 시그니처의 어긋남 → 둘 다 맞다. 층위가 다르다.**
+      이 확정문이 말한 "크기를 받지 않는다" 는 **`PaneViewModel` 의 공개 표면**이고,
+      `ThumbnailRequestScheduler.SetVisibleRange(visible, requestedSize)` 는 그 아래층이다.
+      스케줄러는 크기를 **캐시 키의 일부**로 쓰므로(같은 확장자라도 16 과 96 은 다른 요청이다)
+      뺄 수 없고, 동시에 `ViewMode` 를 알아서도 안 된다 — 그것을 알면 `IThumbnailSource` 위의
+      정책이 아니라 두 번째 ViewModel 이 된다. 그래서 **스케줄러 시그니처는 그대로 두고**
+      `PaneViewModel.SetVisibleRange(visible)` 가 `IconSize(ViewMode)` 를 끼워 넘긴다.
+      배선 테스트는 `tests/FlexDir.App.Tests/ViewModels/PaneThumbnailsTests.cs` 다.
 - [x] **`ViewMode` → 아이콘 크기 = `PaneViewModel` 의 private 매핑.**
       `docs/DESIGN.md` §2 가 정본이다: Details **16** · 목록 **16** · 타일 **32** · 큰 아이콘 **96**.
       `ViewMode` 를 아는 쪽이 ViewModel 이므로 View 가 크기를 계산해 넘기지 않는다.

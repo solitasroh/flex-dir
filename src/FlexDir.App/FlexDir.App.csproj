@@ -15,4 +15,13 @@
     <ProjectReference Include="..\FlexDir.Core\FlexDir.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- PaneViewModel 이 소유한 ThumbnailRequestScheduler 의 완료 지점(WhenIdle)을 테스트가
+         본다. SetVisibleRange 는 스크롤 이벤트가 기다려 주지 않아 void 이므로 관측 지점이
+         하나 필요한데, View 는 그것을 쓰지 않으므로 public 으로 열지 않는다. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>FlexDir.App.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>
