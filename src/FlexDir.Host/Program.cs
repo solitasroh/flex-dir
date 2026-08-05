@@ -74,6 +74,12 @@ internal static class Program
             composition.UsageLog,
             TimeProvider.System,
             presenter.PresentAsync);
+
+        // 폴더 전환 → 첫 항목 도착 (FirstItem). 페인 밖에서 관찰한다 — perf.log 는 Host 의
+        // 것이고, App 이 그것을 알면 참조 방향이 뒤집힌다.
+        using var leftMeter = new FirstItemMeter(composition.Workspace.Left, perf, TimeProvider.System);
+        using var rightMeter = new FirstItemMeter(composition.Workspace.Right, perf, TimeProvider.System);
+
         using var lifetime = new CancellationTokenSource();
 
         // 실행 자체가 첫 활성화다. 기다리지 않는다 — 메시지 펌프가 아직 돌지 않았고,
@@ -97,6 +103,9 @@ internal static class Program
         var code = application.Run();
 
         lifetime.Cancel();
+
+        // 진행 중인 계측 기록을 마저 쓴다 — 종료 직전의 폴더 전환이 마지막 수치다.
+        Task.WhenAll(leftMeter.Recording, rightMeter.Recording).GetAwaiter().GetResult();
 
         // 마지막 폴더·스플리터·창 배치를 남긴다 — 다음 실행의 시작 상태다. 페인을 접기 전이다.
         composition.Workspace.PersistAsync(CancellationToken.None).GetAwaiter().GetResult();
