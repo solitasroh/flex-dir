@@ -2,6 +2,9 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Threading;
 
+// WinForms(트레이 아이콘)가 암시적 global using 으로 들어와 WPF 쪽 이름과 겹친다.
+using Application = System.Windows.Application;
+
 using FlexDir.App.Threading;
 using FlexDir.App.Views;
 
@@ -92,6 +95,22 @@ internal static class Program
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             lifetime.Token);
         _ = router.RunAsync(gate.ActivationsAsync(lifetime.Token), lifetime.Token);
+
+        // 상주 중임이 보이는 곳이자 유일한 완전 종료 조작이다 (TrayMenu · 사용자 결정).
+        // WinForms 타입은 전체 이름으로 쓴다 — using 을 더하면 WPF Application 과 부딪힌다.
+        // 아이콘은 이 스레드의 것이라 메뉴 이벤트도 이 스레드(UI)로 온다.
+        Task OpenWindowAsync() => router.ActivateAsync([], lifetime.Token);
+
+        using var tray = new System.Windows.Forms.NotifyIcon
+        {
+            Icon = System.Drawing.SystemIcons.Application,
+            Text = "flex-dir",
+            ContextMenuStrip = TrayMenu.Create(
+                () => _ = OpenWindowAsync(),
+                () => application.Shutdown()),
+            Visible = true,
+        };
+        tray.DoubleClick += (_, _) => _ = OpenWindowAsync();
 
         // cold start: 프로세스가 만들어진 순간부터 조립이 끝난 순간까지 (docs/PRD.md §5).
         // 재는 도구를 따로 만들지 않는다 (ARCHITECTURE §7) — 값은 perf.log 에 남는다.

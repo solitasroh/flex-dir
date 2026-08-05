@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- Host 가 트레이 아이콘 때문에 WinForms 를 쓴다. 그 메뉴 판정을 여기서 채점한다. -->
+    <UseWindowsForms>true</UseWindowsForms>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 

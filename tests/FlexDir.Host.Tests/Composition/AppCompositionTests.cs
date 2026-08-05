@@ -1,6 +1,9 @@
 using System.IO;
 using System.Windows;
 
+// WinForms(트레이 아이콘)가 암시적 global using 으로 들어와 WPF 쪽 이름과 겹친다.
+using Application = System.Windows.Application;
+
 using FlexDir.App.Tests.Fakes;
 
 using FlexDir.Core.Locations;

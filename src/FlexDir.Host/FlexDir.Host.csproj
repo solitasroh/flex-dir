@@ -5,6 +5,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net9.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- 트레이 아이콘(NotifyIcon) 하나 때문이다. WPF 에는 알림 영역 API 가 없고,
+         Shell_NotifyIcon 을 직접 감싸면 메시지 창·콜백 배관이 이 프로젝트에 자란다. -->
+    <UseWindowsForms>true</UseWindowsForms>
   </PropertyGroup>
 
   <ItemGroup>
