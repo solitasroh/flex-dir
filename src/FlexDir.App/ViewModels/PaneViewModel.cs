@@ -29,6 +29,27 @@ public enum PaneStatus
 }
 
 /// <summary>
+/// wrap 뷰의 합성 행 — 한 줄에 들어가는 항목 묶음 (ADR-016).
+/// <para>
+/// WPF 가 기본 제공하는 가상화 패널은 <c>VirtualizingStackPanel</c> 하나뿐이라, 한 줄을
+/// 항목 하나로 묶어 세로(목록 뷰는 가로)만 가상화한다 (docs/ARCHITECTURE.md §5).
+/// Details 는 이것을 쓰지 않는다 — 10만 항목의 주 경로에 래퍼를 두지 않는다.
+/// </para>
+/// </summary>
+public sealed class RowViewModel
+{
+    public RowViewModel(IReadOnlyList<FileItemViewModel> items)
+    {
+        ArgumentNullException.ThrowIfNull(items);
+
+        Items = items;
+    }
+
+    /// <summary>이 줄의 항목. 화면 순서이며 <c>PaneViewModel.Items</c> 와 인스턴스를 공유한다.</summary>
+    public IReadOnlyList<FileItemViewModel> Items { get; }
+}
+
+/// <summary>
 /// 페인 하나. 폴더를 열고 목록을 점진적으로 채운다.
 /// <para>
 /// 열거는 <see cref="EnumerationSession"/> 으로만 한다 — <c>IFolderSource</c> 를 직접 부르면
@@ -53,6 +74,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </para>
     /// </summary>
     private const int WatchBatchSize = 64;
+
+    /// <summary>
+    /// 뷰 모드별 한 줄의 나눗셈 단위 (docs/DESIGN.md §2 의 치수 표가 정본이다).
+    /// 목록은 세로로 채우므로 행 높이 22 로 <b>높이</b>를 나누고, 타일·큰 아이콘은 가로로
+    /// 채우므로 항목 폭 + 간격(220+8 · 116+8)으로 <b>폭</b>을 나눈다 (ADR-016).
+    /// </summary>
+    private const double ListRowHeight = 22;
+
+    private const double TileSlotWidth = 228;
+
+    private const double LargeIconSlotWidth = 124;
 
     private readonly IFolderSource folderSource;
     private readonly IFolderWatcher folderWatcher;
@@ -116,6 +148,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private ViewMode viewMode = FolderViewState.Default.Mode;
     private IReadOnlyList<SortOrder> sort = FolderViewState.Default.Sort;
 
+    private double viewportWidth;
+    private double viewportHeight;
+
+    /// <summary>합성 행의 줄당 항목 수. 합성 행을 쓰지 않는 Details 는 0 이다.</summary>
+    private int rowCapacity;
+
+    /// <summary>목록·열 수가 바뀌었는데 아직 다시 묶지 않았다. <see cref="Rows"/> 가 푼다.</summary>
+    private bool rowsStale;
+
+    private IReadOnlyList<RowViewModel> rows = [];
+
     /// <summary><see cref="sort"/> 에서 만든다. 정렬이 바뀔 때만 새로 만든다.</summary>
     private FileItemComparer comparer = FileItemComparer.Default;
 
@@ -160,6 +203,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
         Selection.PropertyChanged += OnSelectionChanged;
+
+        // 목록이 바뀌면 합성 행도 따라간다 — wrap 뷰가 아닐 때는 아무 일도 하지 않는다.
+        Items.CollectionChanged += (_, _) => OnItemsChangedForRows();
     }
 
     public BulkObservableCollection<FileItemViewModel> Items { get; } = new();
@@ -202,7 +248,15 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     public ViewMode ViewMode
     {
         get => viewMode;
-        private set => SetProperty(ref viewMode, value);
+        private set
+        {
+            if (SetProperty(ref viewMode, value))
+            {
+                // 줄당 항목 수가 모드에 달려 있다. 전환은 DataTemplate 교체이고 (ADR-002)
+                // 합성 행은 여기서 갈아끼운다 (ADR-016).
+                RefreshRowLayout();
+            }
+        }
     }
 
     /// <summary>
@@ -328,6 +382,119 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// <see cref="SetVisibleRange"/> 는 스크롤 이벤트가 기다려 주지 않으므로 <c>void</c> 다.
     /// </summary>
     internal Task ThumbnailWork => thumbnails.WhenIdle;
+
+    /// <summary>
+    /// wrap 뷰 3종의 합성 행. Details 는 이것을 지나지 않고 평평한 <see cref="Items"/> 를
+    /// 그대로 쓴다 — 소스가 둘인 것이 의도다 (ADR-016).
+    /// <para>
+    /// 열 수가 그대로면 인스턴스도 그대로다. 목록이나 열 수가 바뀌었을 때만 여기서 다시
+    /// 묶는다 — 알림마다 즉시 묶으면 감시 갱신 한 묶음이 재배치 여러 번이 된다.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<RowViewModel> Rows
+    {
+        get
+        {
+            if (rowsStale)
+            {
+                rowsStale = false;
+                rows = BuildRows();
+            }
+
+            return rows;
+        }
+    }
+
+    /// <summary>
+    /// View 가 뷰포트 크기를 민다 — 항목 치수 표(docs/DESIGN.md §2)를 아는 쪽이 ViewModel
+    /// 이기 때문이다 (ADR-016). <see cref="SetVisibleRange"/>·IconSize 와 같은 경계다.
+    /// <para>
+    /// <b>열 수가 바뀔 때만 행을 다시 만든다.</b> 폭이 변해도 열 수가 그대로면 아무 일도
+    /// 하지 않고, 시간 디바운스를 쓰지 않는다 — 경계가 실행 속도에 따라 달라지면 원인을
+    /// 찾을 수 없다 (docs/ARCHITECTURE.md §5 · WatchBatchSize 와 같은 판단).
+    /// </para>
+    /// </summary>
+    public void SetViewportSize(double width, double height)
+    {
+        viewportWidth = width;
+        viewportHeight = height;
+
+        RefreshRowLayout();
+    }
+
+    /// <summary>줄당 항목 수를 다시 계산하고, 바뀌었을 때만 행을 낡음으로 표시한다.</summary>
+    private void RefreshRowLayout()
+    {
+        var capacity = ViewMode == ViewMode.Details ? 0 : LineCapacity();
+
+        if (capacity == rowCapacity)
+        {
+            return;
+        }
+
+        rowCapacity = capacity;
+        InvalidateRows();
+    }
+
+    /// <summary>
+    /// 한 줄에 들어가는 항목 수 (docs/DESIGN.md §2). 목록만 세로로 채우므로 높이로 정하고
+    /// (docs/ARCHITECTURE.md §5), 아무리 좁아도 한 줄에 하나는 놓는다 — 0 이 되면 나눗셈이
+    /// 아니라 표시 자체가 사라진다.
+    /// </summary>
+    private int LineCapacity() => ViewMode switch
+    {
+        ViewMode.Details => 1,
+        ViewMode.List => Math.Max(1, (int)(viewportHeight / ListRowHeight)),
+        ViewMode.Tiles => Math.Max(1, (int)(viewportWidth / TileSlotWidth)),
+        ViewMode.LargeIcons => Math.Max(1, (int)(viewportWidth / LargeIconSlotWidth)),
+        _ => throw new ArgumentOutOfRangeException(nameof(ViewMode), ViewMode, "알 수 없는 뷰 모드다."),
+    };
+
+    private void OnItemsChangedForRows()
+    {
+        // Details 에서는 만들 것이 없다. wrap 뷰로 전환할 때 RefreshRowLayout 이 다시 묶는다.
+        if (rowCapacity > 0)
+        {
+            InvalidateRows();
+        }
+    }
+
+    private void InvalidateRows()
+    {
+        // 이미 낡음이면 알림도 이미 나갔다 — View 가 읽기 전까지 겹쳐 알릴 이유가 없다.
+        if (rowsStale)
+        {
+            return;
+        }
+
+        rowsStale = true;
+        OnPropertyChanged(nameof(Rows));
+    }
+
+    private IReadOnlyList<RowViewModel> BuildRows()
+    {
+        if (rowCapacity == 0)
+        {
+            return [];
+        }
+
+        var built = new List<RowViewModel>((Items.Count + rowCapacity - 1) / rowCapacity);
+
+        for (var index = 0; index < Items.Count; index += rowCapacity)
+        {
+            var take = Math.Min(rowCapacity, Items.Count - index);
+            var line = new FileItemViewModel[take];
+
+            for (var offset = 0; offset < take; offset++)
+            {
+                line[offset] = Items[index + offset];
+            }
+
+            built.Add(new RowViewModel(line));
+        }
+
+        return built;
+    }
 
     /// <summary>
     /// 컬럼 헤더 클릭. 같은 키를 다시 누르면 방향만 반전하고, 다른 키는 오름차순으로
