@@ -16,7 +16,7 @@ A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2 골격(창 + D
 
 ```
 브랜치   main  ·  origin/main 보다 앞 (B-1·B-2 작업분, 푸시하지 않았다)
-테스트   936 통과   Core 341 · App 363 · Shell 190 · Host 42
+테스트   947 통과   Core 343 · App 367 · Shell 192 · Host 45
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -253,9 +253,12 @@ B. View            ← 진행 중. B-1 완료 — 다음은 B-2 (창 + Details)
 ```
 B-1  ViewModel 확장   ✅ Rows · FocusedName · MoveFocus · TypeAhead · DropAsync
                      + 네비게이션 커맨드 4개.  화면 없이 전부 채점됐다 (App 258→321)
-B-2  창 + Details     ◐ 골격 완료 — MainWindow(Views/) · 입력 커맨드 · ListInput ·
-                     PaneChrome · 활성화가 창 표시. 남은 것: 사람 확인(manual-plan §B-2) ·
-                     WindowShown/FirstItem 계측 · 완전 종료 메뉴 · 스플리터 저장 배선
+B-2  창 + Details     ◐ 골격 + 시작 폴더 복원(마지막 폴더 → 폴백 %USERPROFILE%, 종료 시
+                     Persist)까지. 실물 1차 확인됨 — 창·Details·키보드·클립보드가 돈다.
+                     남은 것: 사람 확인 잔여(manual-plan §B-2) · WindowShown/FirstItem 계측 ·
+                     완전 종료 메뉴(UI 위치 미결) · 스플리터·창 배치 View 배선.
+                     주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
+                     Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
                      → 여기서 이미 매일 쓸 수 있다. 계측 둘을 붙인다
 B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
 B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
