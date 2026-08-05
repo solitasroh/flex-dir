@@ -179,6 +179,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private string statusText = string.Empty;
     private string? renamingName;
     private string? focusedName;
+    private string addressEdit = string.Empty;
 
     private ViewMode viewMode = FolderViewState.Default.Mode;
     private IReadOnlyList<SortOrder> sort = FolderViewState.Default.Sort;
@@ -270,6 +271,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>주소창에 보이는 경로. 확장 접두사(<c>\\?\</c>)는 사용자에게 보이지 않는다.</summary>
     public string AddressText => CurrentLocation?.DisplayPath ?? string.Empty;
+
+    /// <summary>
+    /// 주소줄 편집 버퍼. TextBox 는 양방향이 필요해 <see cref="AddressText"/>(읽기 전용)와
+    /// 분리한다. 폴더를 열면 그 경로로 따라가고, 파싱에 실패한 입력은 그대로 남는다 —
+    /// 오타를 지워 버리면 사용자가 고칠 수 없다.
+    /// </summary>
+    public string AddressEdit
+    {
+        get => addressEdit;
+        set => SetProperty(ref addressEdit, value);
+    }
 
     public PaneStatus Status
     {
@@ -694,6 +706,16 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private Task OpenAddressAsync(string? address, CancellationToken ct)
         => address is null ? Task.CompletedTask : NavigateAsync(address, ct);
+
+    /// <summary>
+    /// 목록의 빈 곳 클릭 — 선택 해제 (탐색기와 같다). 비활성 페인이었다면 활성 전환도 된다.
+    /// </summary>
+    [RelayCommand]
+    private void ClickBackground()
+    {
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+        Selection.Clear();
+    }
 
     /// <summary>
     /// 한 이동의 목적지. 줄을 건너는 이동은 첫 줄·마지막 줄에서 제자리이고, 마지막 줄이
@@ -1827,6 +1849,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private void SetLocation(LocationId location)
     {
         CurrentLocation = location;
+        AddressEdit = AddressText;
 
         // 히스토리에서 파생되는 값이라 값 비교로 걸러낼 수 없다. 이동마다 알린다.
         OnPropertyChanged(nameof(CanGoBack));

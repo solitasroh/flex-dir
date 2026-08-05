@@ -238,6 +238,50 @@ public class PaneInputCommandsTests
         Assert.Null(pane.CurrentLocation);
     }
 
+    [Fact]
+    public async Task AddressEdit_FollowsNavigation()
+    {
+        // TextBox 는 양방향이 필요하므로 AddressText(읽기 전용)와 버퍼를 분리한다.
+        Folder(@"C:\Temp", "a.txt");
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(Loc(@"C:\Temp"));
+
+        Assert.Equal(@"C:\Temp", pane.AddressEdit);
+    }
+
+    [Fact]
+    public async Task AddressEdit_KeepsTheTypedTextWhenParsingFails()
+    {
+        // 오타를 지워 버리면 사용자가 고칠 수 없다 — 열지 못한 입력은 그대로 남는다.
+        Folder(@"C:\Temp", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(Loc(@"C:\Temp"));
+
+        pane.AddressEdit = "docs";
+        await pane.OpenAddressCommand.ExecuteAsync(pane.AddressEdit);
+
+        Assert.Equal(PaneStatus.Error, pane.Status);
+        Assert.Equal("docs", pane.AddressEdit);
+    }
+
+    // ── 빈 곳 클릭 ────────────────────────────────────────────────
+
+    [Fact]
+    public async Task ClickBackgroundCommand_ClearsTheSelectionAndRequestsActivation()
+    {
+        // 탐색기와 같다 — 빈 곳 클릭은 선택 해제이고, 비활성 페인이라면 활성 전환도 된다.
+        var pane = await OpenAsync();
+        pane.SelectAllCommand.Execute(null);
+        var requests = 0;
+        pane.ActivationRequested += (_, _) => requests++;
+
+        pane.ClickBackgroundCommand.Execute(null);
+
+        Assert.Equal(0, pane.Selection.Count);
+        Assert.Equal(1, requests);
+    }
+
     // ── 클릭이 페인을 활성으로 만든다 ─────────────────────────────
 
     [Fact]
