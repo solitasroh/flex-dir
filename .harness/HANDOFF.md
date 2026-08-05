@@ -15,7 +15,7 @@ ViewModel 은 화면에 필요한 표면을 전부 갖췄다. **다음은 B-2 �
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 5 커밋 앞 (B-1 다섯 커밋, 푸시하지 않았다)
+브랜치   main  ·  origin/main 보다 앞 (B-1 작업분, 푸시하지 않았다)
 테스트   892 통과   Core 341 · App 321 · Shell 190 · Host 40
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
