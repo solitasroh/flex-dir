@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlexDir.Host\FlexDir.Host.csproj" />
+    <ProjectReference Include="..\..\src\FlexDir.Core\FlexDir.Core.csproj" />
+    <ProjectReference Include="..\..\src\FlexDir.Shell\FlexDir.Shell.csproj" />
+    <ProjectReference Include="..\..\src\FlexDir.App\FlexDir.App.csproj" />
+
+    <!-- Core 포트의 fake 를 재사용한다 (FakeUsageLog 등). -->
+    <ProjectReference Include="..\FlexDir.Core.Tests\FlexDir.Core.Tests.csproj" />
+
+    <!-- InlineUiDispatcher 를 재사용한다. IUiDispatcher 는 FlexDir.App 의 포트라 그 fake 를
+         FlexDir.Core.Tests 에 둘 수 없다 — Core 는 App 을 모른다. 조립을 WPF Application
+         없이 세우려면 이 fake 가 필요하고, 같은 물건을 두 벌 두지 않는다. -->
+    <ProjectReference Include="..\FlexDir.App.Tests\FlexDir.App.Tests.csproj" />
+  </ItemGroup>
+
+</Project>

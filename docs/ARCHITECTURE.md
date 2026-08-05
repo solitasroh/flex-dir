@@ -24,6 +24,13 @@ FlexDir.Shell.Tests → Shell, Core, Core.Tests
 
                     두 테스트 프로젝트가 Core.Tests 를 참조하는 이유는 하나다 —
                     fake 와 실물 구현체가 같은 계약 클래스를 상속해 같은 검증을 받는 것
+
+FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
+
+                    App.Tests 까지 참조하는 이유는 InlineUiDispatcher 하나다.
+                    IUiDispatcher 는 App 의 포트라 그 fake 를 Core.Tests 에 둘 수 없고
+                    (Core 는 App 을 모른다), 조립을 WPF Application 없이 세우려면
+                    그 fake 가 필요하다. 같은 물건을 두 벌 두지 않는다
 ```
 
 **`App` 이 `Shell` 을 참조하면 컴파일이 깨진다.** 이것이 구조 게이트다.
