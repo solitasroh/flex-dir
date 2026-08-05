@@ -124,26 +124,39 @@ public class AppCompositionTests : IDisposable
     {
         // 창을 닫아도 프로세스는 산다 (ADR-003). shell 구현체 안의 STA 스레드를 닫는 것은
         // 창이 아니라 이 조립이고, 그 시점은 완전 종료다.
+        //
+        // 물어보는 것은 조회 둘뿐이다. 활성화·파일 조작·클립보드로 확인하면 <b>정리가
+        // 안 된 경우에</b> 프로그램이 뜨고 휴지통에 항목이 남고 사용자의 클립보드가
+        // 덮인다 — 게이트가 돌 때마다 일어나서는 안 되는 일이다 (.harness/HANDOFF.md §규칙 5).
+        // 나머지 셋이 같은 배열에 들어 있다는 것은 아래 테스트가 본다.
         var composition = AppComposition.Create(dispatcher, State());
         var thumbnails = composition.ShellServices.OfType<ShellThumbnailSource>().Single();
+        var typeNames = composition.ShellServices.OfType<ShellTypeNameProvider>().Single();
 
         await composition.DisposeAsync();
 
         Assert.Throws<ObjectDisposedException>(
             () => { _ = thumbnails.GetTypeIconAsync("txt", isDirectory: false, 16, default); });
+        Assert.Throws<ObjectDisposedException>(
+            () => { _ = typeNames.GetTypeNameAsync("flexdir-probe", isDirectory: false, default); });
     }
 
     [Fact]
-    public async Task DisposeAsync_DisposesEveryShellImplementationThatHoldsAnStaThread()
+    public async Task Create_OwnsEveryShellImplementationThatHoldsAnStaThread()
     {
-        // 다섯이다 — HANDOFF 가 넷이라고 적은 것은 ShellTypeNameProvider 를 빠뜨린 것이다.
-        var composition = AppComposition.Create(dispatcher, State());
-        var shell = composition.ShellServices.ToList();
+        // 다섯이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 다.
+        // 이 배열에 없는 구현체는 아무도 닫지 않고 STA 스레드가 프로세스에 남는다.
+        await using var composition = AppComposition.Create(dispatcher, State());
 
-        await composition.DisposeAsync();
-
-        Assert.Equal(5, shell.Count);
-        Assert.All(shell, service => Assert.True(IsClosed(service), service.GetType().Name));
+        Assert.Equal(
+            [
+                typeof(ShellTypeNameProvider),
+                typeof(ShellThumbnailSource),
+                typeof(Shell.Operations.ShellFileOperations),
+                typeof(Shell.Operations.ShellClipboardBridge),
+                typeof(Shell.Activation.ShellItemActivator),
+            ],
+            composition.ShellServices.Select(service => service.GetType()));
     }
 
     [Fact]
@@ -177,48 +190,6 @@ public class AppCompositionTests : IDisposable
 
     /// <summary>이 테스트만의 저장 위치. 테스트마다 갈라 서로의 뷰 상태를 읽지 않게 한다.</summary>
     private string State() => Path.Combine(root, "state");
-
-    /// <summary>
-    /// 닫힌 STA 큐는 새 작업을 받지 않는다. 포트 계약이 제각각이라 구현체 타입으로 가른다 —
-    /// 여기서 재는 것은 "정말 Dispose 됐는가" 하나다.
-    /// </summary>
-    private static bool IsClosed(IDisposable service)
-    {
-        try
-        {
-            switch (service)
-            {
-                case ShellThumbnailSource thumbnails:
-                    _ = thumbnails.GetTypeIconAsync("txt", isDirectory: false, 16, default);
-                    break;
-
-                case ShellTypeNameProvider typeNames:
-                    _ = typeNames.GetTypeNameAsync("flexdir-probe", isDirectory: false, default);
-                    break;
-
-                case Shell.Activation.ShellItemActivator activator:
-                    _ = activator.ActivateAsync(Loc(Path.GetTempPath()), default);
-                    break;
-
-                case Shell.Operations.ShellFileOperations operations:
-                    _ = operations.DeleteAsync([Loc(Path.GetTempPath())], default);
-                    break;
-
-                case Shell.Operations.ShellClipboardBridge clipboard:
-                    clipboard.SetCopy([Loc(Path.GetTempPath())]);
-                    break;
-
-                default:
-                    return false;
-            }
-        }
-        catch (ObjectDisposedException)
-        {
-            return true;
-        }
-
-        return false;
-    }
 
     private static LocationId Loc(string path)
     {
