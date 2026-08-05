@@ -55,18 +55,25 @@ internal static class Program
         var composition = AppComposition.Create(uiDispatcher, state);
 
         // 창은 활성화가 보여준다 (ActivationRouter) — 여기서는 만들기만 한다.
-        // 최소화 복원과 WindowShown 계측은 phase B 잔여다 (판단이 생기면 채점되는 클래스로).
         var window = new MainWindow { DataContext = composition.Workspace };
+
+        // 계측이 쌓이는 파일은 하나다 (perf.log). 지점마다 만들면 같은 곳을 두 번 연다.
+        var perf = new PerformanceLog(state);
+
+        var presenter = new WindowPresenter(
+            _ => uiDispatcher.InvokeAsync(() =>
+            {
+                window.Show();
+                window.Activate();
+            }),
+            perf,
+            TimeProvider.System);
 
         var router = new ActivationRouter(
             composition.Workspace,
             composition.UsageLog,
             TimeProvider.System,
-            _ => uiDispatcher.InvokeAsync(() =>
-            {
-                window.Show();
-                window.Activate();
-            }));
+            presenter.PresentAsync);
         using var lifetime = new CancellationTokenSource();
 
         // 실행 자체가 첫 활성화다. 기다리지 않는다 — 메시지 펌프가 아직 돌지 않았고,
@@ -80,7 +87,7 @@ internal static class Program
 
         // cold start: 프로세스가 만들어진 순간부터 조립이 끝난 순간까지 (docs/PRD.md §5).
         // 재는 도구를 따로 만들지 않는다 (ARCHITECTURE §7) — 값은 perf.log 에 남는다.
-        _ = new PerformanceLog(state).RecordAsync(
+        _ = perf.RecordAsync(
             MeasurementPoint.ColdStart,
             DateTime.Now - Process.GetCurrentProcess().StartTime,
             DateTimeOffset.Now,
