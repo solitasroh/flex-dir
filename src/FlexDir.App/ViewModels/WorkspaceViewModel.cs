@@ -51,6 +51,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         Left = left;
         Right = right;
         viewStates = viewStateStore;
+
+        // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작). View 가
+        // 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
+        left.ActivationRequested += (_, _) => ActiveSide = PaneSide.Left;
+        right.ActivationRequested += (_, _) => ActiveSide = PaneSide.Right;
     }
 
     public PaneViewModel Left { get; }

@@ -594,6 +594,108 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// 마우스가 이 페인의 항목을 조작했다. Workspace 가 받아 이 페인을 활성으로 만든다 —
+    /// 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작).
+    /// 키보드 커맨드는 올리지 않는다: 애초에 활성 페인으로만 간다.
+    /// </summary>
+    public event EventHandler? ActivationRequested;
+
+    // 아래 얇은 커맨드들은 View 의 InputBindings·MouseBinding 이 문다 — 그 자리는
+    // ICommand 만 받는다 (docs/DESIGN.md §9). 판단은 전부 이미 채점된 메서드 안에 있다.
+
+    [RelayCommand]
+    private void MoveFocusTo(FocusMove move) => MoveFocus(move, extend: false, toggleOnly: false);
+
+    /// <summary>Shift+방향 — 앵커부터 범위 선택.</summary>
+    [RelayCommand]
+    private void ExtendFocusTo(FocusMove move) => MoveFocus(move, extend: true, toggleOnly: false);
+
+    /// <summary>Ctrl+방향 — 선택을 두고 포커스만 옮긴다.</summary>
+    [RelayCommand]
+    private void FocusOnlyTo(FocusMove move) => MoveFocus(move, extend: false, toggleOnly: true);
+
+    /// <summary>Ctrl+Space — 포커스 항목의 선택 토글 (docs/DESIGN.md §9).</summary>
+    [RelayCommand]
+    private void ToggleFocused()
+    {
+        if (focusedName is { } name && IndexOfRow(name, 0) >= 0)
+        {
+            Selection.Toggle(name);
+        }
+    }
+
+    /// <summary>Enter — 포커스 항목을 연다. 폴더면 이 페인에서, 파일이면 연결 프로그램으로.</summary>
+    [RelayCommand]
+    private Task OpenFocusedAsync(CancellationToken ct)
+    {
+        if (focusedName is not { } name)
+        {
+            return Task.CompletedTask;
+        }
+
+        var index = IndexOfRow(name, 0);
+
+        return index < 0 ? Task.CompletedTask : ActivateAsync(Items[index], ct);
+    }
+
+    /// <summary>Ctrl+A — 전체 선택.</summary>
+    [RelayCommand]
+    private void SelectAll()
+    {
+        if (Items.Count > 0)
+        {
+            Selection.ReplaceWith([.. Items.Select(row => row.Name)]);
+        }
+    }
+
+    /// <summary>클릭 — 하나만 선택하고 포커스를 그 자리로. 빈 곳 클릭은 대상이 없다.</summary>
+    [RelayCommand]
+    private void SelectItem(FileItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+        FocusedName = item.Name;
+        Selection.SelectSingle(item.Name);
+    }
+
+    /// <summary>Ctrl+클릭 — 선택 토글.</summary>
+    [RelayCommand]
+    private void ToggleItem(FileItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+        FocusedName = item.Name;
+        Selection.Toggle(item.Name);
+    }
+
+    /// <summary>Shift+클릭 — 앵커부터 범위 선택.</summary>
+    [RelayCommand]
+    private void RangeSelectItem(FileItemViewModel? item)
+    {
+        if (item is null)
+        {
+            return;
+        }
+
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+        FocusedName = item.Name;
+        Selection.SelectRange(item.Name, [.. Items.Select(row => row.Name)]);
+    }
+
+    /// <summary>주소줄 Enter — 입력한 경로를 연다. 파싱 실패는 상태표시줄로 간다.</summary>
+    [RelayCommand]
+    private Task OpenAddressAsync(string? address, CancellationToken ct)
+        => address is null ? Task.CompletedTask : NavigateAsync(address, ct);
+
+    /// <summary>
     /// 한 이동의 목적지. 줄을 건너는 이동은 첫 줄·마지막 줄에서 제자리이고, 마지막 줄이
     /// 짧으면 마지막 항목까지만 간다. 줄 안의 이동은 화면 순서 그대로라 줄 끝에서 다음
     /// 줄로 넘어간다 (탐색기와 같다).

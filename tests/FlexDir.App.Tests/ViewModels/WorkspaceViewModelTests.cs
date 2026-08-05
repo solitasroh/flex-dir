@@ -377,6 +377,23 @@ public class WorkspaceViewModelTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
+    // ── 클릭에 의한 활성 전환 ─────────────────────────────────────
+
+    [Fact]
+    public async Task ItemClickInTheInactivePane_MakesThatPaneActive()
+    {
+        // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작 그대로).
+        // View 가 페인 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
+        var folder = Folder(@"C:\Temp", ("a.txt", 100));
+        var workspace = CreateWorkspace();
+        await workspace.Right.NavigateAsync(folder);
+
+        workspace.Right.SelectItemCommand.Execute(workspace.Right.Items[0]);
+
+        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Equal(["a.txt"], workspace.Right.Selection.SelectedNames);
+    }
+
     private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
 
     private PaneViewModel CreatePane()
