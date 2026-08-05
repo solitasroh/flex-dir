@@ -97,6 +97,24 @@ WPF 데이터 가상화는 쉽게 무력화된다. 다음을 금지한다:
 필수: `VirtualizingStackPanel` + `VirtualizationMode="Recycling"` +
 `ScrollUnit="Item"`.
 
+### wrap 뷰 3종은 합성 행으로 이 규칙을 지킨다 (ADR-016)
+
+뷰 4종 중 셋이 wrap 레이아웃인데(목록·타일·큰 아이콘) **WPF 가 기본 제공하는 가상화
+패널은 `VirtualizingStackPanel` 하나뿐이고 `WrapPanel`·`UniformGrid` 는 가상화하지
+않는다.** 그래서 한 줄에 N개를 담은 **행 항목**을 만들어 세로(목록 뷰는 가로)만
+가상화한다.
+
+- **열 수는 `PaneViewModel` 이 정한다.** View 는 `SetViewportSize(width, height)` 로
+  뷰포트 크기만 민다 — 항목 폭 표(`DESIGN.md` §2)를 아는 쪽이 ViewModel 이기 때문이고,
+  그래야 묶음 규칙 전체가 테스트로 채점된다. `SetVisibleRange`·`IconSize` 와 같은 경계다.
+- **Details 는 합성 행을 지나지 않는다.** 평평한 `Items` 를 그대로 쓴다. 10만 항목의 주
+  경로에 래퍼를 두지 않기 위해서이고, `MergeItems` 의 증분 갱신(ADR-011)이 그대로
+  살아야 하기 때문이다.
+- **목록 뷰만 가로 스크롤이다.** 세로로 채우고 다음 열로 넘어가므로 청크 단위가 행이
+  아니라 열이고, 개수는 폭이 아니라 **높이**로 정해진다.
+- **열 수가 바뀔 때만 다시 만든다.** 폭이 변해도 열 수가 그대로면 아무 일도 하지 않는다.
+  시간 디바운스를 쓰지 않는다.
+
 전작은 속도를 위해 `LVS_OWNERDATA` 를 골랐고, 그 대가로 뷰 모드가 Details
 하나로 고정됐다. WPF 에서는 `DataTemplate` 교체로 뷰 모드가 바뀌고 가상화는
 유지된다 — **그 이점을 잃지 않는 것이 위 규칙의 목적이다.**

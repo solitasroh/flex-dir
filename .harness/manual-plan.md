@@ -160,13 +160,19 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
 
 ## B. WPF View (`FlexDir.App`)
 
-**착수 전에 `docs/DESIGN.md` §9 를 채워야 한다.** 지금 비어 있는 것:
+**선행조건은 없다 — `docs/DESIGN.md` §9 · §9-1 을 채웠다.**
 
-- [ ] **키보드 맵 표** — 단축키 확정 + 탐색기 기본 단축키 충돌 검토.
-      `docs/UI_GUIDE.md` §키보드 의 최소선을 실제 키 조합으로 확정한다.
-      ViewModel 커맨드는 자율 phase 에서 이미 다 만들어져 있으므로,
-      남은 것은 XAML `InputBindings` 의 제스처 매핑뿐이다.
-- [ ] **상호작용 상태** — 이름변경 인라인 편집 · 스플리터 드래그 중 · 페인 간 드래그앤드롭
+- [x] **키보드 맵 표** — `DESIGN.md` §9. 충돌하면 탐색기가 이긴다. 뷰 `Ctrl+Shift+1~4` ·
+      정렬 `Ctrl+1~4` · 페인 전환 `Tab`/`F6` · 반대편 복사·이동 `Ctrl+Alt+C`/`M`.
+      **이동·선택은 `ListView` 내장을 쓰지 않고 ViewModel 이 처리한다** — 합성 행 위에서
+      내장 이동은 행 단위로만 움직인다. type-ahead 는 v1 에 넣는다(필터·검색이 v2 라
+      큰 폴더에서 항목을 찾는 유일한 수단이다).
+- [x] **상호작용 상태** — `DESIGN.md` §9-1. 이름변경은 **포커스를 잃으면 취소**(탐색기와
+      다른 유일한 지점 — 2분할이라 반대편 클릭이 일상이고 이름변경은 휴지통이 없다).
+      스플리터는 열 수가 바뀔 때만 재배치. 드래그앤드롭은 **기본 복사 · `Shift` 이동**이고
+      **양방향**이되 `FlexDir.Shell` 을 쓰지 않는다(WPF `DataObject` 로 충분).
+- [x] **뷰 3종의 가상화 → ADR-016.** `WrapPanel` 은 가상화하지 않으므로 합성 행으로
+      `VirtualizingStackPanel` 을 지킨다. Details 는 평평한 `Items` 그대로다.
 
 ### `ThumbnailRequestScheduler` 배선 — **확정**
 
@@ -318,5 +324,5 @@ B 를 마지막에 두는 이유: 화면이 붙기 전에 Shell 구현체가 실
 **B 에 남은 것은 그 메서드를 미는 attached behavior 하나다.** 코드비하인드 금지와 부딪히는
 항목이라 View 를 짜기 시작한 뒤에 정하면 이미 `*.xaml.cs` 에 스크롤 핸들러가 들어가 있게 된다.
 
-**아직 열려 있는 것**: `docs/DESIGN.md` §9 (키보드 맵 · 상호작용 상태) — B 착수 전까지.
-`IContextMenuProvider` 포트 정의 — A 잔여.
+**아직 열려 있는 것**: `IContextMenuProvider` 포트 정의 — A 잔여, 창 핸들이 필요해 B 와 함께 본다.
+`DESIGN.md` §10 의 #4·#5 — 실물을 보고 판단한다. UIA 접근성 — v2 로 미뤘다 (ADR-016).

@@ -324,3 +324,56 @@ Quality Gate 에 맡긴다. 방치하면 이 ADR 이 막으려던 상태로 되�
 **대가**: 저장소에 빌드되지 않는 프로젝트가 하나 생긴다. sln 밖이라 IDE 가 열어 주지 않고,
 `dotnet run --project .harness/probe` 로만 돈다. 리팩터링이 프로브를 깨뜨려도 게이트가
 알려주지 않는다 — 다음에 쓸 때 알게 된다. 매 세션 다시 만드는 비용보다 싸다고 봤다.
+
+---
+
+## ADR-016 — wrap 뷰 3종의 가상화는 합성 행으로 푼다
+
+**상태**: 확정
+
+**맥락**: `ARCHITECTURE.md` §5 는 `VirtualizingStackPanel` + `Recycling` +
+`ScrollUnit="Item"` 을 **필수**로 못박았다. 그런데 시안(`docs/mockups/v1-two-pane.html`)의
+뷰 4종 중 **셋이 wrap 레이아웃**이다 — 목록(다단 세로 흐름, 가로 스크롤) · 타일
+(`auto-fill minmax(220px,1fr)`) · 큰 아이콘(`auto-fill 116px`).
+
+**WPF 가 기본 제공하는 가상화 패널은 `VirtualizingStackPanel` 하나뿐이다.**
+`WrapPanel` 도 `UniformGrid` 도 가상화하지 않는다. CSS 에서 되는 것과 WPF 에서 가상화가
+유지되는 것은 다른 문제이므로, 시안이 있다고 해결된 것이 아니었다.
+
+이것은 전작이 성능 때문에 `LVS_OWNERDATA` 를 골랐다가 뷰 모드를 Details 하나로 잃은
+자리와 같은 지점이다 (ADR-002). 그때는 가상화를 얻고 뷰를 잃었다.
+
+**결정**
+
+한 줄에 N개를 담은 **행 항목**(`RowViewModel`)을 만들어 세로만 `VirtualizingStackPanel`
+로 가상화한다. 외부 의존 없이 §5 를 문자 그대로 지킨다.
+
+- **열 수는 `PaneViewModel` 이 정한다.** View 는 `SetViewportSize(width, height)` 로
+  뷰포트 크기만 민다. 항목 폭 표(`DESIGN.md` §2)를 아는 쪽이 ViewModel 이고, 그래야
+  묶음 규칙 전체가 테스트로 채점된다 — `SetVisibleRange`·`IconSize` 와 같은 경계다.
+- **Details 는 합성 행을 지나지 않는다.** 평평한 `Items` 를 그대로 쓴다. 10만 항목의 주
+  경로에 래퍼 10만 개를 두지 않기 위해서이고, `MergeItems` 의 증분 갱신(ADR-011)이
+  그대로 살아야 하기 때문이다. 소스가 둘이 되는 것이 그 대가다.
+- **목록 뷰만 가로 스크롤이다.** 청크 단위가 행이 아니라 열이고 개수는 폭이 아니라
+  높이로 정해진다 (`Orientation="Horizontal"`).
+- **열 수가 바뀔 때만 다시 만든다.** 시간 디바운스를 쓰지 않는다 — 경계가 실행 속도에
+  따라 달라지면 원인을 찾을 수 없다 (`WatchBatchSize` 와 같은 판단).
+
+**기각한 대안**
+
+- **커스텀 `VirtualizingPanel` 직접 구현** — 데이터가 평평하게 남아 선택·키보드·DnD 가
+  자연스럽다. 그러나 `IScrollInfo` 를 전부 손으로 짜야 하고, 렌더 트리를 검증해야 해서
+  **자동 채점이 거의 불가능하다** (CLAUDE.md §5). 컨테이너 재활용을 틀리면 스크롤 중
+  항목이 뒤섞이는데, 그 버그는 테스트가 잡아주지 않는다.
+- **v1 뷰를 2종으로 줄인다** — 어려운 패널을 한 번만 풀면 되지만 `PRD.md` §2 의 범위를
+  줄이는 일이고, 뷰 4종은 ADR-002 가 WPF 를 고른 근거 자체다.
+- **§5 를 뷰별 규칙으로 완화한다** — Details 만 엄격 적용하고 wrap 3종은 가상화를
+  포기. 가장 싸지만 10만 항목 폴더에서 그 3종이 죽는다. 폴더별 뷰 기억이 있으므로
+  "그 폴더에서는 안 쓴다" 는 전제를 지킬 방법이 없다 — 다음에 그 폴더를 열 때 또 프리즈다.
+  **성능은 전작이 유일하게 성공한 축이다.**
+
+**대가**: `PaneViewModel` 에 표시용 계층이 하나 는다(`Rows`). 키보드 이동이 2D 가 되어
+`ListView` 내장 처리를 못 쓰고 `FocusedName` + `MoveFocus` 를 직접 짠다 — 그래서
+type-ahead·PageUp/Down·자동 스크롤·UIA 접근성도 우리 몫이다. **접근성은 v2 로 미룬다**
+(혼자 쓰는 앱이다). 그 대신 이동 규칙 전부가 ViewModel 테스트로 채점되고, View→ViewModel
+선택 역방향 동기화가 없어져 ADR-011 의 위험 구간이 하나 사라진다.

@@ -23,13 +23,17 @@ FlexDir.Host   → Core · Shell · App   (DI 조립 전용)
 이유: WPF 에서 god object 가 자라는 자리가 여기다. 전작의 `main-window.cpp` 가
 이름만 바꿔 부활한다.
 
-## 3. UI 스레드에서 shell·I/O 를 부르지 않는다
+## 3. UI 스레드에서 저장소에 닿는 호출을 하지 않는다
 
-`SHGetFileInfo`·`IShellItemImageFactory`·디렉터리 열거·네트워크 경로 접근은
-전부 UI 스레드 밖에서 한다.
+`SHGetFileInfo`·`IShellItemImageFactory`·`IFileOperation`·디렉터리 열거·네트워크 경로
+접근은 전부 UI 스레드 밖에서 한다.
 
 이유: 파일 탐색기가 멈추는 진짜 원인은 렌더링이 아니라 동기 shell 호출이다.
-네트워크 경로에서는 초 단위로 블로킹된다.
+네트워크 경로에서는 초 단위로 블로킹된다. **누가 얼마나 걸릴지 모르는 것이 기준이다.**
+
+사용자 입력을 기다리는 모달 루프는 여기 해당하지 않는다 — `DragDrop.DoDragDrop` 은 UI
+스레드에서만 시작할 수 있고(마우스 캡처와 자체 메시지 루프) 싣는 것이 경로 문자열뿐이라
+저장소에 닿지 않는다. 그것은 멈춰 있는 것이 아니라 사용자를 기다리는 것이다.
 
 ## 4. 진실원천은 파일시스템이다
 
