@@ -767,6 +767,51 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             : RunAsync(token => fileOperations.MoveAsync(items, destinationFolder, token), ct);
     }
 
+    /// <summary>
+    /// 드롭을 처리한다 (docs/DESIGN.md §9-1). 드롭 데이터는 경로 문자열이므로 파싱도 여기서
+    /// 한다 — WPF <c>DataObject</c> 가 CF_HDROP 마샬링을 대신하므로 <c>FlexDir.Shell</c> 은
+    /// 필요 없고 포트를 늘리지 않는다. 어디에 떨어졌는가를 폴더로 바꾸는 것은 View 의 일이다.
+    /// </summary>
+    public Task DropAsync(
+        IReadOnlyList<string> paths,
+        LocationId targetFolder,
+        bool isMove,
+        CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+        ArgumentNullException.ThrowIfNull(targetFolder);
+
+        var items = new List<LocationId>(paths.Count);
+
+        foreach (var path in paths)
+        {
+            // 드롭 데이터는 외부 앱이 만든다. 못 읽는 경로가 섞여 있어도 나머지는 처리한다 —
+            // 전부 거부하면 잘 끌어온 파일까지 버려진다.
+            if (!LocationId.TryParse(path, out var location, out _))
+            {
+                continue;
+            }
+
+            // 제자리 이동은 아무 일도 아니다 — 그대로 shell 에 넘기면 오류 대화상자가 뜬다
+            // (MoveSelectionToAsync 와 같은 판단). 복사는 막지 않는다: 사본을 만드는 정상
+            // 조작이다.
+            if (isMove && location.TryGetParent(out var parent) && parent.Equals(targetFolder))
+            {
+                continue;
+            }
+
+            items.Add(location);
+        }
+
+        return items.Count == 0
+            ? Task.CompletedTask
+            : RunAsync(
+                token => isMove
+                    ? fileOperations.MoveAsync(items, targetFolder, token)
+                    : fileOperations.CopyAsync(items, targetFolder, token),
+                ct);
+    }
+
     /// <summary>선택이 있는지. 조작 커맨드의 <c>CanExecute</c> 다.</summary>
     private bool HasSelection => Selection.Count > 0;
 
