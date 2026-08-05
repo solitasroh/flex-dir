@@ -16,7 +16,7 @@ A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2 골격(창 + D
 
 ```
 브랜치   main  ·  origin/main 보다 앞 (B-1·B-2 작업분, 푸시하지 않았다)
-테스트   975 통과   Core 343 · App 384 · Shell 192 · Host 56
+테스트   979 통과   Core 343 · App 384 · Shell 192 · Host 60
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -221,12 +221,13 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 
 - [ ] **`IContextMenuProvider`** — A 잔여. 포트 정의부터 수동이고 창 핸들이 필요하므로
       창이 생기는 phase B 와 함께 본다 (`SHELL_NOTES.md` §컨텍스트 메뉴).
-- [ ] **완전 종료 조작이 없다.** `ShutdownMode = OnExplicitShutdown` 만 걸려 있고
-      `Application.Shutdown()` 을 부르는 자리가 아직 없다 — phase C 의 프로세스는
-      `Stop-Process` 로 끝냈다. 메뉴가 생기는 phase B 에서 그 경로를 실제로 밟는다.
-      UI 위치(트레이 vs 창 메뉴)는 문서에 없어 사용자 결정 대기다. 주의:
-      `ResidentWindow` 가 `Closing` 을 취소하므로 종료는 반드시 `Shutdown()` 경로여야
-      한다 — Shutdown 은 Closing 취소를 무시하지만, 메뉴가 생기면 실물로 확인한다.
+- [ ] **완전 종료 = 트레이 아이콘 (사용자 결정 2026-08-06, 구현됨 — 실물 확인 대기).**
+      알림 영역 아이콘 우클릭 → "완전 종료" 가 유일한 `Application.Shutdown()` 경로다
+      (`Startup/TrayMenu` + Program 의 WinForms `NotifyIcon` — WPF 에는 알림 영역 API 가
+      없다). 주의: `ResidentWindow` 가 `Closing` 을 취소하므로 종료는 반드시 `Shutdown()`
+      경로여야 한다 — Shutdown 은 Closing 취소를 무시한다고 알려져 있으나 **실물로 확인
+      전이다** (manual-plan §B-2). 아이콘은 임시로 `SystemIcons.Application` 이다 —
+      제품 아이콘이 생기면 바꾼다.
 - [ ] **클라우드 자리표시자 확인 불가** — 이 기계에 `OFFLINE`·`RECALL_ON_DATA_ACCESS`·
       `RECALL_ON_OPEN` 속성을 가진 항목이 0개다. `SHELL_NOTES.md` §열거 함정 3 의 핵심이고
       틀리면 스크롤만으로 수 GB 를 내려받는다. 동기 중인 OneDrive 가 있는 기계가 필요하다.
@@ -258,10 +259,11 @@ B-1  ViewModel 확장   ✅ Rows · FocusedName · MoveFocus · TypeAhead · Dro
                      + 네비게이션 커맨드 4개.  화면 없이 전부 채점됐다 (App 258→321)
 B-2  창 + Details     ◐ 골격 + 시작 폴더 복원 + 계측 둘(WindowShown·FirstItem) +
                      스플리터 비율·창 배치 복원/저장(SplitterSync·ResidentWindow) +
-                     닫기 = 숨기기(상주). 실물 1차 확인됨 — 창·Details·키보드·클립보드.
-                     남은 것: 사람 확인 잔여(manual-plan §B-2) · 완전 종료 메뉴(UI 위치
-                     미결 — 사용자 결정 대기) · 모니터 구성이 바뀌면 복원 위치가 화면
-                     밖일 수 있다(의도적으로 안 막았다 — 필요해지면 VirtualScreen 클램프).
+                     닫기 = 숨기기(상주) + 트레이 완전 종료(TrayMenu·NotifyIcon).
+                     실물 1차 확인됨 — 창·Details·키보드·클립보드. 코드는 다 들어갔고
+                     **남은 것은 사람 확인뿐이다** (manual-plan §B-2). 모니터 구성이
+                     바뀌면 복원 위치가 화면 밖일 수 있다(의도적으로 안 막았다 —
+                     필요해지면 VirtualScreen 클램프).
                      주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
                      Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
                      → 여기서 이미 매일 쓸 수 있다
