@@ -36,7 +36,11 @@ public static class ResidentWindow
         {
             if (e.PropertyName == nameof(WorkspaceViewModel.WindowPlacement))
             {
-                Apply(window, workspace.WindowPlacement);
+                // 이 이벤트는 UI 밖 스레드에서 온다 — 복원 사슬이 ConfigureAwait(false) 다.
+                // 날 이벤트에는 바인딩 엔진의 마샬링이 없어서, 여기서 창을 바로 만지면
+                // 스레드 친화성 예외가 StartAsync 의 버림 속으로 삼켜져 창이 영영 안 뜬다
+                // (실물에서 그랬다).
+                window.Dispatcher.InvokeAsync(() => Apply(window, workspace.WindowPlacement));
             }
         };
 
