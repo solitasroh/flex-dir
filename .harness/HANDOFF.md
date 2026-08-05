@@ -15,7 +15,7 @@
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 앞서 있다 — 푸시하지 않았다
+브랜치   main  ·  origin/main 과 같다 (c39f620 까지 푸시했다)
 테스트   829 통과   Core 341 · App 258 · Shell 190 · Host 40
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
@@ -151,7 +151,10 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 
 - **STA 를 든 shell 구현체는 다섯이다** — `ShellTypeNameProvider`·`ShellThumbnailSource`·
   `ShellFileOperations`·`ShellClipboardBridge`·`ShellItemActivator`. 이 문서가 한동안 넷이라고
-  적고 있었고 빠진 것은 첫 번째다. `AppCompositionTests` 가 다섯을 세고 각각의 종료를 본다.
+  적고 있었고 빠진 것은 첫 번째다. `AppCompositionTests` 는 **소유 타입 집합**으로 다섯을
+  고정하고, 종료는 **부작용 없는 조회 둘**(`ShellThumbnailSource`·`ShellTypeNameProvider`)로만
+  확인한다 — 나머지 셋으로 물어보면 정리가 안 됐을 때 프로그램이 뜨고 휴지통에 항목이
+  남고 클립보드가 덮인다 (§규칙 5).
 - **정리 순서는 페인 → shell 구현체다.** 뒤집으면 진행 중 요청이 닫힌 STA 큐에 들어가
   관측되지 않는 예외가 된다.
 - **`WpfUiDispatcher` 는 종료 중인 `Dispatcher` 에서 조용히 물러난다.** 완전 종료 경로가
@@ -198,7 +201,6 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
       조회 둘(`ShellThumbnailSource`·`ShellTypeNameProvider`) + 소유 타입 집합 단정으로
       바꿨다. 그 뒤 전체 실행 **14회가 전부 초록**이지만 재현되지 않았으므로 **그것이
       원인이었다고 적지 않는다.** 다시 나오면 `--logger trx` 로 이름부터 잡는다.
-- [ ] **푸시** — `main` 이 `origin/main` 보다 앞서 있다.
 
 ## 순서
 
