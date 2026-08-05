@@ -13,4 +13,12 @@
     <ProjectReference Include="..\FlexDir.App\FlexDir.App.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 조립이 든 shell 구현체를 테스트가 본다. "누가 언제 Dispose 하는가" 가 이 프로젝트의
+         계약이고, 그것을 밖으로 열면 조립 대상이 Host 밖에서도 만져진다. -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
+      <_Parameter1>FlexDir.Host.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>
