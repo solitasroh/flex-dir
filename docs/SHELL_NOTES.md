@@ -96,6 +96,11 @@ OneDrive 등의 미다운로드 파일이다. **내용을 건드리면 다운로
 **C#**: `FindFirstFileEx` 를 직접 P/Invoke 하는 편이 낫다. `Directory.EnumerateFiles`
 는 위 플래그를 못 주고 예외 기반이라 대용량에서 불리하다.
 
+> **이 지시는 따르지 않았다.** `IFolderSource` 는 `System.IO.Enumeration.FileSystemEnumerator<T>`
+> 로 구현돼 있다 — `Directory.EnumerateFiles` 가 아니라 그 밑의 저수준 primitive 이고,
+> 여기서 P/Invoke 를 지시한 두 근거(8.3 이름 · 항목별 예외)를 모두 피한다.
+> 근거와 포기한 것은 **ADR-014** 에 있다.
+
 **원본**: `src/core/win32-fs-backend.cpp`
 
 ---

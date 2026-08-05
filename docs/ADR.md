@@ -255,3 +255,72 @@ Quality Gate 에 맡긴다. 방치하면 이 ADR 이 막으려던 상태로 되�
   화면 구조는 창 하나에 페인 둘이다. 네비게이션 프레임워크를 쓸 자리가 없다.
 - **ReactiveUI** — Rx 조합은 강력하지만 학습·디버깅 비용이 크고, 우리 상태 변화는
   "폴더를 열고 목록을 채운다" 로 대부분 선형이다. 스트림으로 표현해 얻는 것이 없다.
+
+---
+
+## ADR-014 — `IFolderSource` 는 `FileSystemEnumerator<T>` 로 구현한다
+
+**상태**: 확정 (구현 완료 — `src/FlexDir.Shell/Enumeration/FileSystemFolderSource.cs`)
+
+**맥락**: `docs/SHELL_NOTES.md` §열거 는 `FindFirstFileExW` 를 직접 P/Invoke 하라고
+지시한다. 전작에서 속도의 핵심이었고, 근거는 둘이었다 — `FindExInfoBasic` 으로 8.3 단축
+이름 조회를 건너뛰는 것, 그리고 `Directory.EnumerateFiles` 가 그 플래그를 못 주고 항목별
+예외 기반이라는 것. **구현은 그 지시를 따르지 않고 `System.IO.Enumeration.FileSystemEnumerator<T>`
+를 썼다.** guardrail 문서와 어긋난 선택이므로 여기 남긴다.
+
+**근거**
+
+- **`Directory.EnumerateFiles` 가 아니라 그 밑의 primitive 다.** SHELL_NOTES 가 기각한 것은
+  `Directory.EnumerateFiles` 이고, 이 API 는 그것이 내부적으로 서는 저수준 층이다. Windows 에서
+  `NtQueryDirectoryFile` 로 내려가며 **8.3 이름을 아예 묻지 않는다.** 즉 P/Invoke 를 지시한
+  첫 근거는 이 API 에서 이미 충족된다.
+- **항목별 예외가 없다.** `ContinueOnError` 로 열거 중 오류를 값으로 받는다. 두 번째 근거도
+  사라진다.
+- **unsafe 코드와 150줄 interop 을 치르지 않는다.** `WIN32_FIND_DATAW` 마샬링·핸들 수명·
+  `SafeFindHandle` 을 우리가 유지보수하지 않는다. `FlexDir.Shell` 에서 손으로 쓴 P/Invoke 는
+  대체 API 가 없는 것(`SHGetFileInfoW`·`IShellItemImageFactory`·`IFileOperation`)에만 남긴다.
+- 실측이 뒷받침한다: `C:\Windows\WinSxS` 24,115개에서 첫 항목 **14.8ms** / 전체 73.6ms.
+  `docs/PRD.md` §5 의 첫 항목 150ms 대비 10배 여유다.
+
+**포기한 것**
+
+- **shell 네임스페이스(내 PC · 네트워크 · 라이브러리)를 열거할 수 없다.** 이 API 는
+  파일시스템 경로만 안다. v1 은 로컬만 다루므로(ADR-010) 지금은 손해가 아니다.
+- v2 에서 PIDL 열거가 필요해지면 `IShellFolder::EnumObjects` 경로를 **따로** 세운다 —
+  이 클래스를 확장하는 것이 아니라. 두 열거는 입력 타입부터 다르고, 섞으면
+  `LocationId` 추상화가 구현 하나에 눌린다.
+
+---
+
+## ADR-015 — 실물 확인용 프로브는 `.harness/probe/` 에 두고 sln 밖에 둔다
+
+**상태**: 확정
+
+**맥락**: Shell 포트 8개는 자동 채점할 수 없다(ADR-009). 검증은 실물에서 손으로 하는데,
+그 손이 쥘 도구가 필요하다 — 실제 폴더를 열거하고, 감시하고, 휴지통에 넣어 보는 콘솔 앱.
+지난 세션에는 scratchpad 에 만들어 썼고 세션이 끝나며 사라졌다. 남은 포트 4개
+(`IThumbnailSource`·`IItemActivator`·`IFileOperations`·`IClipboardBridge`)도 전부 같은
+검증이 필요하다.
+
+**`docs/ARCHITECTURE.md` §7 과의 관계**: §7 이 금지한 것은 **"실사용과 무관한 것을 재는
+벤치마크 CLI"** 다. 전작은 그것을 만들고 실제 사용 경로가 아닌 숫자를 쟀다. 프로브는 재는
+물건이 아니라 **포트 구현체를 실물 파일시스템에 물려 보는 손잡이**이고, 성능 계측은 §7 대로
+앱 안에 남는다. 목적이 다르므로 §7 을 어기지 않는다 — 다만 겉모습이 같아 오해를 부르므로
+이 ADR 로 선을 긋는다.
+
+**결정**
+
+- 위치는 `.harness/probe/`. `docs/` 도 `src/` 도 아니다 — 제품이 아니라 검증 도구다.
+- **`FlexDir.sln` 에 넣지 않는다.** sln 이 프로젝트를 명시 열거하므로 게이트의
+  `dotnet build` · `dotnet test` · `check-structure.ps1` 이 프로브를 보지 않는다.
+  프로브가 깨져도 게이트는 초록이고, 그래야 프로브가 제품 코드의 제약을 끌어오지 않는다.
+- `harness.config.json` 의 `tdd.exclude` 에 넣는다. 검증 도구에 TDD 를 요구하면
+  "테스트를 검증하기 위한 테스트" 가 된다.
+- 프로브는 `FlexDir.Shell` 과 `FlexDir.Core` 를 `ProjectReference` 로 직접 참조한다.
+  검증 대상이 그 둘이다.
+- **프로브에서 확인한 것은 `.harness/manual-plan.md` 의 사람 확인 항목에 결과를 적는다.**
+  프로브가 있어도 기록이 없으면 다음 세션이 다시 확인해야 한다.
+
+**대가**: 저장소에 빌드되지 않는 프로젝트가 하나 생긴다. sln 밖이라 IDE 가 열어 주지 않고,
+`dotnet run --project .harness/probe` 로만 돈다. 리팩터링이 프로브를 깨뜨려도 게이트가
+알려주지 않는다 — 다음에 쓸 때 알게 된다. 매 세션 다시 만드는 비용보다 싸다고 봤다.
