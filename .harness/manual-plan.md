@@ -43,7 +43,7 @@
 | `IClipboardBridge` | ✅ `ShellClipboardBridge` — 24. `CF_HDROP` + `Preferred DropEffect` |
 | `IContextMenuProvider` | 미착수 — **포트 정의부터 수동** (A 잔여, Core 에 포트도 없다) |
 
-**포트 8개가 끝났다.** 다음은 §C(Host)다 — 아래 §순서 참조.
+**포트 8개가 끝났다.** §C(Host)도 끝났다 — 다음은 §B(View)다. 아래 §순서 참조.
 
 ### SHELL_NOTES 와 다르게 간 곳 → **ADR-014 로 올렸다**
 
@@ -220,45 +220,103 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
 - `ThumbnailBitmap`(BGRA32) → `WriteableBitmap` 변환은 View 계층에서 한다.
 - `IUiDispatcher` 의 실제 구현(`Dispatcher` 기반)을 여기서 만든다.
 
-## C. Host — 진입점과 DI 조립 (`FlexDir.Host`)
+## C. Host — 진입점과 DI 조립 (`FlexDir.Host`) — **끝났다**
 
-현재 `src/FlexDir.Host/Program.cs` 는 **빌드를 통과시키기 위한 빈 진입점**이다.
-아래가 미결이며, 결정하면서 채운다.
+`tests/FlexDir.Host.Tests/` 가 새로 생겼고 `FlexDir.sln` 에 들어 있다.
+아래는 결정과 그 근거다.
 
-- [ ] **WPF 진입점 형태** — `App.xaml`(`ApplicationDefinition`) + 빈 `App.xaml.cs` 로 갈지,
-      명시적 `Main` 을 유지할지. 전자는 관례적이지만 DI 조립을 어디서 할지 정해야 하고,
-      `App.xaml.cs` 에 로직을 넣는 것은 `CLAUDE.md` §2 위반이다.
-      → 조립 코드는 `*.xaml.cs` 가 아닌 별도 클래스에 둔다.
-- [ ] **DI 컨테이너 선택** — 또는 수동 조립. `FlexDir.Host` 만 `Core`·`Shell`·`App` 셋을
-      모두 참조하며, 그 지식을 이 프로젝트 하나에 가둔다(`docs/ARCHITECTURE.md` §1).
-- [ ] **single instance 상주** — 두 번째 실행은 기존 프로세스에 인자를 넘기고 종료.
-      창을 닫아도 프로세스 유지(ADR-003, `docs/ARCHITECTURE.md` §6).
-- [ ] **계측** — cold start · 상주 중 창 표시 · 폴더 전환 후 첫 항목.
-      별도 벤치마크 CLI 를 만들지 않는다(`docs/ARCHITECTURE.md` §7).
-- [ ] **`IUsageLog` — 포트 정의부터 여기서 한다 (확정).** `docs/ARCHITECTURE.md` §2 의 포트
-      목록에는 있으나 `FlexDir.Core` 에 아직 없다. 자율 phase 의 구멍이 아니라 **여기로
-      미룬 것**이다: 기록할 내용이 프로세스 수명에 달려 있어 — ADR-003 상주 프로세스라
-      "사용 시간" 이 창 표시 시간인지 프로세스 수명인지 Host 를 짜면서 갈린다 — 지금
-      인터페이스만 만들면 소비자 없는 추측성 정의가 된다. 포트 · 구현 · 배선을 한 번에 한다.
-      도그푸딩 게이트(ADR-007) 자체는 **v1 완성 후** 켠다.
+- [x] **WPF 진입점 = 명시적 `Main`.** `App.xaml`(`ApplicationDefinition`)로 가지 않았다.
+      이유 둘: (1) **두 번째 실행은 WPF 초기화 비용을 내기 전에 끝나야 하는데**
+      `ApplicationDefinition` 이 만드는 `Main` 은 곧바로 `Application` 을 세우므로 그 판정을
+      앞에 둘 자리가 없다 — 상주 프로세스를 고른 이유가 그 비용이다(ADR-003).
+      (2) 그 길로 가면 조립을 넣을 곳이 `App.xaml.cs` 밖에 없어진다.
+      `Program.cs` 는 TDD 가드의 검사 대상이 아니므로 **판단은 한 줄도 두지 않았다** —
+      순서만 정하고 판단은 전부 `AppComposition` · `ActivationRouter` · `SingleInstanceGate` 에 있다.
+- [x] **DI 컨테이너 없음 — 수동 조립 (`Composition/AppComposition.cs`).**
+      조립 대상이 열둘 남짓이고 그래프가 하나다. 컨테이너는 (1) cold start 에 리플렉션
+      비용을 얹는데 그것이 ADR-003 이 상주 프로세스를 고른 바로 그 비용이고, (2) 정말
+      어려운 수명(STA 를 든 shell 구현체)을 컨테이너 규약 뒤로 숨긴다.
+      **포트 인스턴스는 두 페인이 나눠 쓴다** — 페인마다 만들면 STA 워커가 두 배가 되고
+      `ShellTypeNameProvider` 의 확장자 캐시까지 두 벌이 된다.
+- [x] **Dispose 는 조립이, 완전 종료 시점에.** `AppComposition.DisposeAsync` 가
+      **페인 둘을 먼저 접고 그 다음 shell 구현체**를 닫는다 — 뒤집으면 진행 중 요청이 닫힌
+      STA 큐에 들어가 관측되지 않는 예외가 된다. 창이 닫힐 때는 부르지 않는다: 상주
+      프로세스는 창 없이 살아 있고 그때 STA 워커까지 접으면 다음 창이 그 비용을 다시 낸다.
+      **STA 를 든 구현체는 넷이 아니라 다섯이다** — 이 문서와 `HANDOFF.md` 가 빠뜨린 것은
+      `ShellTypeNameProvider` 다. `AppCompositionTests` 가 다섯 전부를 세고 각각이 정말
+      닫혔는지 본다.
+- [x] **single instance = 이름 있는 뮤텍스(판정) + 이름 있는 파이프(전달).**
+      파이프 서버 생성만으로 판정하지 않는다 — 서버는 요청 하나마다 닫고 다시 열어야 하는데
+      그 틈에 들어온 두 번째 실행이 자기를 상주 프로세스로 착각한다. 뮤텍스는 기다리지도
+      놓지도 않는다(`createdNew` 하나로 판정이 끝나므로 스레드 친화성 문제가 없고, 프로세스가
+      죽으면 이름이 사라져 다음 실행이 새 상주 프로세스가 된다).
+      활성화는 `ActivationRouter` 가 받아 **사용을 기록하고 인자의 폴더를 활성 페인에서 연다** —
+      왼쪽에 못박지 않는다.
+- [x] **계측 = `Diagnostics/PerformanceLog.cs` → `%LOCALAPPDATA%\flex-dir\perf.log`.**
+      지점 셋과 예산(`docs/PRD.md` §5)이 코드 안에 있고 줄마다 예산을 함께 적는다 —
+      나중에 보는 사람이 문서를 찾지 않아도 판정이 서야 하고, 수치가 전부 잠정이라 예산이
+      바뀌면 옛 줄과 갈리는 것도 보여야 한다. **지금 기록되는 것은 `ColdStart` 하나다.**
+      `WindowShown`·`FirstItem` 은 창이 있어야 잴 수 있어 phase B 에서 붙인다.
+      별도 벤치마크 CLI 는 만들지 않았다(`docs/ARCHITECTURE.md` §7).
+- [x] **`IUsageLog` — 포트(`Core/Usage`) · 구현(`Shell/Usage/FileUsageLog.cs`) · 배선을 한 번에.**
+      **"사용" 은 사용자가 창을 요구한 순간으로 정했다.** 프로세스 수명도 창 표시 시간도
+      아니다: 전자는 로그인 후 계속 사는 프로세스가 **7일 중 7일**을 만들어 게이트를
+      무력화하고, 후자는 띄워 놓고 자리를 비운 시간을 사용량으로 세며 ADR-007 이 묻는 숫자도
+      아니다(며칠이지 몇 시간이 아니다). 그래서 남기는 것은 시각 하나이고 게이트는 **서로
+      다른 날짜 수**를 센다. 파일은 **한 줄에 하루, 앞 10자가 `yyyy-MM-dd`** — 이것을 읽는
+      것은 우리 코드가 아니라 게이트 스크립트라 파일의 모양 자체가 계약이다.
+      부르는 곳은 지금 `ActivationRouter` 하나(실행 + 활성화)이고, 창이 생기면 창 표시가
+      같은 자리를 부른다. 게이트 자체는 **v1 완성 후** 켠다.
+
+### 사람 확인 항목 — phase C
+
+실물은 Release 빌드 `src/FlexDir.Host/bin/Release/net9.0-windows/FlexDir.Host.exe` 다
+(framework-dependent). 단일 파일·self-contained 로 게시하면 수치가 달라진다.
+
+- [x] **두 번째 실행이 정말 기존 프로세스로 가는가** — 간다. 상주 프로세스가 뜬 상태에서
+      `FlexDir.Host.exe C:\Windows` 를 실행하면 **exit code 0 으로 124ms 만에 끝나고**
+      프로세스 수는 1 그대로다. exit 0 은 파이프에 붙어 인자를 다 쓴 경우에만 나온다 —
+      붙을 상대가 없으면 1 이다. **다만 상주 프로세스가 그 인자로 정말 폴더를 열었는지는
+      창이 없어 밖에서 볼 수 없다.** 그 경로는 `ActivationRouterTests` 가 자동으로 잡고,
+      눈으로 보는 것은 phase B 다.
+- [x] **상주 프로세스를 끝내면 다음 실행이 새 상주 프로세스가 되는가** — 된다.
+      `Stop-Process` 뒤 세 번 연속 실행이 모두 살아남았다(뮤텍스 이름이 제대로 사라진다).
+      이것이 안 되면 앱이 두 번 다시 뜨지 않는다.
+- [x] **cold start** — `perf.log` 기준 **358ms**(첫 실행, 디스크 캐시가 찬 상태가 아님) ·
+      이후 **134 / 128 / 123ms**. `docs/PRD.md` §5 의 잠정 목표 1.5s 대비 4~12배 여유다.
+      재는 구간은 `Process.StartTime` 부터 조립이 끝난 시점까지다.
+- [x] **사용 기록이 하루 한 줄인가** — 그렇다. 같은 날 실행 4회 + 활성화 1회에
+      `usage.log` 는 한 줄이었다.
+- [ ] **창을 닫아도 프로세스가 사는가** — **판정 불가. 아직 창이 없다.**
+      확인된 것은 "창이 하나도 없는 상태로 프로세스가 계속 산다" 와
+      `ShutdownMode = OnExplicitShutdown` 이 걸려 있다는 것까지다. 창을 닫는 조작 자체가
+      phase B 에 생기므로 그때 다시 본다.
+- [ ] **상주 중 창 표시 (≤100ms)** — 창이 없어 잴 수 없다. phase B.
+      계측 지점(`MeasurementPoint.WindowShown`)과 예산은 이미 코드에 있다.
+- [ ] **폴더 전환 후 첫 항목 (≤150ms)** — 앱 안에서는 아직 잴 수 없다. phase B.
+      다만 열거 자체는 프로브로 쟀다(§A: `WinSxS` 24,115개에서 첫 항목 14.8ms).
+- [ ] **완전 종료 경로** — `Application.Shutdown()` 을 부르는 조작이 아직 없다.
+      `AppComposition.DisposeAsync` 가 그 뒤에 도는 것은 코드로만 확인했고, phase C 의
+      프로세스는 `Stop-Process` 로 끝냈다. 메뉴가 생기는 phase B 에서 실제 경로를 밟는다.
 
 ## 순서
 
 ```
-phases/ 자율 실행 (Core + ViewModel)
-   → A. Shell interop  (포트에 실물 끼우기, 계약 테스트 상속)
-   → C. Host 뼈대       (진입점 + DI, 화면 없이 실행되는지)
-   → B. View            (DESIGN §9 를 먼저 채운 뒤)
+phases/ 자율 실행 (Core + ViewModel)          ✅
+   → A. Shell interop  (포트 8/8)             ✅  잔여: IContextMenuProvider
+   → C. Host 뼈대       (진입점 + DI + single instance + IUsageLog + 계측)  ✅
+   → B. View            (DESIGN §9 를 먼저 채운 뒤)   ← 다음
    → 매일 쓰기 → 도그푸딩 게이트 ON
 ```
 
 B 를 마지막에 두는 이유: 화면이 붙기 전에 Shell 구현체가 실물 폴더에서 동작하는지
 확인할 수 있고, 그 단계의 버그를 UI 버그와 섞지 않을 수 있다.
 
-§B 의 **`ThumbnailRequestScheduler` 배선**은 **결정을 끝냈다**(위 §B). 코드비하인드 금지와
-부딪히는 항목이라 View 를 짜기 시작한 뒤에 정하면 이미 `*.xaml.cs` 에 스크롤 핸들러가 들어가
-있게 되기 때문이다. ViewModel 쪽 배선(`PaneViewModel` 소유·`Reset`·`SetVisibleRange`·
-`DisposeAsync`)은 `IThumbnailSource` 구현 직후 A 안에서 하고, attached behavior 만 B 에서 한다.
+§B 의 **`ThumbnailRequestScheduler` 배선**은 **ViewModel 쪽이 끝났다**(위 §B) —
+`PaneViewModel` 이 소유하고, `LoadAsync` 가 `Reset()` 을, `DisposeAsync` 가 함께 정리하며,
+`public void SetVisibleRange(IReadOnlyList<FileItemViewModel>)` 가 열려 있다.
+**B 에 남은 것은 그 메서드를 미는 attached behavior 하나다.** 코드비하인드 금지와 부딪히는
+항목이라 View 를 짜기 시작한 뒤에 정하면 이미 `*.xaml.cs` 에 스크롤 핸들러가 들어가 있게 된다.
 
 **아직 열려 있는 것**: `docs/DESIGN.md` §9 (키보드 맵 · 상호작용 상태) — B 착수 전까지.
 `IContextMenuProvider` 포트 정의 — A 잔여.
