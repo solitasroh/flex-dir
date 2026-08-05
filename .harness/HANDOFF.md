@@ -16,7 +16,7 @@ A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2 골격(창 + D
 
 ```
 브랜치   main  ·  origin/main 보다 앞 (B-1·B-2 작업분, 푸시하지 않았다)
-테스트   947 통과   Core 343 · App 367 · Shell 192 · Host 45
+테스트   975 통과   Core 343 · App 384 · Shell 192 · Host 56
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -76,9 +76,11 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 두 번째 실행은 **124ms 에 exit 0** 이고 프로세스는 하나로 유지된다.
 상주 프로세스를 죽이면 다음 실행이 새 상주 프로세스가 된다.
 
-**아직 못 잰 것**: 상주 중 창 표시(100ms) · 폴더 전환 후 첫 항목(150ms) ·
-"창을 닫아도 프로세스가 사는가" · 완전 종료 경로. **넷 다 창이 있어야 한다 — phase B.**
-계측 지점(`MeasurementPoint.WindowShown`·`FirstItem`)과 예산은 이미 코드에 있다.
+**계측 셋이 전부 붙었다**: ColdStart(Program) · WindowShown(`Startup/WindowPresenter`,
+매 활성화) · FirstItem(`Diagnostics/FirstItemMeter`, 페인 관찰자 좌우 각 1개).
+수치는 `%LOCALAPPDATA%\flex-dir\perf.log` 로 나온다 — **실물 수치는 아직 안 봤다.**
+"창을 닫아도 프로세스가 사는가"(`ResidentWindow` 가 닫기를 숨기기로 바꾼다)와
+완전 종료 경로(조작이 아직 없다)도 사람 확인 대상이다.
 
 ## 다음 작업 — phase B (View)
 
@@ -139,8 +141,6 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
   `PaneViewModel.SetVisibleRange(IReadOnlyList<FileItemViewModel>)` 를 스크롤·뷰 전환·
   목록 갱신 셋에서 부르면 된다. `*.xaml.cs` 에 스크롤 핸들러를 두는 것은
   `scripts/check-structure.ps1` 이 막는다.
-- **계측 두 개를 붙인다.** `PerformanceLog.RecordAsync(MeasurementPoint.WindowShown, …)` 와
-  `FirstItem`. 예산은 `PerformanceLog.Budget` 이 정본이다.
 - **`IContextMenuProvider`** — 포트 정의부터. 창 핸들이 필요해 여기로 미뤘다.
 
 ## 반드시 알아야 하는 규칙 (값을 치르고 배운 것)
@@ -224,6 +224,9 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 - [ ] **완전 종료 조작이 없다.** `ShutdownMode = OnExplicitShutdown` 만 걸려 있고
       `Application.Shutdown()` 을 부르는 자리가 아직 없다 — phase C 의 프로세스는
       `Stop-Process` 로 끝냈다. 메뉴가 생기는 phase B 에서 그 경로를 실제로 밟는다.
+      UI 위치(트레이 vs 창 메뉴)는 문서에 없어 사용자 결정 대기다. 주의:
+      `ResidentWindow` 가 `Closing` 을 취소하므로 종료는 반드시 `Shutdown()` 경로여야
+      한다 — Shutdown 은 Closing 취소를 무시하지만, 메뉴가 생기면 실물로 확인한다.
 - [ ] **클라우드 자리표시자 확인 불가** — 이 기계에 `OFFLINE`·`RECALL_ON_DATA_ACCESS`·
       `RECALL_ON_OPEN` 속성을 가진 항목이 0개다. `SHELL_NOTES.md` §열거 함정 3 의 핵심이고
       틀리면 스크롤만으로 수 GB 를 내려받는다. 동기 중인 OneDrive 가 있는 기계가 필요하다.
@@ -253,13 +256,15 @@ B. View            ← 진행 중. B-1 완료 — 다음은 B-2 (창 + Details)
 ```
 B-1  ViewModel 확장   ✅ Rows · FocusedName · MoveFocus · TypeAhead · DropAsync
                      + 네비게이션 커맨드 4개.  화면 없이 전부 채점됐다 (App 258→321)
-B-2  창 + Details     ◐ 골격 + 시작 폴더 복원(마지막 폴더 → 폴백 %USERPROFILE%, 종료 시
-                     Persist)까지. 실물 1차 확인됨 — 창·Details·키보드·클립보드가 돈다.
-                     남은 것: 사람 확인 잔여(manual-plan §B-2) · WindowShown/FirstItem 계측 ·
-                     완전 종료 메뉴(UI 위치 미결) · 스플리터·창 배치 View 배선.
+B-2  창 + Details     ◐ 골격 + 시작 폴더 복원 + 계측 둘(WindowShown·FirstItem) +
+                     스플리터 비율·창 배치 복원/저장(SplitterSync·ResidentWindow) +
+                     닫기 = 숨기기(상주). 실물 1차 확인됨 — 창·Details·키보드·클립보드.
+                     남은 것: 사람 확인 잔여(manual-plan §B-2) · 완전 종료 메뉴(UI 위치
+                     미결 — 사용자 결정 대기) · 모니터 구성이 바뀌면 복원 위치가 화면
+                     밖일 수 있다(의도적으로 안 막았다 — 필요해지면 VirtualScreen 클램프).
                      주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
                      Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
-                     → 여기서 이미 매일 쓸 수 있다. 계측 둘을 붙인다
+                     → 여기서 이미 매일 쓸 수 있다
 B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
 B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
 ```
