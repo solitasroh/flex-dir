@@ -29,6 +29,21 @@ public enum PaneStatus
 }
 
 /// <summary>
+/// <see cref="PaneViewModel.MoveFocus"/> 의 이동 (docs/DESIGN.md §9 키보드 맵).
+/// </summary>
+public enum FocusMove
+{
+    Up,
+    Down,
+    Left,
+    Right,
+    Home,
+    End,
+    PageUp,
+    PageDown,
+}
+
+/// <summary>
 /// wrap 뷰의 합성 행 — 한 줄에 들어가는 항목 묶음 (ADR-016).
 /// <para>
 /// WPF 가 기본 제공하는 가상화 패널은 <c>VirtualizingStackPanel</c> 하나뿐이라, 한 줄을
@@ -85,6 +100,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private const double TileSlotWidth = 228;
 
     private const double LargeIconSlotWidth = 124;
+
+    /// <summary>
+    /// PageUp/Down 이 '한 화면' 으로 세는 줄 간격 — 스크롤 축의 행 높이 + 항목 간 간격
+    /// (docs/DESIGN.md §2). 목록 뷰만 가로 스크롤이라 열 폭(200+12)으로 폭을 나눈다.
+    /// </summary>
+    private const double DetailsRowPitch = 24;
+
+    private const double ListColumnPitch = 212;
+
+    private const double TileRowPitch = 60;
+
+    private const double LargeIconRowPitch = 148;
 
     private readonly IFolderSource folderSource;
     private readonly IFolderWatcher folderWatcher;
@@ -144,6 +171,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
     private string? renamingName;
+    private string? focusedName;
 
     private ViewMode viewMode = FolderViewState.Default.Mode;
     private IReadOnlyList<SortOrder> sort = FolderViewState.Default.Sort;
@@ -293,6 +321,20 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     {
         get => renamingName;
         private set => SetProperty(ref renamingName, value);
+    }
+
+    /// <summary>
+    /// 키보드 포커스가 서 있는 항목의 이름. 없으면 null.
+    /// <para>
+    /// <see cref="PaneSelection.Anchor"/> 와 다른 개념이다 — 앵커는 Shift 범위의 기준점이고,
+    /// 포커스는 다음 이동이 출발하는 자리다 (docs/DESIGN.md §9). 이름으로 보관하는 이유는
+    /// 선택과 같다 (갱신이 행 인스턴스를 교체한다).
+    /// </para>
+    /// </summary>
+    public string? FocusedName
+    {
+        get => focusedName;
+        private set => SetProperty(ref focusedName, value);
     }
 
     public bool CanGoBack => history.CanGoBack;
@@ -494,6 +536,117 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         }
 
         return built;
+    }
+
+    /// <summary>
+    /// 키보드 포커스 이동 (docs/DESIGN.md §9). <c>ListView</c> 내장 이동을 쓰지 않는다 —
+    /// 합성 행 위에서 내장 이동은 행 단위로만 움직이고, ViewModel 이 전부 하면
+    /// View→ViewModel 역방향 동기화가 없어진다 (ADR-016 · ADR-011).
+    /// <para>
+    /// <paramref name="extend"/>(Shift)는 앵커부터 범위 선택, <paramref name="toggleOnly"/>
+    /// (Ctrl)는 선택을 바꾸지 않고 포커스만 옮긴다. 평 이동은 대상 하나만 선택한다.
+    /// </para>
+    /// </summary>
+    public void MoveFocus(FocusMove move, bool extend, bool toggleOnly)
+    {
+        if (Items.Count == 0)
+        {
+            return;
+        }
+
+        var current = focusedName is { } name ? IndexOfRow(name, 0) : -1;
+
+        // 포커스가 없거나(첫 키 입력) 갱신으로 사라진 이름이다. 끝으로 가는 키만 끝에서
+        // 시작하고 나머지는 첫 항목부터다 (탐색기와 같다).
+        var target = current < 0
+            ? move == FocusMove.End ? Items.Count - 1 : 0
+            : Step(current, move);
+
+        var landed = Items[target].Name;
+
+        FocusedName = landed;
+
+        if (toggleOnly)
+        {
+            return;
+        }
+
+        if (extend)
+        {
+            Selection.SelectRange(landed, [.. Items.Select(row => row.Name)]);
+        }
+        else
+        {
+            Selection.SelectSingle(landed);
+        }
+    }
+
+    /// <summary>
+    /// 한 이동의 목적지. 줄을 건너는 이동은 첫 줄·마지막 줄에서 제자리이고, 마지막 줄이
+    /// 짧으면 마지막 항목까지만 간다. 줄 안의 이동은 화면 순서 그대로라 줄 끝에서 다음
+    /// 줄로 넘어간다 (탐색기와 같다).
+    /// </summary>
+    private int Step(int index, FocusMove move)
+    {
+        var count = Items.Count;
+
+        switch (move)
+        {
+            case FocusMove.Home:
+                return 0;
+            case FocusMove.End:
+                return count - 1;
+            case FocusMove.PageUp:
+                return Math.Max(0, index - PageSize());
+            case FocusMove.PageDown:
+                return Math.Min(count - 1, index + PageSize());
+        }
+
+        // Details 는 열이 하나다 — 가로 이동은 없는 조작이다.
+        if (ViewMode == ViewMode.Details && move is FocusMove.Left or FocusMove.Right)
+        {
+            return index;
+        }
+
+        // 목록 뷰만 세로로 채우므로 줄을 건너는 축이 뒤집힌다 (docs/DESIGN.md §9).
+        var backwardAcross = ViewMode == ViewMode.List ? FocusMove.Left : FocusMove.Up;
+        var forwardAcross = ViewMode == ViewMode.List ? FocusMove.Right : FocusMove.Down;
+        var line = LineCapacity();
+
+        if (move == backwardAcross)
+        {
+            return index < line ? index : index - line;
+        }
+
+        if (move == forwardAcross)
+        {
+            var lastLineStart = (count - 1) / line * line;
+
+            return index >= lastLineStart ? index : Math.Min(count - 1, index + line);
+        }
+
+        // 남은 것은 줄 안의 이동이다 (목록 뷰의 ↑↓, 나머지의 ←→).
+        return move is FocusMove.Up or FocusMove.Left
+            ? Math.Max(0, index - 1)
+            : Math.Min(count - 1, index + 1);
+    }
+
+    /// <summary>
+    /// PageUp/Down 한 번의 항목 수 — 한 화면의 줄 수 × 줄당 항목 수 (docs/DESIGN.md §9,
+    /// '뷰포트 한 화면'). 줄 간격은 §2 의 행 높이·열 폭에 항목 간 간격을 더한 값이다.
+    /// </summary>
+    private int PageSize()
+    {
+        var lines = ViewMode switch
+        {
+            ViewMode.Details => (int)(viewportHeight / DetailsRowPitch),
+            ViewMode.List => (int)(viewportWidth / ListColumnPitch),
+            ViewMode.Tiles => (int)(viewportHeight / TileRowPitch),
+            ViewMode.LargeIcons => (int)(viewportHeight / LargeIconRowPitch),
+            _ => throw new ArgumentOutOfRangeException(nameof(ViewMode), ViewMode, "알 수 없는 뷰 모드다."),
+        };
+
+        return Math.Max(1, lines) * LineCapacity();
     }
 
     /// <summary>
@@ -834,7 +987,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             {
                 // 다른 폴더의 이름이 남으면 새 폴더의 엉뚱한 항목이 선택된다. 같은 폴더를
                 // 다시 읽는 것(새로 고침·감시 갱신)은 선택을 유지한다 (CLAUDE.md §4).
+                // 포커스도 같은 이유로 접는다 — 다음 키 입력이 첫 항목부터 시작한다.
                 Selection.Clear();
+                FocusedName = null;
             }
         }).ConfigureAwait(false);
 
