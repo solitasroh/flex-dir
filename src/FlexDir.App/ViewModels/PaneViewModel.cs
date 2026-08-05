@@ -124,6 +124,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
+    private readonly TimeProvider timeProvider;
     private readonly PaneHistory history = new();
 
     /// <summary>
@@ -167,6 +168,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// <summary>진행 중인 감시. 폴더를 옮길 때마다 교체된다.</summary>
     private WatchRun? watch;
 
+    /// <summary>연속 입력을 한 검색으로 묶는 시한. 넘기면 새 검색이다 (탐색기와 같다).</summary>
+    private static readonly TimeSpan TypeAheadReset = TimeSpan.FromSeconds(1);
+
+    private string typeAheadPrefix = string.Empty;
+    private DateTimeOffset typeAheadLast = DateTimeOffset.MinValue;
+
     private LocationId? currentLocation;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
@@ -201,7 +208,8 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         IItemActivator activator,
         IUiDispatcher dispatcher,
         IFormatProvider culture,
-        TimeZoneInfo timeZone)
+        TimeZoneInfo timeZone,
+        TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(folderWatcher);
@@ -227,6 +235,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
+
+        // 시계만 기본값이 있다 — 실물은 시스템 시계면 충분하고, 바꿔 넣는 쪽은 TypeAhead 의
+        // 리셋 판정을 결정적으로 채점하는 테스트뿐이다 (docs/DESIGN.md §9).
+        this.timeProvider = timeProvider ?? TimeProvider.System;
         thumbnails = new ThumbnailRequestScheduler(thumbnailSource, dispatcher);
 
         // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
@@ -629,6 +641,45 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return move is FocusMove.Up or FocusMove.Left
             ? Math.Max(0, index - 1)
             : Math.Min(count - 1, index + 1);
+    }
+
+    /// <summary>
+    /// 문자 키로 점프한다 (docs/DESIGN.md §9 — type-ahead). 시한 안의 연속 입력은 접두어로
+    /// 쌓이고, 시한을 넘기면 새 검색이다. 새 검색은 포커스 다음부터 돌며 찾으므로 같은
+    /// 문자를 반복하면 그 문자로 시작하는 항목을 차례로 돈다 (탐색기와 같다).
+    /// </summary>
+    public void TypeAhead(char character)
+    {
+        if (Items.Count == 0)
+        {
+            return;
+        }
+
+        var now = timeProvider.GetUtcNow();
+        var startsOver = now - typeAheadLast > TypeAheadReset;
+
+        typeAheadLast = now;
+        typeAheadPrefix = startsOver ? char.ToString(character) : typeAheadPrefix + character;
+
+        var current = focusedName is { } name ? IndexOfRow(name, 0) : -1;
+
+        // 접두어를 쌓는 중에는 지금 항목이 그대로 일치할 수 있다 — 제자리에서 넓힌다.
+        var start = startsOver ? current + 1 : Math.Max(current, 0);
+
+        for (var offset = 0; offset < Items.Count; offset++)
+        {
+            var row = Items[(start + offset) % Items.Count];
+
+            if (row.Name.StartsWith(typeAheadPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                FocusedName = row.Name;
+                Selection.SelectSingle(row.Name);
+
+                return;
+            }
+        }
+
+        // 일치가 없으면 움직이지 않는다. 접두어는 남는다 — 다음 문자가 더 좁힐 수도 있다.
     }
 
     /// <summary>
