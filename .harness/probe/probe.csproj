@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ADR-015 — 실물 확인용 프로브. FlexDir.sln 에 넣지 않는다: 게이트의 dotnet build ·
+       dotnet test · check-structure.ps1 이 이것을 보면 안 된다. harness.config.json 의
+       tdd.exclude 에도 들어 있다.
+
+       실행법은 Program.cs 의 사용법 출력에 있다. XML 주석은 이중 하이픈을 담을 수 없어
+       여기에 명령줄을 그대로 적지 못한다. -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>FlexDir.Probe</RootNamespace>
+    <AssemblyName>probe</AssemblyName>
+
+    <!-- 저장소 루트의 Directory.Build.props 는 상속받아도 무해하지만, 산출물은 sln 밖에
+         따로 떨어뜨려 게이트가 훑는 bin/obj 와 섞이지 않게 한다. -->
+    <BaseOutputPath>bin\</BaseOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FlexDir.Shell\FlexDir.Shell.csproj" />
+    <ProjectReference Include="..\..\src\FlexDir.Core\FlexDir.Core.csproj" />
+  </ItemGroup>
+
+</Project>

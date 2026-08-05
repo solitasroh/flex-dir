@@ -41,12 +41,12 @@
     "done": "chore({phase}): mark phase completed"
   },
 
-  "//tdd": "ADR-012 완료 — harness 0.2.0 부터 cs 를 안다. 테스트는 <프로젝트>.Tests 하위에서 소스 구조를 미러링한 FooTests.cs 를 찾는다. 생성 코드와 *.xaml.cs 는 검사하지 않는다. red 검증이 콜드 dotnet test 때문에 60초를 넘기기 시작하면 verifyRed 를 false 로 내리고 Quality Gate 에 맡긴다 — 타임아웃은 차단이 아니라 조용한 통과가 되므로 방치하면 안 된다.",
+  "//tdd": "ADR-012 완료 — harness 0.2.0 부터 cs 를 안다. 테스트는 <프로젝트>.Tests 하위에서 소스 구조를 미러링한 FooTests.cs 를 찾는다. 생성 코드와 *.xaml.cs 는 검사하지 않는다. red 검증이 콜드 dotnet test 때문에 60초를 넘기기 시작하면 verifyRed 를 false 로 내리고 Quality Gate 에 맡긴다 — 타임아웃은 차단이 아니라 조용한 통과가 되므로 방치하면 안 된다. exclude 의 .harness/probe 는 ADR-015 의 수동 확인용 프로브다 — 검증 도구에 TDD 를 요구하면 테스트를 검증하기 위한 테스트가 된다.",
   "tdd": {
     "enabled": true,
     "languages": ["cs"],
     "verifyRed": true,
-    "exclude": []
+    "exclude": [".harness/probe"]
   },
 
   "secrets": {
