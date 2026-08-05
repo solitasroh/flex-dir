@@ -38,9 +38,12 @@
 | `IFolderSource` | ✅ `FileSystemFolderSource` — 계약 6 + 실물 10 |
 | `ITypeNameProvider` | ✅ `ShellTypeNameProvider` — 13. 첫 손 P/Invoke |
 | `IThumbnailSource` | ✅ `ShellThumbnailSource` — 23. 시스템 이미지 리스트 + `IShellItemImageFactory` |
-| `IItemActivator` | ⏳ 다음 — `ShellExecuteEx` |
-| `IFileOperations` · `IClipboardBridge` | 미착수 |
-| `IContextMenuProvider` | 미착수 — **포트 정의부터 수동** |
+| `IItemActivator` | ✅ `ShellItemActivator` — 16. `ShellExecuteEx` |
+| `IFileOperations` | ✅ `ShellFileOperations` — 48. `IFileOperation` + progress sink |
+| `IClipboardBridge` | ✅ `ShellClipboardBridge` — 24. `CF_HDROP` + `Preferred DropEffect` |
+| `IContextMenuProvider` | 미착수 — **포트 정의부터 수동** (A 잔여, Core 에 포트도 없다) |
+
+**포트 8개가 끝났다.** 다음은 §C(Host)다 — 아래 §순서 참조.
 
 ### SHELL_NOTES 와 다르게 간 곳 → **ADR-014 로 올렸다**
 
@@ -60,6 +63,18 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
 실물에 물려 보는 손잡이라 목적이 다르다 — 그 구분을 ADR-015 가 적어 두었다.
 
 실행: `dotnet run --project .harness/probe -- <command>`
+
+| 커맨드 | 무엇을 확인하는가 | 포트 |
+|---|---|---|
+| `typeicons` | 확장자·크기별 형식 아이콘 | `IThumbnailSource` |
+| `thumbnail <path>` | 한 파일의 실제 썸네일 | `IThumbnailSource` |
+| `leak [folder]` | 반복 호출 중 GDI·USER 핸들 수 | `IThumbnailSource` |
+| `activate <path>` | 연결 프로그램이 정말 뜨는가 | `IItemActivator` |
+| `recycle` | 정말 휴지통에 들어가는가 | `IFileOperations` |
+| `clipboard copy\|cut <path>...` · `clipboard paste` | 탐색기와 주고받는가 | `IClipboardBridge` |
+
+뒤의 셋은 **프로그램을 띄우고 · 휴지통에 항목을 남기고 · 사용자의 클립보드를 덮어쓴다.**
+자동 테스트가 하지 않는 일이라 프로브에 있다.
 
 **프로브로 확인한 것은 아래 사람 확인 항목에 결과를 적는다.** 기록이 없으면 다음 세션이
 같은 확인을 다시 한다.
@@ -99,6 +114,38 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
 - [x] **`SIIGBF_THUMBNAILONLY` 동작** — 자동 테스트로 옮겼다
       (`Thumbnail_ForItemWithoutAHandler_IsNull`·`Thumbnail_ForDirectory_IsNull`).
       처리기가 등록될 리 없는 확장자를 쓰므로 기계에 의존하지 않는다.
+- [x] **정말 휴지통에 들어가는가** — 들어간다. `probe recycle` 이 `%TEMP%\flex-dir-probe\`
+      에 파일을 만들어 `DeleteAsync` 로 지우면 원본이 사라지고 `C:\$Recycle.Bin` 아래에
+      **`$IEXRQRB.txt` · `$REXRQRB.txt` 쌍이 생긴다.** 그 쌍이 휴지통 항목의 실제 형태이므로
+      영구 삭제가 아니다 — `FOFX_RECYCLEONDELETE` 가 붙어 있다는 실물 증거다.
+      자동 테스트는 플래그가 실렸는지까지만 본다.
+- [x] **탐색기와 클립보드를 주고받는가** — 양방향 모두 실물에서 통했다. 판정은 우리 코드가
+      아닌 **독립 구현**(WinForms `Clipboard`)으로 했다.
+      - 우리가 싣고 → 남이 읽기: `probe clipboard copy` 뒤 포맷이
+        `FileDrop, FileNameW, FileName, Preferred DropEffect` 로 보이고
+        (`FileNameW`·`FileName` 은 Windows 가 `CF_HDROP` 에서 합성한 것이라, 시스템이 우리
+        `DROPFILES` 를 파싱했다는 뜻이다) `GetFileDropList()` 가 경로를 그대로 냈다.
+        **`Preferred DropEffect` 는 복사 1 · 잘라내기 2** 로 갈린다.
+      - 남이 싣고 → 우리가 읽기: WinForms `SetFileDropList` 로 실은 것을
+        `probe clipboard paste` 가 읽었고, 그쪽은 `Preferred DropEffect` 를 싣지 않아
+        **표시 없음 → 복사** 경로도 실물에서 확인됐다.
+      - 남은 것: **탐색기 창에서의 Ctrl+V 자체**는 사람이 눌러야 한다. 위는 같은 포맷을
+        읽는 다른 구현이지 탐색기가 아니다.
+- [x] **연결 프로그램이 실제로 뜨는가** — 뜬다. `probe activate <temp.txt>` 가 **174ms** 에
+      돌아오고 그 직후 `notepad` 프로세스가 0 → 2 로 늘었다. `SEE_MASK_NOASYNC` 를 줬지만
+      프로그램의 종료를 기다리지 않는다(프로세스 핸들을 요청하지 않는다).
+- [ ] **연결 프로그램이 없는 확장자 · 대화상자 취소** — 확인하지 않았다. 그 경로는 shell 이
+      '연결 프로그램' 대화상자를 띄우고 **답을 기다리며 블로킹**하므로 자동 실행에서 부를 수
+      없다. `ERROR_NO_ASSOCIATION`(1155)·`ERROR_CANCELLED`(1223)를 오류로 만들지 않는다는
+      분기는 자동 테스트가 고정하고 있으니, 사람은 **대화상자가 실제로 뜨는지**만 보면 된다.
+- [ ] **파일 조작의 실패 경로** — 확인하지 않았다. 같은 이유다: 권한 없는 대상에 복사하면
+      shell 이 오류 대화상자를 띄워 블로킹한다. 다만 **없는 원본**은 shell 에 넘기기 전
+      (`SHCreateItemFromParsingName`)에 걸리므로 자동 테스트가 실물로 잡는다
+      (`Really_MissingSource_IsNotFound`).
+- [ ] **`SetOwnerWindow` 를 부르지 않는다** — `FlexDir.Shell` 은 창을 모른다(CLAUDE.md §1).
+      그래서 shell 의 진행률·충돌 대화상자에 소유 창이 없고 별도 작업표시줄 항목으로 뜬다.
+      **phase B 에서 창이 생긴 뒤 다시 본다** — 소유 창을 주려면 포트에 창 핸들을 흘려야
+      하므로 그 자체가 결정거리다.
 - [ ] **점보 아이콘의 메모리** — 96 을 물으면 `SHIL_JUMBO` 가 **256×256(256KB)** 을 준다
       (48 로 내리면 96 자리에서 흐려진다). 축소는 View 가 하고, 스케줄러의 확장자 캐시는
       비우지 않으므로 상주 프로세스(ADR-003)에서 계속 쌓인다. 확장자 100종이면 25MB 수준이라
