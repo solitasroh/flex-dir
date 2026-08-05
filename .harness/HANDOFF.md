@@ -109,6 +109,23 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
   CF_HDROP 마샬링을 대신한다(컴파일로 확인). 포트를 늘리지 말고 `PaneViewModel` 에
   `DropAsync(paths, targetFolder, isMove)` 만 더한다.
 
+### phase B 에서 `PaneViewModel` 에 새로 생기는 표면
+
+기존 것은 손대지 않는다. 아래가 전부 새로 추가되는 것이고, **전부 자동 채점 대상**이다.
+
+| 추가 | 무엇 | 근거 |
+|---|---|---|
+| `SetViewportSize(double w, double h)` | View 가 뷰포트 크기를 민다 | ADR-016 |
+| `Rows : IReadOnlyList<RowViewModel>` | wrap 3종의 합성 행. Details 는 안 쓴다 | ADR-016 |
+| `FocusedName : string?` | 포커스 항목. `PaneSelection.Anchor` 와 다르다 | `DESIGN.md` §9 |
+| `MoveFocus(FocusMove, bool extend, bool toggleOnly)` | 2D 이동 · Shift 확장 · Ctrl 토글 | `DESIGN.md` §9 |
+| `TypeAhead(char)` | 문자 점프. `TimeProvider` 주입으로 리셋 판정 | `DESIGN.md` §9 |
+| `DropAsync(paths, targetFolder, isMove, ct)` | 드롭 처리. 경로 파싱도 여기서 | `DESIGN.md` §9-1 |
+
+`GoBackAsync`·`GoForwardAsync`·`GoUpAsync`·`RefreshAsync` 는 **아직 `[RelayCommand]` 가
+아니다** — 평범한 `public Task` 다. `InputBindings` 는 `ICommand` 를 요구하므로 커맨드를
+씌워야 한다. 나머지 11개는 이미 커맨드다.
+
 ### 그 다음 (`manual-plan.md` §B 가 목록이다)
 
 - **창을 만들고 `WorkspaceViewModel` 을 `DataContext` 로 건다.** 조립은 이미 있다 —
@@ -223,6 +240,20 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 ```
 A. Shell interop   포트 8/8 ✅   잔여: IContextMenuProvider
 C. Host 뼈대        ✅  진입점 + DI + single instance + IUsageLog + 계측, 화면 없이 조립까지
-B. View            ← 다음. DESIGN §9 를 먼저 채운 뒤
+B. View            ← 다음. 선행 결정 넷 다 닫혔다 (DESIGN §9·§9-1 · ADR-016)
 → 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007, v1 완성 후)
 ```
+
+**phase B 를 쪼갠다면 이 순서를 권한다** (자율 실행 대상이 아니므로 `phases/` 에 넣지 않는다):
+
+```
+B-1  ViewModel 확장   Rows · FocusedName · MoveFocus · TypeAhead · DropAsync
+                     + 네비게이션 커맨드 4개.  화면 없이 전부 채점된다
+B-2  창 + Details     MainWindow · DataContext · Details 뷰 하나
+                     → 여기서 이미 매일 쓸 수 있다. 계측 둘을 붙인다
+B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
+B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
+```
+
+B-1 을 먼저 두는 이유: 그 덩이가 **화면 없이 전부 자동 채점된다.** 화면부터 붙이면
+2D 이동 규칙의 버그와 XAML 버그가 섞여서 나온다 (`CLAUDE.md` §5).
