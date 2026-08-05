@@ -105,7 +105,16 @@ public sealed class JsonViewStateStore : IViewStateStore
         ct.ThrowIfCancellationRequested();
 
         await MutateAsync(
-            document => document with { Global = new GlobalRecord(state.SplitterRatio, state.Window) },
+            document => document with
+            {
+                // 경로는 표시형으로 저장한다 — \\?\ 접두사 없는 쪽이 파일을 읽는 사람에게 낫고
+                // TryParse 가 도로 붙여 준다.
+                Global = new GlobalRecord(
+                    state.SplitterRatio,
+                    state.Window,
+                    state.LeftFolder?.DisplayPath,
+                    state.RightFolder?.DisplayPath),
+            },
             ct).ConfigureAwait(false);
     }
 
@@ -137,7 +146,11 @@ public sealed class JsonViewStateStore : IViewStateStore
 
         try
         {
-            return new GlobalViewState(stored.SplitterRatio, stored.Window);
+            return new GlobalViewState(
+                stored.SplitterRatio,
+                stored.Window,
+                ParseFolder(stored.LeftFolder),
+                ParseFolder(stored.RightFolder));
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -208,7 +221,15 @@ public sealed class JsonViewStateStore : IViewStateStore
         public Dictionary<string, FolderRecord>? Folders { get; init; }
     }
 
-    private sealed record GlobalRecord(double SplitterRatio, WindowPlacement? Window);
+    /// <summary>깨진 경로는 기억이 없는 것으로 다룬다 — 복원이 폴백으로 가면 된다.</summary>
+    private static LocationId? ParseFolder(string? path)
+        => path is not null && LocationId.TryParse(path, out var folder, out _) ? folder : null;
+
+    private sealed record GlobalRecord(
+        double SplitterRatio,
+        WindowPlacement? Window,
+        string? LeftFolder = null,
+        string? RightFolder = null);
 
     private sealed record FolderRecord(ViewMode Mode, List<SortOrder>? Sort);
 }

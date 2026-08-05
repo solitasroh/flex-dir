@@ -74,11 +74,15 @@ public sealed record FolderViewState(ViewMode Mode, IReadOnlyList<SortOrder> Sor
 /// <summary>
 /// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율 (docs/ARCHITECTURE.md §4).
 /// </summary>
-public sealed record GlobalViewState(double SplitterRatio, WindowPlacement? Window)
+public sealed record GlobalViewState(
+    double SplitterRatio,
+    WindowPlacement? Window,
+    Locations.LocationId? LeftFolder = null,
+    Locations.LocationId? RightFolder = null)
 {
     private readonly double splitterRatio = Validate(SplitterRatio);
 
-    /// <summary>절반 분할, 창 배치 기억 없음.</summary>
+    /// <summary>절반 분할, 창 배치·마지막 폴더 기억 없음 — 시작 폴더는 폴백으로 간다.</summary>
     public static GlobalViewState Default { get; } = new(0.5, null);
 
     /// <summary>

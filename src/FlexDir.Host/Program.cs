@@ -71,7 +71,11 @@ internal static class Program
 
         // 실행 자체가 첫 활성화다. 기다리지 않는다 — 메시지 펌프가 아직 돌지 않았고,
         // 여기서 기다리면 조립이 UI 스레드에서 열거를 기다리게 된다.
-        _ = router.ActivateAsync(args, lifetime.Token);
+        // 시작은 마지막 폴더 복원 → 활성화 순서다. 폴백은 사용자 프로필이다 (phase B-2 결정).
+        _ = router.StartAsync(
+            args,
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            lifetime.Token);
         _ = router.RunAsync(gate.ActivationsAsync(lifetime.Token), lifetime.Token);
 
         // cold start: 프로세스가 만들어진 순간부터 조립이 끝난 순간까지 (docs/PRD.md §5).
@@ -86,6 +90,9 @@ internal static class Program
         var code = application.Run();
 
         lifetime.Cancel();
+
+        // 마지막 폴더·스플리터·창 배치를 남긴다 — 다음 실행의 시작 상태다. 페인을 접기 전이다.
+        composition.Workspace.PersistAsync(CancellationToken.None).GetAwaiter().GetResult();
 
         // 여기까지 와야 STA 워커가 닫힌다. 창이 닫히는 것과는 다른 사건이다.
         composition.DisposeAsync().AsTask().GetAwaiter().GetResult();

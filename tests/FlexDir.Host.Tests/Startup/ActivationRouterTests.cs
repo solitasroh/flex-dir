@@ -51,6 +51,52 @@ public class ActivationRouterTests
     }
 
     [Fact]
+    public async Task StartAsync_RestoresTheLastFoldersOfBothPanes()
+    {
+        var left = Folder(@"C:\Temp\Left", "a.txt");
+        var right = Folder(@"C:\Temp\Right", "b.txt");
+        await viewStates.SaveGlobalAsync(
+            new FlexDir.Core.ViewState.GlobalViewState(0.5, null, left, right), CancellationToken.None);
+        var workspace = CreateWorkspace();
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
+
+        await router.StartAsync([], @"C:\Users\Me", CancellationToken.None);
+
+        Assert.Equal(left, workspace.Left.CurrentLocation);
+        Assert.Equal(right, workspace.Right.CurrentLocation);
+        Assert.Single(usage.Records);
+    }
+
+    [Fact]
+    public async Task StartAsync_WithoutMemory_OpensTheFallbackFolder()
+    {
+        var fallback = Folder(@"C:\Users\Me", "c.txt");
+        var workspace = CreateWorkspace();
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
+
+        await router.StartAsync([], @"C:\Users\Me", CancellationToken.None);
+
+        Assert.Equal(fallback, workspace.Left.CurrentLocation);
+        Assert.Equal(fallback, workspace.Right.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task StartAsync_TheFolderArgumentBeatsTheRestoredFolder()
+    {
+        // 복원이 먼저, 인자가 나중이다 — 사용자가 방금 요구한 폴더가 이겨야 한다.
+        var last = Folder(@"C:\Temp\Left", "a.txt");
+        var requested = Folder(@"C:\Windows", "w.txt");
+        await viewStates.SaveGlobalAsync(
+            new FlexDir.Core.ViewState.GlobalViewState(0.5, null, last, null), CancellationToken.None);
+        var workspace = CreateWorkspace();
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
+
+        await router.StartAsync([@"C:\Windows"], @"C:\Users\Me", CancellationToken.None);
+
+        Assert.Equal(requested, workspace.Left.CurrentLocation);
+    }
+
+    [Fact]
     public async Task ActivateAsync_PresentsTheWindowOnEveryActivation()
     {
         // 활성화 = 사용자가 창을 요구한 순간이다 (ADR-003). 첫 실행도, 상주 중 두 번째

@@ -103,23 +103,48 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         set => SetProperty(ref windowPlacement, value);
     }
 
-    /// <summary>저장된 전역 상태(스플리터 비율·창 배치)를 복원한다.</summary>
-    public async Task RestoreAsync(CancellationToken ct = default)
+    /// <summary>
+    /// 저장된 전역 상태(스플리터 비율·창 배치·마지막 폴더)를 복원한다.
+    /// <para>
+    /// 페인은 마지막 폴더로, 기억이 없으면 <paramref name="fallbackFolder"/> 로 간다 —
+    /// 빈 페인으로 시작하면 매번 주소를 쳐야 한다. 폴백마저 없으면 비워 둔다.
+    /// 사라진 폴더는 페인이 알아서 상위로 올라간다 (docs/PRD.md §4).
+    /// </para>
+    /// </summary>
+    public async Task RestoreAsync(Core.Locations.LocationId? fallbackFolder, CancellationToken ct = default)
     {
         var state = await LoadGlobalAsync(ct).ConfigureAwait(false);
 
         // 클램프를 지난다 — 저장된 값이 0.02 여도 페인 하나가 사라지지 않는다.
         SplitterRatio = state.SplitterRatio;
         WindowPlacement = state.Window;
+
+        var opens = new List<Task>(2);
+
+        if ((state.LeftFolder ?? fallbackFolder) is { } left)
+        {
+            opens.Add(Left.NavigateAsync(left, ct));
+        }
+
+        if ((state.RightFolder ?? fallbackFolder) is { } right)
+        {
+            opens.Add(Right.NavigateAsync(right, ct));
+        }
+
+        // 함께 연다 — 페인은 독립이라 한쪽이 느려도 (네트워크·대용량) 다른 쪽을 막지 않는다.
+        await Task.WhenAll(opens).ConfigureAwait(false);
     }
 
-    /// <summary>현재 전역 상태를 저장한다.</summary>
+    /// <summary>현재 전역 상태를 저장한다. 마지막 폴더가 다음 실행의 시작 폴더다.</summary>
     public async Task PersistAsync(CancellationToken ct = default)
     {
         try
         {
             await viewStates
-                .SaveGlobalAsync(new GlobalViewState(SplitterRatio, WindowPlacement), ct)
+                .SaveGlobalAsync(
+                    new GlobalViewState(
+                        SplitterRatio, WindowPlacement, Left.CurrentLocation, Right.CurrentLocation),
+                    ct)
                 .ConfigureAwait(false);
         }
         catch (Exception error) when (error is not OperationCanceledException)

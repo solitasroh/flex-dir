@@ -45,6 +45,30 @@ public sealed class ActivationRouter
     }
 
     /// <summary>
+    /// 첫 실행. 마지막 폴더를 복원한 뒤 첫 활성화를 처리한다 — 이 순서가 존재 이유다:
+    /// 복원이 활성화 뒤에 오면 인자로 요구한 폴더를 마지막 폴더가 덮는다.
+    /// </summary>
+    /// <param name="fallbackFolderPath">
+    /// 기억이 없을 때 여는 폴더 (사용자 프로필). 환경을 읽는 곳은 조립뿐이므로 경로
+    /// 문자열로 받고, 못 읽는 값이면 페인을 비워 둔다.
+    /// </param>
+    public async Task StartAsync(
+        IReadOnlyList<string> args,
+        string? fallbackFolderPath,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(args);
+
+        var fallback =
+            fallbackFolderPath is not null && LocationId.TryParse(fallbackFolderPath, out var parsed, out _)
+                ? parsed
+                : null;
+
+        await workspace.RestoreAsync(fallback, ct).ConfigureAwait(false);
+        await ActivateAsync(args, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// 한 번의 활성화. 사용을 남기고, 인자에 폴더가 있으면 <b>활성 페인</b>에서 연다.
     /// <para>
     /// 왼쪽에 못박지 않는다 — 오른쪽에서 일하는 중에 두 번째 실행이 왼쪽을 갈아치우면

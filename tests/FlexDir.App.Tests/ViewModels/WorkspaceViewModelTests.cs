@@ -263,7 +263,7 @@ public class WorkspaceViewModelTests
         await viewStates.SaveGlobalAsync(new GlobalViewState(0.35, placement), CancellationToken.None);
         var workspace = CreateWorkspace();
 
-        await workspace.RestoreAsync();
+        await workspace.RestoreAsync(null);
 
         Assert.Equal(0.35, workspace.SplitterRatio);
         Assert.Equal(placement, workspace.WindowPlacement);
@@ -277,7 +277,7 @@ public class WorkspaceViewModelTests
         await viewStates.SaveGlobalAsync(new GlobalViewState(0.02, null), CancellationToken.None);
         var workspace = CreateWorkspace();
 
-        await workspace.RestoreAsync();
+        await workspace.RestoreAsync(null);
 
         Assert.Equal(0.15, workspace.SplitterRatio);
     }
@@ -288,7 +288,7 @@ public class WorkspaceViewModelTests
         // 전역 뷰 상태는 캐시다 (CLAUDE.md §4). 읽지 못해도 창은 떠야 한다.
         var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), new FailingViewStateStore());
 
-        await workspace.RestoreAsync();
+        await workspace.RestoreAsync(null);
 
         Assert.Equal(GlobalViewState.Default.SplitterRatio, workspace.SplitterRatio);
         Assert.Null(workspace.WindowPlacement);
@@ -376,6 +376,63 @@ public class WorkspaceViewModelTests
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
+
+    // ── 시작 폴더 복원 (phase B-2) ────────────────────────────────
+
+    [Fact]
+    public async Task RestoreAsync_OpensTheLastFoldersOfBothPanes()
+    {
+        var left = Folder(@"C:\Temp\Left", ("a.txt", 100));
+        var right = Folder(@"C:\Temp\Right", ("b.txt", 100));
+        var fallback = Folder(@"C:\Users\Me", ("c.txt", 100));
+        await viewStates.SaveGlobalAsync(new GlobalViewState(0.5, null, left, right), CancellationToken.None);
+        var workspace = CreateWorkspace();
+
+        await workspace.RestoreAsync(fallback);
+
+        Assert.Equal(left, workspace.Left.CurrentLocation);
+        Assert.Equal(right, workspace.Right.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_WithoutMemory_FallsBackToTheGivenFolder()
+    {
+        // 처음 실행이거나 옛 파일이다 — 빈 페인 대신 폴백(사용자 프로필)을 연다.
+        var fallback = Folder(@"C:\Users\Me", ("c.txt", 100));
+        var workspace = CreateWorkspace();
+
+        await workspace.RestoreAsync(fallback);
+
+        Assert.Equal(fallback, workspace.Left.CurrentLocation);
+        Assert.Equal(fallback, workspace.Right.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_WithNoFallbackEither_LeavesThePanesEmpty()
+    {
+        var workspace = CreateWorkspace();
+
+        await workspace.RestoreAsync(null);
+
+        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Null(workspace.Right.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task PersistAsync_SavesTheCurrentFoldersOfBothPanes()
+    {
+        var left = Folder(@"C:\Temp\Left", ("a.txt", 100));
+        var right = Folder(@"C:\Temp\Right", ("b.txt", 100));
+        var workspace = CreateWorkspace();
+        await workspace.Left.NavigateAsync(left);
+        await workspace.Right.NavigateAsync(right);
+
+        await workspace.PersistAsync();
+
+        var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
+        Assert.Equal(left, state.LeftFolder);
+        Assert.Equal(right, state.RightFolder);
+    }
 
     // ── 클릭에 의한 활성 전환 ─────────────────────────────────────
 

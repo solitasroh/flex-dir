@@ -44,6 +44,34 @@ public abstract class ViewStateStoreContract
         Assert.Equal(state, await store.LoadGlobalAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task SavedGlobalState_KeepsTheLastFoldersOfBothPanes()
+    {
+        // 시작 폴더 복원의 근거다 — 다음 실행이 여기서 마지막 폴더를 읽는다 (phase B-2).
+        var store = CreateStore();
+        var state = new GlobalViewState(
+            0.5, null, Folder(@"C:\Temp\Left"), Folder(@"C:\Temp\Right"));
+
+        await store.SaveGlobalAsync(state, CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+        Assert.Equal(Folder(@"C:\Temp\Left"), loaded.LeftFolder);
+        Assert.Equal(Folder(@"C:\Temp\Right"), loaded.RightFolder);
+    }
+
+    [Fact]
+    public async Task SavedGlobalState_WithoutFolders_LoadsThemAsNull()
+    {
+        // 창을 한 번도 띄우지 않고 끝났거나 옛 파일이다 — 복원은 폴백으로 간다.
+        var store = CreateStore();
+
+        await store.SaveGlobalAsync(new GlobalViewState(0.4, null), CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+        Assert.Null(loaded.LeftFolder);
+        Assert.Null(loaded.RightFolder);
+    }
+
     // ── 기억이 없는 경우 ────────────────────────────────────────────
     // 처음 방문하는 폴더가 정상 상황이다. 예외가 아니다.
 
