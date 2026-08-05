@@ -8,9 +8,10 @@
 
 ## 한 줄
 
-A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2 골격(창 + Details)** 까지 끝났다.
-**앱이 창을 띄운다** — 실행하면 MainWindow 가 뜨고 Details 로 탐색·선택·조작이 된다(코드상).
-**실물 확인은 아직이다** — `manual-plan.md` §B-2 사람 확인 항목이 다음 세션의 첫 일이다.
+A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2(창 + Details) 완료**다.
+창·Details·키보드·클립보드·상주(닫기 = 숨기기)·트레이 완전 종료·시작 상태 복원까지
+**실물 확인됐고 계측도 예산 안이다** (2026-08-06). 매일 쓸 수 있다 — 다음은 B-3
+(아이콘·썸네일 + 나머지 뷰 3종). 가벼운 확인 잔여는 `manual-plan.md` §B-2 에 있다.
 
 ## 현재 상태
 
@@ -76,11 +77,11 @@ cold start **358ms**(첫 실행) / **123~134ms**(이후) — 목표 1.5s.
 두 번째 실행은 **124ms 에 exit 0** 이고 프로세스는 하나로 유지된다.
 상주 프로세스를 죽이면 다음 실행이 새 상주 프로세스가 된다.
 
-**계측 셋이 전부 붙었다**: ColdStart(Program) · WindowShown(`Startup/WindowPresenter`,
-매 활성화) · FirstItem(`Diagnostics/FirstItemMeter`, 페인 관찰자 좌우 각 1개).
-수치는 `%LOCALAPPDATA%\flex-dir\perf.log` 로 나온다 — **실물 수치는 아직 안 봤다.**
-"창을 닫아도 프로세스가 사는가"(`ResidentWindow` 가 닫기를 숨기기로 바꾼다)와
-완전 종료 경로(조작이 아직 없다)도 사람 확인 대상이다.
+**계측 셋이 전부 붙었고 실물 수치도 봤다** (2026-08-06 · perf.log): ColdStart(Program) ·
+WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/FirstItemMeter`,
+페인 관찰자 좌우 각 1개). **상주 중 WindowShown 3~9ms**(예산 100) ·
+**FirstItem 0~18ms**(예산 150) — 첫 표시만 367ms(창 생성 포함, 상주가 한 번만 내는 비용).
+닫기 = 숨기기 · 트레이 완전 종료 · 시작 상태 복원도 실물 확인됐다 (manual-plan §B-2).
 
 ## 다음 작업 — phase B (View)
 
@@ -257,16 +258,18 @@ B. View            ← 진행 중. B-1 완료 — 다음은 B-2 (창 + Details)
 ```
 B-1  ViewModel 확장   ✅ Rows · FocusedName · MoveFocus · TypeAhead · DropAsync
                      + 네비게이션 커맨드 4개.  화면 없이 전부 채점됐다 (App 258→321)
-B-2  창 + Details     ◐ 골격 + 시작 폴더 복원 + 계측 둘(WindowShown·FirstItem) +
+B-2  창 + Details     ✅ 골격 + 시작 폴더 복원 + 계측 둘(WindowShown·FirstItem) +
                      스플리터 비율·창 배치 복원/저장(SplitterSync·ResidentWindow) +
                      닫기 = 숨기기(상주) + 트레이 완전 종료(TrayMenu·NotifyIcon).
-                     실물 1차 확인됨 — 창·Details·키보드·클립보드. 코드는 다 들어갔고
-                     **남은 것은 사람 확인뿐이다** (manual-plan §B-2). 모니터 구성이
-                     바뀌면 복원 위치가 화면 밖일 수 있다(의도적으로 안 막았다 —
-                     필요해지면 VirtualScreen 클램프).
+                     핵심 경로 전부 실물 확인 (2026-08-06 · manual-plan §B-2) — 이때
+                     복원 PropertyChanged 의 스레드 친화성 잠복 버그도 잡았다.
+                     확인 잔여(가벼움): 클릭/더블클릭 조합 · 주소줄 오타 사유 ·
+                     Shift/Ctrl 키 조합 · 대용량 폴더 스크롤 · 두 번째 실행의 인자 폴더.
+                     모니터 구성이 바뀌면 복원 위치가 화면 밖일 수 있다(의도적으로 안
+                     막았다 — 필요해지면 VirtualScreen 클램프).
                      주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
                      Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
-                     → 여기서 이미 매일 쓸 수 있다
+                     → 매일 쓸 수 있다. 도그푸딩하며 B-3 로 간다
 B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
 B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
 ```
