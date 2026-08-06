@@ -196,6 +196,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private string freeSpaceText = string.Empty;
 
+    private IReadOnlyList<PathSegment> addressSegments = [];
+
+    private bool isAddressEditing;
+
     private Task freeSpaceWork = Task.CompletedTask;
     private string? renamingName;
     private string? focusedName;
@@ -492,6 +496,32 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 폴더 열기는 이 조회를 기다리지 않는다.
     /// </summary>
     internal Task FreeSpaceWork => freeSpaceWork;
+
+    /// <summary>
+    /// 주소줄 breadcrumb 의 칸들. 폴더를 열기 전에는 비어 있다 (목업 <c>.addr .seg</c>).
+    /// 칸을 누르면 <see cref="OpenAddressCommand"/> 가 그 칸의 <c>Path</c> 로 이동한다 —
+    /// 이동 경로를 하나로 유지하려고 새 커맨드를 만들지 않았다.
+    /// </summary>
+    public IReadOnlyList<PathSegment> AddressSegments
+    {
+        get => addressSegments;
+        private set => SetProperty(ref addressSegments, value);
+    }
+
+    /// <summary>
+    /// 주소줄이 breadcrumb 이 아니라 입력 상자인가. <c>Ctrl+L</c>·<c>Alt+D</c> 와 빈 자리
+    /// 클릭이 켜고 (docs/DESIGN.md §9), 이동이 끝나거나 포커스를 잃으면 꺼진다.
+    /// <para>
+    /// <b>View 가 쓴다.</b> 포커스는 View 계층의 상태이지만, 무엇이 보이는가는 두 요소의
+    /// 가시성을 함께 정하는 문제라 한 곳에 있어야 한다 — 양쪽에 두면 둘 다 보이거나 둘 다
+    /// 사라지는 순간이 생긴다.
+    /// </para>
+    /// </summary>
+    public bool IsAddressEditing
+    {
+        get => isAddressEditing;
+        set => SetProperty(ref isAddressEditing, value);
+    }
 
     /// <summary>
     /// wrap 뷰 3종의 합성 행. Details 는 이것을 지나지 않고 평평한 <see cref="Items"/> 를
@@ -1971,6 +2001,11 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     {
         CurrentLocation = location;
         AddressEdit = AddressText;
+        AddressSegments = PathSegments.Of(location);
+
+        // 주소를 쳐서 들어왔더라도 도착하면 breadcrumb 으로 돌아간다 — 그러지 않으면
+        // 한 번 편집한 페인이 영영 칸을 보여주지 않는다.
+        IsAddressEditing = false;
 
         // 히스토리에서 파생되는 값이라 값 비교로 걸러낼 수 없다. 이동마다 알린다.
         OnPropertyChanged(nameof(CanGoBack));

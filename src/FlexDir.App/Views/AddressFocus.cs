@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace FlexDir.App.Views;
 
@@ -34,7 +35,32 @@ public static class AddressFocus
         "IsAddressBox",
         typeof(bool),
         typeof(AddressFocus),
-        new PropertyMetadata(false));
+        new PropertyMetadata(false, OnAddressBoxChanged));
+
+    /// <summary>breadcrumb 목록의 표시. 빈 자리를 누르면 편집으로 들어간다.</summary>
+    public static readonly DependencyProperty IsCrumbsProperty = DependencyProperty.RegisterAttached(
+        "IsCrumbs",
+        typeof(bool),
+        typeof(AddressFocus),
+        new PropertyMetadata(false, OnCrumbsChanged));
+
+    /// <summary>
+    /// 주소줄이 입력 상자인가. 페인 루트에서 <c>IsAddressEditing</c> 과 양방향으로 묶인다
+    /// (<c>SplitterSync.Ratio</c> 와 같은 방식) — 그래서 이 파일은 ViewModel 타입을 모른다.
+    /// </summary>
+    public static readonly DependencyProperty IsEditingProperty = DependencyProperty.RegisterAttached(
+        "IsEditing",
+        typeof(bool),
+        typeof(AddressFocus),
+        new FrameworkPropertyMetadata(false, FrameworkPropertyMetadataOptions.BindsTwoWayByDefault));
+
+    public static bool GetIsCrumbs(DependencyObject element) => (bool)element.GetValue(IsCrumbsProperty);
+
+    public static void SetIsCrumbs(DependencyObject element, bool value) => element.SetValue(IsCrumbsProperty, value);
+
+    public static bool GetIsEditing(DependencyObject element) => (bool)element.GetValue(IsEditingProperty);
+
+    public static void SetIsEditing(DependencyObject element, bool value) => element.SetValue(IsEditingProperty, value);
 
     public static bool GetEnabled(DependencyObject element) => (bool)element.GetValue(EnabledProperty);
 
@@ -84,16 +110,116 @@ public static class AddressFocus
         // Alt 조합은 Key 가 System 으로 오고 진짜 키는 SystemKey 에 있다.
         var key = args.Key == Key.System ? args.SystemKey : args.Key;
 
-        if (!IsAddressFocusKey(key, Keyboard.Modifiers) || AddressBoxIn((DependencyObject)sender) is not { } address)
+        if (!IsAddressFocusKey(key, Keyboard.Modifiers) || sender is not DependencyObject root)
         {
             return;
         }
 
-        address.Focus();
+        if (BeginEditing(root))
+        {
+            args.Handled = true;
+        }
+    }
 
-        // 탐색기와 같다 — 바로 새 경로를 칠 수 있어야 한다.
-        address.SelectAll();
+    /// <summary>
+    /// 주소줄을 편집 상태로 바꾸고 입력 상자에 포커스를 준다.
+    /// <para>
+    /// <b>포커스는 한 박자 뒤에 준다.</b> 평소에 보이는 것은 breadcrumb 이고 입력 상자는
+    /// <c>Collapsed</c> 다 — 접힌 요소는 <see cref="UIElement.Focus"/> 를 받지 못한다.
+    /// <see cref="IsEditingProperty"/> 를 켜면 바인딩이 ViewModel 을 지나 가시성 트리거까지
+    /// 가는데 그 사이에 레이아웃이 한 번 돌아야 하므로, 그 뒤에 잡는다.
+    /// </para>
+    /// </summary>
+    private static bool BeginEditing(DependencyObject root)
+    {
+        SetIsEditing(root, true);
 
-        args.Handled = true;
+        root.Dispatcher.BeginInvoke(
+            DispatcherPriority.Input,
+            () =>
+            {
+                if (AddressBoxIn(root) is { IsVisible: true } address)
+                {
+                    address.Focus();
+
+                    // 탐색기와 같다 — 바로 새 경로를 칠 수 있어야 한다.
+                    address.SelectAll();
+                }
+            });
+
+        return true;
+    }
+
+    private static void OnAddressBoxChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not TextBox box || e.NewValue is not true)
+        {
+            return;
+        }
+
+        // 편집을 떠나는 자리는 둘이다. 포커스를 잃으면(다른 페인 클릭 · 목록 클릭) 접고,
+        // Esc 는 그 자리에서 접는다 — 이름변경 편집기와 같은 규약이다 (docs/DESIGN.md §9-1).
+        box.LostKeyboardFocus += (sender, _) => EndEditing(sender);
+
+        box.PreviewKeyDown += (sender, args) =>
+        {
+            if (args.Key != Key.Escape)
+            {
+                return;
+            }
+
+            // 되돌린다 — 쳐 놓은 글자가 breadcrumb 뒤에 남으면 다음 Ctrl+L 이 그것을 보여준다.
+            if (sender is TextBox editor)
+            {
+                editor.GetBindingExpression(TextBox.TextProperty)?.UpdateTarget();
+            }
+
+            EndEditing(sender);
+            args.Handled = true;
+        };
+    }
+
+    private static void EndEditing(object sender)
+    {
+        if (sender is DependencyObject element && PaneRootOf(element) is { } root)
+        {
+            SetIsEditing(root, false);
+        }
+    }
+
+    private static void OnCrumbsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is not UIElement crumbs || e.NewValue is not true)
+        {
+            return;
+        }
+
+        // 칸이 없는 빈 자리를 누르면 편집이다 (탐색기와 같다). 칸 자체는 Button 이 먼저
+        // 가져가므로 여기까지 오지 않는다.
+        crumbs.MouseLeftButtonDown += (sender, args) =>
+        {
+            if (sender is DependencyObject element && PaneRootOf(element) is { } root)
+            {
+                BeginEditing(root);
+                args.Handled = true;
+            }
+        };
+    }
+
+    /// <summary>
+    /// <see cref="EnabledProperty"/> 가 켜진 조상. 편집 상태는 페인 루트가 들고 있다 —
+    /// 그 자리가 ViewModel 과 바인딩된 유일한 지점이다.
+    /// </summary>
+    private static DependencyObject? PaneRootOf(DependencyObject element)
+    {
+        for (var current = element; current is not null; current = VisualTreeHelper.GetParent(current))
+        {
+            if (GetEnabled(current))
+            {
+                return current;
+            }
+        }
+
+        return null;
     }
 }

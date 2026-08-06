@@ -198,6 +198,31 @@
             </Style.Triggers>
         </Style>
 
+        <!-- breadcrumb 한 칸 (목업 .addr .seg). 높이는 주소 입력 영역 24 안에 들어간다 -->
+        <Style x:Key="CrumbButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border CornerRadius="3" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- Details 컬럼 헤더 버튼 — 클릭이 정렬이다 (ChangeSortCommand) -->
         <Style x:Key="HeaderButton" TargetType="Button">
             <Setter Property="FontSize" Value="11" />
@@ -552,7 +577,8 @@
             <!-- Ctrl+L·Alt+D 를 창이 아니라 여기서 받는다 — 키가 온 쪽이 곧 그 페인이다 -->
             <Border x:Name="PaneRoot" Background="{StaticResource PaneBgBrush}"
                     BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0"
-                    v:AddressFocus.Enabled="True">
+                    v:AddressFocus.Enabled="True"
+                    v:AddressFocus.IsEditing="{Binding IsAddressEditing, Mode=TwoWay}">
                 <DockPanel>
                     <!-- 툴바 36 (docs/DESIGN.md §1·§7) -->
                     <Border x:Name="ToolbarChrome" DockPanel.Dock="Top" Height="36"
@@ -593,16 +619,75 @@
                         <Border x:Name="AddrBox" Height="24" Margin="6,0,6,4" CornerRadius="4"
                                 Background="{StaticResource PaneBgBrush}"
                                 BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1">
-                            <TextBox Text="{Binding AddressEdit, UpdateSourceTrigger=PropertyChanged}"
-                                     BorderThickness="0" Background="Transparent" Margin="8,0,8,0"
-                                     VerticalContentAlignment="Center"
-                                     Foreground="{StaticResource TextBrush}"
-                                     v:AddressFocus.IsAddressBox="True">
-                                <TextBox.InputBindings>
-                                    <KeyBinding Key="Return" Command="{Binding OpenAddressCommand}"
-                                                CommandParameter="{Binding AddressEdit}" />
-                                </TextBox.InputBindings>
-                            </TextBox>
+                            <Grid>
+                                <!-- breadcrumb (목업 .addr .seg / .chev). 기본은 이쪽이고
+                                     편집 중에만 아래 TextBox 로 갈린다. 칸을 누르면 기존
+                                     OpenAddressCommand 가 그대로 받는다 — 이동 경로를
+                                     둘로 늘리지 않는다. -->
+                                <ItemsControl ItemsSource="{Binding AddressSegments}"
+                                              Margin="4,0,8,0" VerticalAlignment="Center"
+                                              Background="Transparent"
+                                              v:AddressFocus.IsCrumbs="True">
+                                    <ItemsControl.Style>
+                                        <Style TargetType="ItemsControl">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsAddressEditing}" Value="True">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </ItemsControl.Style>
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Orientation="Horizontal">
+                                                <!-- 구분자는 칸 사이에만. 첫 칸은 IsFirst 로 걸러진다 -->
+                                                <TextBlock Text="&#x203A;" Margin="1,0" VerticalAlignment="Center"
+                                                           FontSize="10" Foreground="{StaticResource Text2Brush}">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding IsFirst}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <Button Style="{StaticResource CrumbButton}"
+                                                        Content="{Binding Name}"
+                                                        Command="{Binding DataContext.OpenAddressCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                        CommandParameter="{Binding Path}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <TextBox Text="{Binding AddressEdit, UpdateSourceTrigger=PropertyChanged}"
+                                         BorderThickness="0" Background="Transparent" Margin="8,0,8,0"
+                                         VerticalContentAlignment="Center"
+                                         Foreground="{StaticResource TextBrush}"
+                                         v:AddressFocus.IsAddressBox="True">
+                                    <TextBox.Style>
+                                        <Style TargetType="TextBox">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsAddressEditing}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBox.Style>
+                                    <TextBox.InputBindings>
+                                        <KeyBinding Key="Return" Command="{Binding OpenAddressCommand}"
+                                                    CommandParameter="{Binding AddressEdit}" />
+                                    </TextBox.InputBindings>
+                                </TextBox>
+                            </Grid>
                         </Border>
                     </Border>
 
