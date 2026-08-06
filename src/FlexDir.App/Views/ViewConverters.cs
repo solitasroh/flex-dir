@@ -1,5 +1,11 @@
 using System.Globalization;
+using System.Windows;
 using System.Windows.Data;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+
+using FlexDir.Core.Presentation;
+using FlexDir.Core.ViewState;
 
 namespace FlexDir.App.Views;
 
@@ -61,9 +67,9 @@ public sealed class EnumEqualityConverter : IValueConverter
     {
         var equal = Equals(value, parameter);
 
-        if (targetType == typeof(System.Windows.Visibility))
+        if (targetType == typeof(Visibility))
         {
-            return equal ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+            return equal ? Visibility.Visible : Visibility.Collapsed;
         }
 
         return equal;
@@ -71,4 +77,74 @@ public sealed class EnumEqualityConverter : IValueConverter
 
     public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
         => throw new NotSupportedException("표시 전용이다.");
+}
+
+/// <summary>
+/// 뷰 모드가 목록의 소스를 고른다 — <c>[ViewMode, Items, Rows]</c> 를 받는다 (ADR-016).
+/// <para>
+/// 소스가 둘인 것이 의도다. Details 는 평평한 <c>Items</c> 를 그대로 쓰고 (10만 항목의 주
+/// 경로에 래퍼를 두지 않는다), wrap 뷰 3종만 합성 행 위에 선다. 목록 컨트롤은 하나이고
+/// 바뀌는 것은 소스와 <c>DataTemplate</c> 뿐이다 (ADR-002).
+/// </para>
+/// </summary>
+public sealed class ViewSourceConverter : IMultiValueConverter
+{
+    public object? Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
+        => values is [ViewMode mode, var items, var rows]
+            ? mode == ViewMode.Details ? items : rows
+            : null;
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("표시 전용이다.");
+}
+
+/// <summary>
+/// 픽셀을 그릴 수 있는 그림으로 바꾼다 — <c>[Thumbnail, Icon]</c> 을 받아 앞의 것을
+/// 우선한다.
+/// <para>
+/// 변환이 View 의 일인 이유: <c>FlexDir.Core</c> 는 WPF 를 모르므로 포트가 BGRA 버퍼를
+/// 낸다 (<see cref="ThumbnailBitmap"/>). 썸네일이 없으면 형식 아이콘이 남고, 둘 다 아직
+/// 없으면 빈칸이다 — 형식 아이콘이 먼저 채워지므로 빈칸은 잠깐이다
+/// (<c>ThumbnailRequestScheduler</c>).
+/// </para>
+/// </summary>
+public sealed class ThumbnailImageConverter : IMultiValueConverter
+{
+    public object? Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
+        => ToImage(values.OfType<ThumbnailBitmap>().FirstOrDefault());
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("표시 전용이다.");
+
+    /// <summary>
+    /// BGRA 버퍼를 <see cref="WriteableBitmap"/> 으로 옮긴다.
+    /// <para>
+    /// <b><see cref="PixelFormats.Pbgra32"/> 다 — <c>Bgra32</c> 가 아니다.</b> shell 이 주는
+    /// 픽셀은 알파가 곱해진 값이라, 곱하지 않은 형식으로 읽으면 반투명 가장자리가 어둡게
+    /// 번진다 (.harness/HANDOFF.md §phase B).
+    /// </para>
+    /// <para>
+    /// 얼려서 낸다. 그래야 UI 스레드가 아닌 곳에서 만들어도 되고 쓸 때마다 복사본이 생기지
+    /// 않는다 — 큰 아이콘 하나가 256×256(256KB)까지 온다.
+    /// </para>
+    /// </summary>
+    internal static BitmapSource? ToImage(ThumbnailBitmap? bitmap)
+    {
+        if (bitmap is null)
+        {
+            return null;
+        }
+
+        var image = new WriteableBitmap(bitmap.Width, bitmap.Height, 96, 96, PixelFormats.Pbgra32, null);
+
+        image.WritePixels(
+            new Int32Rect(0, 0, bitmap.Width, bitmap.Height),
+            bitmap.Pixels,
+            bitmap.Width * 4,
+            0);
+
+        image.Freeze();
+
+        return image;
+    }
 }
