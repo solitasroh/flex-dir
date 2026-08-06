@@ -37,6 +37,87 @@ public class ListInputTests
         Assert.Equal(expected, ListInput.Choose(modifiers));
     }
 
+    // ── 편집기 안의 클릭 (B-4 실물이 잡은 자리) ───────────────────
+
+    [Fact]
+    public void IsEditing_AClickInsideTheRenameEditor_IsNotTheListsBusiness()
+    {
+        // 편집기는 행 템플릿 안에 있으므로 그 클릭이 목록의 터널링 핸들러를 먼저 지난다.
+        // 목록이 포커스를 가져가면 편집기가 포커스를 잃고 — 그것이 취소다 (§9-1).
+        // 캐럿을 옮기려고 누른 것뿐인데 편집이 닫힌다.
+        OnSta(() =>
+        {
+            var editor = new TextBox();
+            var list = new Border { Child = new Border { Child = editor, DataContext = Item("a.txt") } };
+
+            Assert.True(ListInput.IsEditing(list, editor));
+        });
+    }
+
+    [Fact]
+    public void IsEditing_AClickOnTheRowItself_IsTheListsBusiness()
+    {
+        OnSta(() =>
+        {
+            var text = new TextBlock();
+            var list = new Border { Child = new Border { Child = text, DataContext = Item("a.txt") } };
+
+            Assert.False(ListInput.IsEditing(list, text));
+        });
+    }
+
+    [Fact]
+    public void IsEditing_WithoutAnOrigin_IsFalse()
+    {
+        OnSta(() => Assert.False(ListInput.IsEditing(new Border(), null)));
+    }
+
+    // ── 선택 확정을 미루는가 (phase B-4) ──────────────────────────
+
+    [Theory]
+    // 이미 선택된 항목을 평 클릭했다 — 여기서 선택을 접으면 여러 개를 끌 수 없다.
+    // 무엇을 할지는 마우스를 뗄 때 정해진다 (탐색기와 같다)
+    [InlineData(ModifierKeys.None, 1, true, true)]
+    // 선택 밖을 눌렀다 — 지금 선택해야 그것이 끌린다
+    [InlineData(ModifierKeys.None, 1, false, false)]
+    // 수정키는 선택 자체가 목적이다. 미루면 Ctrl 클릭이 눈에 반응하지 않는다
+    [InlineData(ModifierKeys.Control, 1, true, false)]
+    [InlineData(ModifierKeys.Shift, 1, true, false)]
+    // 두 번째 클릭은 열기다
+    [InlineData(ModifierKeys.None, 2, true, false)]
+    public void DefersSelection_OnlyWhenTheClickMightBecomeADrag(
+        ModifierKeys modifiers,
+        int clicks,
+        bool isSelected,
+        bool expected)
+    {
+        Assert.Equal(expected, ListInput.DefersSelection(modifiers, clicks, isSelected));
+    }
+
+    // ── 재클릭 이름변경 (phase B-4 · docs/DESIGN.md §9-1) ─────────
+
+    [Theory]
+    // 평 클릭 · 유일한 선택 · 이미 포커스가 있던 목록 — 셋이 다 맞을 때만이다
+    [InlineData(ModifierKeys.None, 1, true, true, true)]
+    // 두 번째 클릭은 열기다. 편집을 열어 두면 그 위로 더블클릭이 떨어진다
+    [InlineData(ModifierKeys.None, 2, true, true, false)]
+    // 선택을 바꾸는 클릭은 이름변경이 아니다
+    [InlineData(ModifierKeys.Control, 1, true, true, false)]
+    [InlineData(ModifierKeys.Shift, 1, true, true, false)]
+    // 방금 선택된 항목·다중 선택은 무엇의 이름인지 정해지지 않는다
+    [InlineData(ModifierKeys.None, 1, false, true, false)]
+    // 반대편 페인을 누른 것이다 — 2분할에서 페인 전환 클릭은 일상이라 여기서 걸러야 한다
+    [InlineData(ModifierKeys.None, 1, true, false, false)]
+    public void IsRenameGesture_OnlyWhenTheClickChangesNothing(
+        ModifierKeys modifiers,
+        int clicks,
+        bool wasSoleSelection,
+        bool listHadFocus,
+        bool expected)
+    {
+        Assert.Equal(expected, ListInput.IsRenameGesture(modifiers, clicks, wasSoleSelection, listHadFocus));
+    }
+
     // ── 눌린 자리 → 항목 (phase B-3 · ADR-016) ────────────────────
 
     [Fact]
@@ -106,7 +187,9 @@ public class ListInputTests
         ListInput.SetRangeCommand(element, command);
         ListInput.SetOpenCommand(element, command);
         ListInput.SetEmptyCommand(element, command);
+        ListInput.SetRenameCommand(element, command);
 
+        Assert.Same(command, ListInput.GetRenameCommand(element));
         Assert.Same(command, ListInput.GetSelectCommand(element));
         Assert.Same(command, ListInput.GetToggleCommand(element));
         Assert.Same(command, ListInput.GetRangeCommand(element));

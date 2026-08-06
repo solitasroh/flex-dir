@@ -26,6 +26,7 @@
         <KeyBinding Key="X" Modifiers="Control" Command="{Binding ActivePane.CutSelectionCommand}" />
         <KeyBinding Key="V" Modifiers="Control" Command="{Binding ActivePane.PasteCommand}" />
         <KeyBinding Key="Delete" Command="{Binding ActivePane.DeleteSelectionCommand}" />
+        <KeyBinding Key="F2" Command="{Binding ActivePane.BeginRenameCommand}" />
         <KeyBinding Key="N" Modifiers="Control+Shift" Command="{Binding ActivePane.CreateFolderCommand}" />
         <KeyBinding Key="A" Modifiers="Control" Command="{Binding ActivePane.SelectAllCommand}" />
         <KeyBinding Key="Tab" Command="{Binding SwitchPaneCommand}" />
@@ -219,6 +220,54 @@
             </Style.Triggers>
         </Style>
 
+        <!-- ═══ 이름변경 인라인 편집 (docs/DESIGN.md §9-1) ═══
+             편집기를 여는 것은 행 템플릿이다 — RenamingName 과 자기 이름을 비교한다. 그래서
+             아직 목록에 없는 이름(방금 만든 폴더)도 그 항목이 들어오는 순간 저절로 열린다.
+             Collapsed 인 요소는 측정되지 않아 TextBox 템플릿이 적용되지 않는다 — 행마다
+             편집기를 미리 두어도 실현 비용은 객체 하나다. -->
+        <Style x:Key="EditingName" TargetType="FrameworkElement">
+            <Setter Property="Tag">
+                <Setter.Value>
+                    <MultiBinding Converter="{StaticResource NameEquality}">
+                        <Binding Path="DataContext.RenamingName" RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                        <Binding Path="Name" />
+                    </MultiBinding>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 이름 글자 — 편집 중에는 자리를 편집기에 내준다 -->
+        <Style x:Key="ItemName" TargetType="TextBlock" BasedOn="{StaticResource EditingName}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 편집기 — AddressFocus.IsAddressBox 를 달지 않는다. 주소줄을 표시로 찾는 이유가
+             바로 이 TextBox 다 (Views/AddressFocus.cs) -->
+        <Style x:Key="ItemNameEditor" TargetType="TextBox" BasedOn="{StaticResource EditingName}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="v:RenameEditor.Enabled" Value="True" />
+            <Setter Property="v:RenameEditor.CommitCommand"
+                    Value="{Binding DataContext.CommitRenameCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+            <Setter Property="v:RenameEditor.CancelCommand"
+                    Value="{Binding DataContext.CancelRenameCommand, RelativeSource={RelativeSource AncestorType=ListBox}}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
         <!-- 아이콘·썸네일. 썸네일이 있으면 그것, 없으면 형식 아이콘이다 — 크기만 뷰가 정한다.
              96 요청은 SHIL_JUMBO 의 256×256 을 내므로 축소가 여기서 일어난다 -->
         <Style x:Key="ItemIcon" TargetType="Image">
@@ -251,8 +300,10 @@
                                 <ColumnDefinition Width="*" />
                             </Grid.ColumnDefinitions>
                             <Image Style="{StaticResource ItemIcon}" Width="16" Height="16" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="6,0,0,0" VerticalAlignment="Center"
+                            <TextBlock Grid.Column="1" Style="{StaticResource ItemName}" Text="{Binding Name}"
+                                       Margin="6,0,0,0" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
+                            <TextBox Grid.Column="1" Style="{StaticResource ItemNameEditor}" Margin="6,0,0,0" />
                         </Grid>
                         <TextBlock Grid.Column="1" Text="{Binding SizeText}" Margin="8,0" VerticalAlignment="Center"
                                    HorizontalAlignment="Right" Foreground="{StaticResource Text2Brush}" />
@@ -276,8 +327,10 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Image Style="{StaticResource ItemIcon}" Width="16" Height="16" VerticalAlignment="Center" />
-                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="6,0,0,0" VerticalAlignment="Center"
+                        <TextBlock Grid.Column="1" Style="{StaticResource ItemName}" Text="{Binding Name}"
+                                   Margin="6,0,0,0" VerticalAlignment="Center"
                                    TextTrimming="CharacterEllipsis" />
+                        <TextBox Grid.Column="1" Style="{StaticResource ItemNameEditor}" Margin="6,0,0,0" />
                     </Grid>
                 </Border>
             </Border>
@@ -298,7 +351,8 @@
                         </Grid.ColumnDefinitions>
                         <Image Style="{StaticResource ItemIcon}" Width="32" Height="32" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Style="{StaticResource ItemName}" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBox Style="{StaticResource ItemNameEditor}" HorizontalAlignment="Left" MinWidth="140" />
                             <TextBlock Text="{Binding TypeText}" FontSize="11" TextTrimming="CharacterEllipsis"
                                        Foreground="{StaticResource Text2Brush}" />
                             <TextBlock Text="{Binding SizeText}" FontSize="11" TextTrimming="CharacterEllipsis"
@@ -326,9 +380,11 @@
                 <Border Style="{StaticResource ItemFocus}">
                     <StackPanel Margin="6" VerticalAlignment="Center">
                         <Image Style="{StaticResource ItemIcon}" Width="96" Height="96" HorizontalAlignment="Center" />
-                        <TextBlock Text="{Binding Name}" Width="104" Margin="0,4,0,0" TextAlignment="Center"
+                        <TextBlock Style="{StaticResource ItemName}" Text="{Binding Name}" Width="104" Margin="0,4,0,0"
+                                   TextAlignment="Center"
                                    TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
                                    LineHeight="14" LineStackingStrategy="BlockLineHeight" MaxHeight="28" />
+                        <TextBox Style="{StaticResource ItemNameEditor}" Width="104" Margin="0,4,0,0" />
                     </StackPanel>
                 </Border>
             </Border>
@@ -521,7 +577,10 @@
                                      v:ListInput.ToggleCommand="{Binding ToggleItemCommand}"
                                      v:ListInput.RangeCommand="{Binding RangeSelectItemCommand}"
                                      v:ListInput.OpenCommand="{Binding ActivateCommand}"
-                                     v:ListInput.EmptyCommand="{Binding ClickBackgroundCommand}">
+                                     v:ListInput.EmptyCommand="{Binding ClickBackgroundCommand}"
+                                     v:ListInput.RenameCommand="{Binding BeginRenameCommand}"
+                                     v:ListInput.ContextMenuCommand="{Binding ShowContextMenuCommand}"
+                                     v:DragDropInput.Enabled="True">
                                 <ListBox.ItemsSource>
                                     <MultiBinding Converter="{StaticResource ViewSource}">
                                         <Binding Path="ViewMode" />

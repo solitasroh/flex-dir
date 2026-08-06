@@ -1,9 +1,14 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 using FlexDir.App.ViewModels;
+
+using FlexDir.Core.Operations;
 
 namespace FlexDir.App.Views;
 
@@ -47,6 +52,28 @@ public static class ListInput
         DependencyProperty.RegisterAttached(
             "EmptyCommand", typeof(ICommand), typeof(ListInput), new PropertyMetadata(null));
 
+    public static readonly DependencyProperty RenameCommandProperty =
+        DependencyProperty.RegisterAttached(
+            "RenameCommand", typeof(ICommand), typeof(ListInput), new PropertyMetadata(null));
+
+    public static readonly DependencyProperty ContextMenuCommandProperty =
+        DependencyProperty.RegisterAttached(
+            "ContextMenuCommand", typeof(ICommand), typeof(ListInput), new PropertyMetadata(null));
+
+    /// <summary>
+    /// 더블클릭을 기다리는 타이머. 마우스는 하나이므로 대기 중인 제스처도 하나다 —
+    /// 페인마다 두지 않는다. UI 스레드에서만 만져진다.
+    /// </summary>
+    private static DispatcherTimer? renameTimer;
+
+    private static ItemsControl? renameList;
+
+    /// <summary>
+    /// 마우스를 뗄 때까지 미뤄 둔 평 클릭. 눌린 항목이 이미 선택돼 있으면 지금 선택을
+    /// 접지 않는다 — 접으면 여러 개를 끌 수 없다 (탐색기와 같다).
+    /// </summary>
+    private static DeferredClick? deferred;
+
     public static ICommand? GetSelectCommand(DependencyObject element) => (ICommand?)element.GetValue(SelectCommandProperty);
 
     public static void SetSelectCommand(DependencyObject element, ICommand? value) => element.SetValue(SelectCommandProperty, value);
@@ -66,6 +93,74 @@ public static class ListInput
     public static ICommand? GetEmptyCommand(DependencyObject element) => (ICommand?)element.GetValue(EmptyCommandProperty);
 
     public static void SetEmptyCommand(DependencyObject element, ICommand? value) => element.SetValue(EmptyCommandProperty, value);
+
+    public static ICommand? GetRenameCommand(DependencyObject element) => (ICommand?)element.GetValue(RenameCommandProperty);
+
+    public static void SetRenameCommand(DependencyObject element, ICommand? value) => element.SetValue(RenameCommandProperty, value);
+
+    public static ICommand? GetContextMenuCommand(DependencyObject element) => (ICommand?)element.GetValue(ContextMenuCommandProperty);
+
+    public static void SetContextMenuCommand(DependencyObject element, ICommand? value) => element.SetValue(ContextMenuCommandProperty, value);
+
+    /// <summary>
+    /// 우클릭이 선택을 바꾸는가. <b>선택 밖을 누를 때만</b>이다 — 여러 개를 고른 뒤 그 위에서
+    /// 우클릭하는 것이 일상 조작이라 거기서 선택을 접으면 메뉴가 엉뚱한 대상에 뜬다
+    /// (탐색기와 같다).
+    /// </summary>
+    internal static bool SelectsBeforeMenu(bool hasItem, bool isSelected) => hasItem && !isSelected;
+
+    /// <summary>
+    /// 이 클릭이 이름변경 제스처인가 (docs/DESIGN.md §9-1).
+    /// <para>
+    /// <b>아무것도 바꾸지 않는 클릭</b>일 때만이다 — 수정키가 없고, 첫 클릭이고, 그 항목이
+    /// 이미 유일한 선택이고, 목록에 이미 키보드 포커스가 있었을 때. 마지막 조건은 2분할이라
+    /// 있다: 반대편 페인을 눌러 활성을 옮기는 것이 일상 조작인데 그때마다 이름변경이 뜨면
+    /// 사고가 난다.
+    /// </para>
+    /// <para>
+    /// 여기서 참이어도 곧바로 열지 않는다 — 더블클릭 시간만큼 기다린다. 두 번째 클릭이
+    /// 오면 그것은 열기다.
+    /// </para>
+    /// </summary>
+    internal static bool IsRenameGesture(ModifierKeys modifiers, int clicks, bool wasSoleSelection, bool listHadFocus)
+        => modifiers == ModifierKeys.None && clicks == 1 && wasSoleSelection && listHadFocus;
+
+    /// <summary>
+    /// 선택 확정을 마우스를 뗄 때까지 미룰 것인가.
+    /// <para>
+    /// 이미 선택된 항목을 평 클릭하면 미룬다 — 여기서 선택을 그 하나로 접으면 여러 개를
+    /// 끌 수 없다 (탐색기가 같은 이유로 같은 일을 한다). 선택 밖을 누른 것은 미루지 않는다:
+    /// 지금 선택돼야 그것이 끌린다. 수정키가 붙은 클릭도 미루지 않는다 — 선택 자체가
+    /// 목적이라 눈에 바로 반응해야 한다.
+    /// </para>
+    /// </summary>
+    internal static bool DefersSelection(ModifierKeys modifiers, int clicks, bool isSelected)
+        => Choose(modifiers) == ListClick.Select && clicks == 1 && isSelected;
+
+    /// <summary>
+    /// 대기 중인 클릭 후속을 접는다 — 미뤄 둔 선택과 이름변경 타이머 둘 다. 드래그가
+    /// 시작되면 그 클릭은 선택 변경도 이름변경도 아니다.
+    /// </summary>
+    internal static void CancelPendingClick()
+    {
+        renameTimer?.Stop();
+        renameList = null;
+        deferred = null;
+    }
+
+    /// <summary>
+    /// 더블클릭 판정 시간. WPF 가 <c>ClickCount</c> 안에서만 쓰고 밖으로 열지 않아 직접
+    /// 묻는다 — <c>SystemParameters.MinimumHorizontalDragDistance</c> 와 같은 성격의 시스템
+    /// 메트릭이고, 사용자가 마우스 속도를 바꾸면 따라가야 한다.
+    /// </summary>
+    /// <remarks>
+    /// <c>LibraryImport</c> 가 아니라 <c>DllImport</c> 다. 생성기가 <c>AllowUnsafeBlocks</c>
+    /// 를 요구하는데 (SYSLIB1062) 인자도 마샬링도 없는 호출 하나 때문에 <c>FlexDir.App</c>
+    /// 전체에 unsafe 를 켤 이유가 없다 — 켜는 것은 정말 interop 을 하는
+    /// <c>FlexDir.Shell</c> 뿐이다.
+    /// </remarks>
+    [DllImport("user32.dll")]
+    private static extern uint GetDoubleClickTime();
 
     /// <summary>
     /// 수정키 → 조작. Shift 가 Ctrl 보다 세다 (탐색기와 같다 — Ctrl+Shift 클릭은 범위 선택).
@@ -93,7 +188,48 @@ public static class ListInput
         }
 
         list.PreviewMouseLeftButtonDown += OnMouseDown;
+        list.PreviewMouseLeftButtonUp += OnMouseUp;
+        list.PreviewMouseRightButtonUp += OnRightButtonUp;
         list.MouseDoubleClick += OnDoubleClick;
+    }
+
+    /// <summary>
+    /// 우클릭 — 대상을 정하고 컨텍스트 메뉴를 연다. 뗄 때 여는 것이 탐색기와 같다.
+    /// </summary>
+    private static void OnRightButtonUp(object sender, MouseButtonEventArgs args)
+    {
+        var list = (ItemsControl)sender;
+
+        // 편집기 안의 우클릭은 TextBox 자신의 메뉴(잘라내기·복사·붙여넣기)다.
+        if (IsEditing(list, args.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        var item = ItemAt(list, args.OriginalSource as DependencyObject);
+        var selected = item is not null && SelectionOf(list)?.IsSelected(item.Name) == true;
+
+        if (list.Focusable)
+        {
+            list.Focus();
+        }
+
+        if (SelectsBeforeMenu(item is not null, selected))
+        {
+            GetSelectCommand(list)?.Execute(item);
+        }
+        else if (item is null)
+        {
+            // 빈 곳이면 선택을 풀고 폴더 배경 메뉴를 연다.
+            GetEmptyCommand(list)?.Execute(null);
+        }
+
+        // shell 은 화면 좌표를 받는다. PointToScreen 이 내는 것이 그 픽셀이다.
+        var at = list.PointToScreen(args.GetPosition(list));
+
+        GetContextMenuCommand(list)?.Execute(new ScreenPoint((int)at.X, (int)at.Y));
+
+        args.Handled = true;
     }
 
     /// <summary>
@@ -123,9 +259,52 @@ public static class ListInput
         return null;
     }
 
+    /// <summary>
+    /// 눌린 자리가 이름변경 편집기 안인가.
+    /// <para>
+    /// 편집기는 행 템플릿 안에 있으므로 그 클릭이 <b>목록의 터널링 핸들러를 먼저 지난다</b>.
+    /// 거기서 목록이 포커스를 가져가면 편집기가 포커스를 잃고, 포커스 상실은 취소다
+    /// (docs/DESIGN.md §9-1) — 캐럿을 옮기려고 누른 것뿐인데 편집이 닫힌다.
+    /// B-4 실물에서 이 자리를 밟았다.
+    /// </para>
+    /// </summary>
+    internal static bool IsEditing(DependencyObject list, DependencyObject? origin)
+    {
+        var node = origin;
+
+        while (node is not null && node != list)
+        {
+            if (node is TextBoxBase)
+            {
+                return true;
+            }
+
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
+        }
+
+        return false;
+    }
+
     private static void OnMouseDown(object sender, MouseButtonEventArgs args)
     {
         var list = (ItemsControl)sender;
+
+        // 편집기 안의 클릭은 캐럿 조작이다. 목록이 손대면 편집이 닫힌다.
+        if (IsEditing(list, args.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        // 판정에 쓰는 셋은 클릭이 무엇을 바꾸기 전에 읽어야 한다 — 아래에서 포커스를 옮기고
+        // 선택 커맨드를 실행하므로 그 뒤에 물으면 언제나 참이 된다.
+        var hadFocus = list.IsKeyboardFocusWithin;
+        var item = ItemAt(list, args.OriginalSource as DependencyObject);
+        var selection = item is null ? null : SelectionOf(list);
+        var wasSelected = selection is not null && item is not null && selection.IsSelected(item.Name);
+        var wasSole = wasSelected && selection!.Count == 1;
+
+        // 새 클릭은 언제나 지난 클릭의 후속을 접는다.
+        CancelPendingClick();
 
         // 행 컨테이너는 포커스를 받지 않으므로 (내장 선택 배제) 클릭이 키보드 포커스를
         // 옮겨 주지 않는다. 여기서 목록에 준다 — 주소줄에 남으면 방향키가 주소를 편집한다.
@@ -134,11 +313,15 @@ public static class ListInput
             list.Focus();
         }
 
-        var item = ItemAt(list, args.OriginalSource as DependencyObject);
-
         if (item is null)
         {
             GetEmptyCommand(list)?.Execute(null);
+            return;
+        }
+
+        if (DefersSelection(Keyboard.Modifiers, args.ClickCount, wasSelected))
+        {
+            deferred = new DeferredClick(list, item, wasSole, hadFocus);
             return;
         }
 
@@ -152,15 +335,51 @@ public static class ListInput
         command?.Execute(item);
     }
 
+    /// <summary>
+    /// 미뤄 둔 클릭이 여기서 확정된다. 끌지 않았으므로 선택을 그 하나로 접는 것이 맞고,
+    /// 이름변경 대기도 여기서 시작한다 — 누른 채 끌기 시작한 클릭은 이름변경이 아니다.
+    /// </summary>
+    private static void OnMouseUp(object sender, MouseButtonEventArgs args)
+    {
+        // 편집기 안에서 뗀 것이다. 미뤄 둔 클릭은 그대로 두고 (다음 클릭이 접는다) 물러난다.
+        if (IsEditing((DependencyObject)sender, args.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        if (deferred is not { } click || !ReferenceEquals(click.List, sender))
+        {
+            return;
+        }
+
+        deferred = null;
+
+        GetSelectCommand(click.List)?.Execute(click.Item);
+
+        if (IsRenameGesture(Keyboard.Modifiers, args.ClickCount, click.WasSole, click.HadFocus))
+        {
+            ScheduleRename(click.List);
+        }
+    }
+
     private static void OnDoubleClick(object sender, MouseButtonEventArgs args)
     {
+        var list = (ItemsControl)sender;
+
+        // 편집기 안의 더블클릭은 단어 선택이다. 여기서 열면 이름을 고치던 파일이 실행된다.
+        if (IsEditing(list, args.OriginalSource as DependencyObject))
+        {
+            return;
+        }
+
+        // 두 번째 클릭이 왔다 — 이 클릭은 열기다.
+        CancelPendingClick();
+
         // 수정키를 누른 더블클릭은 열기가 아니다 — Ctrl 클릭 두 번은 토글 두 번이다.
         if (Keyboard.Modifiers != ModifierKeys.None)
         {
             return;
         }
-
-        var list = (ItemsControl)sender;
 
         if (ItemAt(list, args.OriginalSource as DependencyObject) is { } item)
         {
@@ -168,4 +387,38 @@ public static class ListInput
             args.Handled = true;
         }
     }
+
+    /// <summary>그 페인의 선택. 선택은 행이 아니라 페인이 이름으로 들고 있다 (ADR-011).</summary>
+    private static PaneSelection? SelectionOf(ItemsControl list)
+        => (list.DataContext as PaneViewModel)?.Selection;
+
+    private static void ScheduleRename(ItemsControl list)
+    {
+        // UI 스레드에서만 불린다 — Dispatcher 를 여기서 잡는 것이 안전한 이유다.
+        renameTimer ??= CreateRenameTimer();
+        renameList = list;
+        renameTimer.Start();
+    }
+
+    private static DispatcherTimer CreateRenameTimer()
+    {
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime()) };
+
+        timer.Tick += (_, _) =>
+        {
+            var list = renameList;
+
+            timer.Stop();
+            renameList = null;
+
+            if (list is not null)
+            {
+                GetRenameCommand(list)?.Execute(null);
+            }
+        };
+
+        return timer;
+    }
+
+    private sealed record DeferredClick(ItemsControl List, FileItemViewModel Item, bool WasSole, bool HadFocus);
 }
