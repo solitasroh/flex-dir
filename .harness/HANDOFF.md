@@ -8,16 +8,20 @@
 
 ## 한 줄
 
-**v1 의 기능이 전부 들어왔다.** A(포트 9/9) · C(Host) · B-1~B-4 완료 — 뷰 4종 · 아이콘 ·
-썸네일 · 이름변경 인라인 편집 · 드래그앤드롭 · shell 컨텍스트 메뉴가 **전부 실물
-확인됐다** (2026-08-06). 남은 것은 마감(제품 아이콘 · 커스텀 타이틀바)과 도그푸딩이다.
-확인 잔여는 `manual-plan.md` 에 있고 전부 "이 기계에서 못 보는 것"뿐이다.
+**v1 마감까지 끝났다.** A(포트 10/10) · C(Host) · B-1~B-4 에 더해 **제품 아이콘 ·
+32px 커스텀 타이틀바 · 주소줄 breadcrumb · 상태표시줄 여유 용량**이 들어왔고
+**도그푸딩 게이트 스크립트**가 준비됐다 (2026-08-06). 남은 것은 **매일 쓰기**다.
+
+이번 세션에 시안(`docs/mockups/v1-two-pane.html`)과 실물을 픽셀로 대조했다. 색 토큰 ·
+비활성 페인 강등 · 툴바 · 페인 테두리/라운드는 **이미 맞았고**, 달랐던 넷(타이틀바 ·
+breadcrumb · 여유 용량 · 페인 테두리)에서 **앞의 셋을 채웠다.** 네 번째는 오해였다 —
+아래 §시안 대조 참조.
 
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 앞 (B-1~B-4 작업분, 푸시하지 않았다)
-테스트   1139 통과   Core 349 · App 511 · Shell 214 · Host 65
+브랜치   main  ·  origin/main 보다 앞 (푸시하지 않았다)
+테스트   1173 통과   Core 360 · App 524 · Shell 218 · Host 71
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -33,7 +37,13 @@ pwsh -File scripts/check-structure.ps1
 dotnet build -c Release --nologo -warnaserror
 ```
 
-## 포트 현황 — 10/10
+## 포트 현황 — 11/11
+
+`IDriveSpace` 는 마감에서 늘었다 (여유 용량). 이름이 `Shell*` 이 아닌 이유는 COM 이
+아니어서다 — `DriveInfo` 는 `GetDiskFreeSpaceEx` 로 내려가므로 STA 도 정리도 필요 없고
+`AppComposition` 의 정리 목록에도 들어가지 않는다. **그래도 UI 스레드에서는 못 부른다**
+(네트워크·이동식 볼륨에서 초 단위 블로킹 — CLAUDE.md §3). 아파트먼트와 블로킹은 다른
+문제라는 것이 여기서도 그대로다 (§규칙 8).
 
 | 포트 | 구현 | 테스트 |
 |---|---|---|
@@ -47,6 +57,7 @@ dotnet build -c Release --nologo -warnaserror
 | `IClipboardBridge` | `Shell/Operations/ShellClipboardBridge.cs` | 24 |
 | `IUsageLog` | `Shell/Usage/FileUsageLog.cs` | 9 + fake 3 |
 | `IContextMenuProvider` | `Shell/Operations/ShellContextMenuProvider.cs` | 12 + fake 6 |
+| `IDriveSpace` | `Shell/Storage/FileSystemDriveSpace.cs` | 4 + fake 3 |
 | `IUiDispatcher` (App 의 포트) | `App/Threading/WpfUiDispatcher.cs` | 8 |
 
 공용 배관은 `Interop/StaWorkQueue.cs`(아파트먼트)와 `Interop/ShellInfoGate.cs`
@@ -89,18 +100,76 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 **FirstItem 0~18ms**(예산 150) — 첫 표시만 367ms(창 생성 포함, 상주가 한 번만 내는 비용).
 닫기 = 숨기기 · 트레이 완전 종료 · 시작 상태 복원도 실물 확인됐다 (manual-plan §B-2).
 
-## 다음 작업 — v1 마감
+## 다음 작업 — 매일 쓰기
 
-**phase B 는 끝났다.** 남은 것은 둘뿐이다.
+**마감이 끝났다.** 남은 것은 도그푸딩이다.
 
-- **제품 아이콘** — 트레이가 임시로 `SystemIcons.Application` 을 쓴다.
-- **커스텀 타이틀바** — 지금은 OS 기본 크롬이라 `DESIGN.md` §1 의 32px 와 다르다.
+### 도그푸딩 게이트 — 스크립트는 준비됐고 아직 켜지 않았다
 
-그 다음은 **매일 쓰기 → 도그푸딩 게이트 ON** (ADR-007). 게이트가 세는 것은 서로 다른
-날짜 수이고 `IUsageLog` 는 이미 기록하고 있다.
+`scripts/check-dogfooding.ps1` 이 `usage.log` 의 **서로 다른 날짜 수**를 센다
+(ADR-007: 지난 7일 중 5일). **차단하지 않고 보고만 하며 exit 0 이다** — 사용자 결정
+2026-08-06: "새 기능인가 버그 수정인가" 는 스크립트가 판정할 수 없고, 게이트 4종에
+넣으면 버그 수정마저 막히고 주말에 자기 저장소가 잠긴다.
+
+```
+pwsh -File scripts/check-dogfooding.ps1      # 지난 7일 중 N일 · PASS/BLOCK
+```
+
+**"켠다" = 세션 시작에 이것을 돌려 판정을 눈에 보이게 하고, BLOCK 이면 새 기능을 멈추는
+것이다.** 강제는 사람이 한다. 2026-08-06 기준 **2일** 이라 지금 켜면 즉시 BLOCK 이다 —
+그래서 마감 후로 미뤘고, 마감이 끝났으므로 이제 켤 수 있다.
+
+경계는 합성 로그로 확인했다: 창 밖(-7일) 제외 · 경계(-6일) 포함 · 같은 날 중복 1회 ·
+깨진 줄 무시 · 빈 파일 0일 · 파일 없음은 판정 유보.
 
 `DESIGN.md` §10 의 미결 둘(#4 밀도 옵션 · #5 비활성 페인 크롬 강등)은 이제 실물을 매일
 보며 판단하면 된다.
+
+### 사람이 눈으로 봐야 하는 것 (이번 세션이 남긴 것)
+
+자동 채점이 닿지 않아 남겨 둔 것들이다. `manual-plan.md` §마감 에 같은 목록이 있다.
+
+- [ ] **트레이 아이콘** — 알림 영역 오버플로(`^`)에 접혀 있어 캡처할 수 없었다.
+      펼쳐서 제품 아이콘이 보이는지, 우클릭 메뉴와 완전 종료가 그대로인지 본다.
+      (창·작업표시줄·exe 셋은 실물 확인됐다.)
+- [ ] **타이틀바 조작감** — 끌어서 옮기기 · 더블클릭 최대화 · Aero Snap · Win+방향키 ·
+      화면 위로 밀어 최대화. 전부 `WindowChrome.CaptionHeight` 가 OS 에 넘긴 것이라
+      우리 코드가 없다 — 그래서 **한 번은 손으로 만져 봐야 한다.**
+- [ ] **다른 배율·다른 모니터에서의 최대화.** 이 기계(2560×1440·100%)에서는 맞았다
+      (아래 §최대화 여백). 배율이 걸린 모니터나 작업표시줄이 옆에 있는 구성은 못 봤다.
+- [ ] **주소줄 breadcrumb 의 상호작용** — 칸 클릭으로 상위 이동 · 빈 자리 클릭으로 편집 ·
+      `Ctrl+L`/`Alt+D` 로 편집 진입 + 전체 선택 · `Esc` 로 breadcrumb 복귀 ·
+      `Enter` 로 이동. **표시는 실물 확인됐지만 키보드·클릭은 사람이 본다** (CLAUDE.md §5).
+      되돌리려면 `feat(core,app): 주소줄을 breadcrumb 으로 바꾼다` 하나만 되돌린다.
+- [ ] **여유 용량이 드라이브를 따라가는가** — 표시는 확인됐다(`여유 공간 252.8 GB`).
+      다른 드라이브 폴더로 옮겼을 때 값이 바뀌는지, USB 를 뽑으면 자리가 비는지는 못 봤다.
+
+### 시안 대조 (2026-08-06) — 실물 캡처 vs `docs/mockups/v1-two-pane.html`
+
+**이미 맞았던 것** (픽셀로 확인): 색 토큰 전부(창 `#F3F3F3` · 활성 크롬 `#F9F9F9` ·
+페인 `#FFFFFF`) · 비활성 페인 크롬 강등 · 툴바 구성과 구분선 · 활성 뷰 버튼 accent ·
+주소줄 활성 accent 테두리 · 상태표시줄 24px.
+
+**이번에 채운 것**: 32px 커스텀 타이틀바 · 주소줄 breadcrumb · 상태표시줄 여유 용량.
+
+**차이인 줄 알았으나 아니었던 것 — 페인 테두리·라운드는 처음부터 있었다.**
+`PaneRoot` 에 `BorderThickness="1" CornerRadius="6,6,0,0"` 이 있고 페인 그리드에
+좌우 4px 여백이 있다. 캡처에서 **창의 보이지 않는 리사이즈 테두리 8px**(PrintWindow 가
+검게 그린다)를 페인 가장자리로 읽어 "없다" 고 판단했던 것이다.
+실측: `x=8~11` 창 배경 · `x=12` `#E5E5E5` 테두리 · `x=13` 페인 흰색, 좌상단은
+`y=35→x=15` · `y=38→x=12` 로 라운드가 돈다.
+**교훈: PrintWindow 캡처의 바깥 8px 은 창이 아니다.** 클라이언트 원점은 `(8, 31)` 이다.
+
+### 최대화 여백 — 손대지 않기로 했다 (실측 근거)
+
+`WindowChrome` 창을 최대화하면 창 rect 가 `(-8,-8)-(2568,1400)` 으로 작업영역
+`(0,0)-(2560,1392)` 밖으로 사방 8px 나간다. **그런데 보이는 내용은 창 기준 `(8,8)` 에서
+시작해 화면 좌표로 정확히 작업영역과 맞는다 — 잘리지 않는다.**
+
+`WM_GETMINMAXINFO` 훅을 붙여 봤고 값도 맞게 왔지만(로그로 확인) **결과가 한 픽셀도
+달라지지 않아 걷어냈다.** 그 훅의 `MaxTrackSize` 클램프는 오히려 모니터를 옮길 때 새
+회귀를 만든다. 근거는 `MainWindow.xaml` 의 `WindowChrome` 주석에 남겼다.
+**다른 배율에서 실제로 잘리는 것을 보면 그때 다시 판단한다.**
 
 > 아래 §시안 · §B-1 표면 · §B-3 View 배선은 phase B 의 배경이다. **B-1~B-4 가 전부
 > 끝났으므로** 지금은 "왜 그렇게 돼 있는가" 를 읽는 자료다.
@@ -316,11 +385,30 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 ## 순서
 
 ```
-A. Shell interop   포트 9/9 ✅
+A. Shell interop   포트 11/11 ✅
 C. Host 뼈대        ✅  진입점 + DI + single instance + IUsageLog + 계측, 화면 없이 조립까지
 B. View            ✅  B-1·B-2·B-3·B-4 완료 — v1 기능이 전부 들어왔다
-→ 마감(제품 아이콘 · 커스텀 타이틀바) → 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007)
+마감               ✅  제품 아이콘 · 커스텀 타이틀바 · breadcrumb · 여유 용량 · 게이트 스크립트
+→ 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007)
 ```
+
+### 마감이 만든 표면
+
+| 파일 | 하는 일 |
+|---|---|
+| `assets/flex-dir.ico` | 16·32·48·256. **16·32 는 축소가 아니라 직접 그린 것**이다 |
+| `scripts/new-icon.ps1` | 원본 PNG 생성 (OpenAI 이미지 API · `.env` 의 키). 빌드와 무관 |
+| `scripts/make-ico.ps1` | 원본 PNG → `.ico`. 굽고 나서 **다시 읽어 확인한다** |
+| `scripts/check-dogfooding.ps1` | `usage.log` 의 서로 다른 날짜 수 (ADR-007) |
+| `Host/Startup/ProductIcon.cs` | 박아 둔 `.ico` 에서 크기별 프레임을 꺼낸다 (트레이용) |
+| `App/Views/WindowCaption.cs` | 캡션 커맨드 배선. `CommandBinding` 이 `*.xaml.cs` 로 가는 것을 막는다 |
+| `Core/Locations/PathSegments.cs` | 경로 → breadcrumb 칸. `IsFirst` 로 구분자 위치를 정한다 |
+| `Core/Storage/IDriveSpace.cs` | 여유 용량 포트. 모르면 `null` — `0 B` 와 다르다 |
+
+**아이콘을 다시 만들 때**: `.ico` 와 원본 PNG 가 저장소에 있으므로 API 키 없이
+`make-ico.ps1` 만 돌리면 된다. 도안을 바꿀 때만 `new-icon.ps1` 이 필요하다.
+그 스크립트는 **한 장씩 따로 보낸다** — `n=3` 을 `quality=high` 로 한 요청에 담으면
+게이트웨이가 먼저 끊고 Cloudflare 520 이 온다 (장당 45초 이상 걸린다).
 
 **phase B 를 쪼갠다면 이 순서를 권한다** (자율 실행 대상이 아니므로 `phases/` 에 넣지 않는다):
 
