@@ -64,9 +64,14 @@ public static class FocusScroll
     /// <summary>
     /// 그 이름을 보이게 하려면 목록의 무엇을 스크롤해야 하는가. 없으면 null 이다.
     /// <para>
-    /// wrap 뷰 3종에서 목록의 원소는 행이므로 (ADR-016) 항목을 그대로 주면
+    /// wrap 뷰 3종에서 목록의 원소는 행이고 (ADR-016), 그룹화를 켠 Details 에서는
+    /// <see cref="DetailRowViewModel"/> 이다 (ADR-017). 항목을 그대로 주면
     /// <c>ScrollIntoView</c> 가 찾지 못한다. 모르는 원소는 건너뛴다 — 바인딩이 아직 붙지
     /// 않았을 때 예외를 내면 목록 전체가 죽는다.
+    /// </para>
+    /// <para>
+    /// <b>소스 종류가 늘면 여기도 늘어야 한다.</b> 빠뜨리면 아무것도 매치하지 않아 조용히
+    /// null 이 되고, 증상은 "포커스는 움직이는데 화면이 따라오지 않는다" 로만 나타난다.
     /// </para>
     /// </summary>
     internal static object? Target(IEnumerable? source, string? name)
@@ -84,6 +89,10 @@ public static class FocusScroll
                     return item;
 
                 case RowViewModel row when row.Items.Any(item => Same(item.Name, name)):
+                    return row;
+
+                // 헤더는 Item 이 null 이라 걸리지 않는다 — 라벨이 이름과 같아도 마찬가지다.
+                case DetailRowViewModel { Item: { } owned } row when Same(owned.Name, name):
                     return row;
             }
         }

@@ -46,6 +46,32 @@ public class FocusScrollTests
         Assert.Same(second, FocusScroll.Target(source, "d.txt"));
     }
 
+    // 그룹화를 켠 Details 에서는 목록의 원소가 항목이 아니라 DetailRowViewModel 이다
+    // (docs/PRD-v2.md §6-1). 이것을 모르면 ScrollIntoView 가 아무것도 못 받아
+    // 포커스는 움직이는데 화면이 따라오지 않는다 — B-3 이 끝난 그 상태와 같다.
+    [Fact]
+    public void Target_InGroupedDetails_IsTheRowThatCarriesTheItem()
+    {
+        var wanted = DetailRowViewModel.ForItem(Item("d.txt"));
+        IEnumerable source = new object[]
+        {
+            DetailRowViewModel.Header("TXT", 2, false),
+            DetailRowViewModel.ForItem(Item("a.txt")),
+            wanted,
+        };
+
+        Assert.Same(wanted, FocusScroll.Target(source, "d.txt"));
+    }
+
+    // 헤더에는 항목이 없다. 이름과 라벨이 우연히 같아도 헤더로 스크롤하면 안 된다.
+    [Fact]
+    public void Target_NeverLandsOnAGroupHeader()
+    {
+        IEnumerable source = new object[] { DetailRowViewModel.Header("TXT", 1, false) };
+
+        Assert.Null(FocusScroll.Target(source, "TXT"));
+    }
+
     [Fact]
     public void Target_MatchesLikeTheFileSystem_IgnoringCase()
     {

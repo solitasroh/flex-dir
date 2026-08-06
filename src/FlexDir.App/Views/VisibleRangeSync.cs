@@ -38,8 +38,14 @@ public static class VisibleRangeSync
     public static void SetEnabled(DependencyObject element, bool value) => element.SetValue(EnabledProperty, value);
 
     /// <summary>
-    /// 컨테이너의 <c>DataContext</c> 를 항목 목록으로 편다. 소스가 둘인 것이 의도다
-    /// (ADR-016) — Details 는 항목이 그대로 오고, wrap 뷰 3종은 합성 행이 온다.
+    /// 컨테이너의 <c>DataContext</c> 를 항목 목록으로 편다. 소스가 여럿인 것이 의도다 —
+    /// 그룹화를 안 쓰는 Details 는 항목이 그대로 오고, wrap 뷰 3종은 합성 행(ADR-016),
+    /// 그룹화를 켠 Details 는 <see cref="DetailRowViewModel"/> 이 온다 (ADR-017).
+    /// <para>
+    /// <b>소스 종류가 늘면 여기도 늘어야 한다.</b> 빠뜨리면 그 뷰에서 보이는 범위가 늘
+    /// 비어 스케줄러가 아무것도 받지 못하고, 실패는 캐시되므로 (docs/PRD.md §4) 아이콘이
+    /// 끝까지 빈칸으로 남는다 — 화면만 보면 "아이콘 기능이 없다" 로 보인다.
+    /// </para>
     /// </summary>
     internal static List<FileItemViewModel> Flatten(IEnumerable<object?> containers)
     {
@@ -55,6 +61,11 @@ public static class VisibleRangeSync
 
                 case RowViewModel row:
                     visible.AddRange(row.Items);
+                    break;
+
+                // 헤더는 Item 이 null 이라 걸리지 않는다 — 그릴 그림이 없다.
+                case DetailRowViewModel { Item: { } owned }:
+                    visible.Add(owned);
                     break;
             }
         }

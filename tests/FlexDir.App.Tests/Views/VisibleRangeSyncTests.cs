@@ -43,6 +43,24 @@ public class VisibleRangeSyncTests
         Assert.Equal(items, visible);
     }
 
+    // 그룹화를 켠 Details 의 컨테이너는 DetailRowViewModel 이다 (docs/PRD-v2.md §6-1).
+    // 이것을 모르면 스크롤로 새로 실현된 행이 스케줄러에 영영 가지 않고, 실패는 캐시되므로
+    // (PRD §4) 그 페인의 아이콘이 끝까지 빈칸으로 남는다 — HANDOFF §규칙 9 와 같은 자리다.
+    [Fact]
+    public void Flatten_UnwrapsGroupedDetailRows()
+    {
+        var items = Items(2);
+
+        var visible = VisibleRangeSync.Flatten(
+        [
+            DetailRowViewModel.Header("TXT", 2, false),
+            DetailRowViewModel.ForItem(items[0]),
+            DetailRowViewModel.ForItem(items[1]),
+        ]);
+
+        Assert.Equal(items, visible);
+    }
+
     [Fact]
     public void Flatten_SkipsWhatIsNotARow()
     {
