@@ -53,15 +53,26 @@ public enum FocusMove
 /// </summary>
 public sealed class RowViewModel
 {
-    public RowViewModel(IReadOnlyList<FileItemViewModel> items)
+    public RowViewModel(IReadOnlyList<FileItemViewModel> items, int capacity)
     {
         ArgumentNullException.ThrowIfNull(items);
+        ArgumentOutOfRangeException.ThrowIfLessThan(capacity, items.Count);
 
         Items = items;
+        Capacity = capacity;
     }
 
     /// <summary>이 줄의 항목. 화면 순서이며 <c>PaneViewModel.Items</c> 와 인스턴스를 공유한다.</summary>
     public IReadOnlyList<FileItemViewModel> Items { get; }
+
+    /// <summary>
+    /// 이 줄이 몇 칸짜리인가. 마지막 줄에서만 <see cref="Items"/> 보다 크다.
+    /// <para>
+    /// 타일 칸은 가변 폭이라 (docs/DESIGN.md §2) 마지막 줄도 윗줄과 같은 칸 너비로 그려야
+    /// 한다 — 항목 수로 나누면 두 칸뿐인 마지막 줄이 화면을 반씩 차지한다.
+    /// </para>
+    /// </summary>
+    public int Capacity { get; }
 }
 
 /// <summary>
@@ -556,7 +567,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 line[offset] = Items[index + offset];
             }
 
-            built.Add(new RowViewModel(line));
+            built.Add(new RowViewModel(line, rowCapacity));
         }
 
         return built;

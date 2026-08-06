@@ -116,6 +116,19 @@ public class PaneRowsTests
         Assert.Same(pane.Items[0], pane.Rows[0].Items[0]);
     }
 
+    [Fact]
+    public async Task Rows_CarryTheSlotCountSoThePartialRowMatchesTheFullRows()
+    {
+        // 타일 칸은 가변 폭이다 (docs/DESIGN.md §2 — "최소 폭 220, 가변"). 마지막 줄이 두
+        // 칸뿐이어도 칸 너비는 윗줄과 같아야 하므로, 줄이 자기 칸 수를 들고 있어야 한다.
+        var pane = await OpenAsync(8, ViewMode.Tiles);
+
+        pane.SetViewportSize(700, 400);  // 3열
+
+        Assert.Equal([3, 3, 3], pane.Rows.Select(row => row.Capacity));
+        Assert.Equal([3, 3, 2], pane.Rows.Select(row => row.Items.Count));
+    }
+
     // ── 열 수가 바뀔 때만 다시 만든다 ─────────────────────────────
 
     [Fact]
