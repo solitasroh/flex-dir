@@ -1,6 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+
+using FlexDir.App.ViewModels;
 
 namespace FlexDir.App.Views;
 
@@ -93,6 +96,33 @@ public static class ListInput
         list.MouseDoubleClick += OnDoubleClick;
     }
 
+    /// <summary>
+    /// 눌린 자리의 항목. 빈 곳이면 null 이다.
+    /// <para>
+    /// 컨테이너를 묻지 않고 <c>DataContext</c> 를 거슬러 올라가는 이유: wrap 뷰 3종에서
+    /// 목록의 컨테이너는 <b>행</b>이다 (ADR-016). 거기서 멈추면 클릭이 항목에 닿지 않고
+    /// 커맨드가 받는 타입도 아니다. 마지막 줄의 남은 칸에서는 행만 만나고 끝나므로
+    /// 빈 곳으로 판정된다 — 선택이 풀리는 것이 맞다 (docs/DESIGN.md §9-1).
+    /// </para>
+    /// </summary>
+    internal static FileItemViewModel? ItemAt(DependencyObject list, DependencyObject? origin)
+    {
+        var node = origin;
+
+        while (node is not null && node != list)
+        {
+            if (node is FrameworkElement { DataContext: FileItemViewModel item })
+            {
+                return item;
+            }
+
+            // 시각 요소가 아니면 더 갈 수 없다 (GetParent 가 던진다). 우리 템플릿에는 없다.
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
+        }
+
+        return null;
+    }
+
     private static void OnMouseDown(object sender, MouseButtonEventArgs args)
     {
         var list = (ItemsControl)sender;
@@ -104,7 +134,7 @@ public static class ListInput
             list.Focus();
         }
 
-        var item = ItemAt(list, args.OriginalSource);
+        var item = ItemAt(list, args.OriginalSource as DependencyObject);
 
         if (item is null)
         {
@@ -132,23 +162,10 @@ public static class ListInput
 
         var list = (ItemsControl)sender;
 
-        if (ItemAt(list, args.OriginalSource) is { } item)
+        if (ItemAt(list, args.OriginalSource as DependencyObject) is { } item)
         {
             GetOpenCommand(list)?.Execute(item);
             args.Handled = true;
         }
-    }
-
-    /// <summary>눌린 자리의 항목. 빈 곳이면 null 이다.</summary>
-    private static object? ItemAt(ItemsControl list, object source)
-    {
-        if (source is not DependencyObject origin)
-        {
-            return null;
-        }
-
-        var container = ItemsControl.ContainerFromElement(list, origin);
-
-        return container is ListBoxItem row ? row.DataContext : null;
     }
 }
