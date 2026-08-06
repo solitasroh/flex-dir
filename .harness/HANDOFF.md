@@ -3,21 +3,21 @@
 > **이 파일은 `docs/` 아래 두지 않는다.** `docs/*.md` 중 셋은 harness `guardrails` 로 매 step
 > 프롬프트에 주입되므로, 세션 인수인계가 거기 들어가면 모든 구현 세션을 오염시킨다.
 >
-> 갱신: 2026-08-05. 함께 볼 것: [`manual-plan.md`](./manual-plan.md) — 수동 phase 계획과
+> 갱신: 2026-08-06. 함께 볼 것: [`manual-plan.md`](./manual-plan.md) — 수동 phase 계획과
 > 사람 확인 항목(프로브·실물 실측 결과가 거기 있다). 세션 커밋 이력은 `git log` 를 본다.
 
 ## 한 줄
 
-A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · **B-2(창 + Details) 완료**다.
-창·Details·키보드·클립보드·상주(닫기 = 숨기기)·트레이 완전 종료·시작 상태 복원까지
-**실물 확인됐고 계측도 예산 안이다** (2026-08-06). 매일 쓸 수 있다 — 다음은 B-3
-(아이콘·썸네일 + 나머지 뷰 3종). 가벼운 확인 잔여는 `manual-plan.md` §B-2 에 있다.
+A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · B-2(창 + Details) · **B-3(아이콘·썸네일
++ 뷰 3종) 완료**다. 뷰 4종이 전부 그려지고 shell 아이콘과 96px 실제 썸네일이 붙는 것까지
+**실물 확인됐다** (2026-08-06). 다음은 B-4 (이름변경 인라인 편집 · 드래그앤드롭 ·
+`IContextMenuProvider`). 키보드·체감 확인 잔여는 `manual-plan.md` §B-3 에 있다.
 
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 앞 (B-1·B-2 작업분, 푸시하지 않았다)
-테스트   979 통과   Core 343 · App 384 · Shell 192 · Host 60
+브랜치   main  ·  origin/main 보다 앞 (B-1·B-2·B-3 작업분, 푸시하지 않았다)
+테스트   1036 통과   Core 343 · App 437 · Shell 196 · Host 60
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -48,8 +48,10 @@ dotnet build -c Release --nologo -warnaserror
 | `IUsageLog` | `Shell/Usage/FileUsageLog.cs` | 9 + fake 3 |
 | `IUiDispatcher` (App 의 포트) | `App/Threading/WpfUiDispatcher.cs` | 8 |
 
-공용 배관은 `Interop/StaWorkQueue.cs`. **`IContextMenuProvider` 는 `FlexDir.Core` 에
-포트 정의부터 없다** — 창 핸들과 메뉴 메시지 펌핑이 필요해 의도적으로 미뤘다(§열린 결정).
+공용 배관은 `Interop/StaWorkQueue.cs`(아파트먼트)와 `Interop/ShellInfoGate.cs`
+(`SHGetFileInfo` 직렬화 — 둘은 다른 문제다, §규칙 8). **`IContextMenuProvider` 는
+`FlexDir.Core` 에 포트 정의부터 없다** — 창 핸들과 메뉴 메시지 펌핑이 필요해 의도적으로
+미뤘다(§열린 결정).
 
 확인용 프로브 `.harness/probe/` (ADR-015):
 `typeicons` · `thumbnail <경로>` · `leak [폴더]` · `activate <경로>` · `recycle` ·
@@ -83,7 +85,10 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 **FirstItem 0~18ms**(예산 150) — 첫 표시만 367ms(창 생성 포함, 상주가 한 번만 내는 비용).
 닫기 = 숨기기 · 트레이 완전 종료 · 시작 상태 복원도 실물 확인됐다 (manual-plan §B-2).
 
-## 다음 작업 — phase B (View)
+## 다음 작업 — phase B-4 (상호작용)
+
+> 아래 §시안 · §B-1 표면은 phase B 전체의 배경이다. **B-1·B-2·B-3 은 끝났다** — 남은 것은
+> 이 절 끝의 "그 다음 — B-4" 다.
 
 ### 시안은 이미 있다 — `docs/mockups/v1-two-pane.html`
 
@@ -123,7 +128,7 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 | `DropAsync(paths, targetFolder, isMove, ct)` | 경로 파싱 포함. 제자리 **이동**만 걸러낸다 (복사는 허용) |
 | `GoBack`·`GoForward`·`GoUp`·`RefreshCommand` | 네비게이션 넷이 커맨드로도 노출된다. 메서드 표면은 그대로다 |
 
-**B-2 (View) 가 알아야 하는 것**
+**View 가 알아야 하는 것 (B-2·B-3 에서 실제로 그렇게 배선했다)**
 
 - 뷰 3종의 `ItemsSource` 는 `Rows`, Details 는 `Items` 다. View 가 미는 것은
   `SetViewportSize` 와 `SetVisibleRange` 둘뿐이다.
@@ -133,15 +138,33 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 - 포커스가 없을 때 첫 방향키는 첫 항목에서 시작한다 (`End` 만 마지막). `Ctrl+Space` 는
   View 가 `Selection.Toggle(FocusedName)` 로 잇는다 (§9 키보드 맵 그대로).
 
-### 그 다음 (`manual-plan.md` §B 가 목록이다)
+### B-3 이 만든 View 배선 — 전부 `ItemsPanel` 에 붙는다
 
-- **창을 만들고 `WorkspaceViewModel` 을 `DataContext` 로 건다.** 조립은 이미 있다 —
-  `AppComposition.Create` 가 `Workspace` 를 낸다. `Program.RunResident` 에 창을 띄우는
-  줄을 더하고, 활성화 때 창을 앞으로 가져오는 경로를 `ActivationRouter` 에 붙인다.
-- **`SetVisibleRange` 를 미는 attached behavior.** ViewModel 쪽 배선은 끝났다 —
-  `PaneViewModel.SetVisibleRange(IReadOnlyList<FileItemViewModel>)` 를 스크롤·뷰 전환·
-  목록 갱신 셋에서 부르면 된다. `*.xaml.cs` 에 스크롤 핸들러를 두는 것은
-  `scripts/check-structure.ps1` 이 막는다.
+| 파일 | 하는 일 |
+|---|---|
+| `Views/ViewportSync.cs` | 패널 크기 → `SetViewportSize`. **목록 컨트롤이 아니라 `ItemsPanel` 에 건다** |
+| `Views/VisibleRangeSync.cs` | 실현된 컨테이너 → `SetVisibleRange`. 신호는 `LayoutUpdated` 하나 |
+| `Views/TypeAheadInput.cs` | 문자 키 → `TypeAhead(char)`. 목록 내장 `TextSearch` 는 껐다 |
+| `Views/AddressFocus.cs` | `Ctrl+L`·`Alt+D` → 그 페인 주소줄. **창이 아니라 페인 루트에 건다** |
+| `Views/ViewConverters.cs` | `ViewSourceConverter`(뷰 모드 → `Items`/`Rows`) · `ThumbnailImageConverter`(BGRA → `Pbgra32`) |
+
+**왜 `ItemsPanel` 인가**: 가상화 패널이 스크롤 주인(`IScrollInfo`)이라 그 `RenderSize` 가
+곧 픽셀 뷰포트다. `ListBox` 의 크기에는 스크롤바가 들어 있어 마지막 칸이 잘리고,
+`ScrollViewer` 의 `Viewport*` 는 `ScrollUnit="Item"` 아래에서 **스크롤 축이 픽셀이 아니라
+항목 수**다 — PageUp/Down 이 그 축의 픽셀을 쓴다.
+
+**왜 `LayoutUpdated` 하나인가**: 스크롤·뷰 전환·목록 갱신이 전부 레이아웃을 지난다. 셋을
+따로 훅하면 컨테이너가 아직 실현되지 않은 시점에 물어보는 자리가 생긴다. 대신 **같은
+목록이면 밀지 않는다** — 스케줄러는 부를 때마다 진행 중 요청을 전부 끊고 새 세대를 연다.
+
+### 그 다음 — B-4
+
+- **이름변경 인라인 편집** (`DESIGN.md` §9-1). 포커스 상실이 취소다. `RenamingName` 이
+  목록에 아직 없는 이름일 수 있다 — 그 이름이 나타나는 순간 편집기를 연다.
+  **주소줄 찾기가 표시(`AddressFocus.IsAddressBox`) 기반인 이유가 이것이다**: 편집기가
+  같은 서브트리에 `TextBox` 를 하나 더 만든다.
+- **드래그앤드롭** (`DESIGN.md` §9-1). `PaneViewModel.DropAsync` 는 이미 있다.
+  `FlexDir.Shell` 이 필요 없다 — WPF `DataObject` 로 충분하다.
 - **`IContextMenuProvider`** — 포트 정의부터. 창 핸들이 필요해 여기로 미뤘다.
 
 ## 반드시 알아야 하는 규칙 (값을 치르고 배운 것)
@@ -172,6 +195,15 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 7. **`Program.cs` 는 TDD 가드의 검사 대상이 아니다.** 그래서 판단을 한 줄도 두지 않았다.
    조립·활성화·single instance 는 전부 채점되는 클래스 안에 있다 — 그 선을 넘기면
    채점되지 않는 자리에 로직이 자란다.
+8. **아파트먼트와 동시성은 다른 문제다.** `StaWorkQueue` 는 STA 를 보장할 뿐 워커가 넷이라
+   **동시 호출은 그대로 남는다.** `SHGetFileInfo` 경로는 그 동시성에 조용히 무너진다 —
+   예외도 오류 코드도 없이 0 을 내고, 그것을 막으면 뒤의 시스템 이미지 리스트가 던진다.
+   `Interop/ShellInfoGate` 가 프로세스 단위로 직렬화한다. **새 shell API 를 붙일 때
+   "이건 동시에 불려도 되는가" 를 따로 묻는다** — STA 를 잡았다고 끝난 것이 아니다.
+9. **실패를 캐시하는 정책은 조용한 버그를 영구화한다.** `ThumbnailRequestScheduler` 는
+   실패도 시도로 세어 재요청을 막는다 (PRD §4, 옳다). 그래서 §8 의 경합에 한 번 지면
+   그 페인의 아이콘이 **끝까지** 비어 있었다. 캐시하는 실패는 원인을 반드시 그 자리에서
+   봐야 한다 — 화면만 보면 "아이콘 기능이 없다" 로 보인다.
 
 ## 구현체가 다음 phase 에 넘긴 사실
 
@@ -179,8 +211,19 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 - **썸네일·아이콘은 premultiplied BGRA 다.** `PixelFormats.Bgra32` 가 아니라 **`Pbgra32`** 로
   `WriteableBitmap` 을 만든다. 틀리면 반투명 가장자리가 어둡게 번진다.
+  (B-3 에서 `ThumbnailImageConverter` 가 그렇게 만들었고 실물로 확인했다.)
 - 96 요청이 `SHIL_JUMBO` 의 **256×256(256KB)** 을 낸다. 축소는 View 가 하고 확장자 캐시는
   비우지 않으므로 상주 프로세스에서 쌓인다.
+- **`SHGetFileInfo` 는 동시에 부르면 조용히 실패한다** (B-3 에서 실물로 잡았다). 예외도
+  오류 코드도 없이 0 을 내고, 그것을 막으면 뒤의 시스템 이미지 리스트가 던진다.
+  `Interop/ShellInfoGate` 가 형식 아이콘 경로 전체를 프로세스 단위로 직렬화한다 —
+  `ShellTypeNameProvider` 도 같은 API 라 함께 지난다. **`StaWorkQueue` 로는 안 풀린다**:
+  아파트먼트를 보장할 뿐 워커가 넷이라 동시성이 그대로 남는다.
+  실패가 호출자 캐시에 남아 재시도되지 않으므로 (PRD §4) 한 번 지면 끝까지 빈칸이었다.
+- **View 의 중복 제거 캐시와 ViewModel 의 `Reset()` 은 서로를 모른다** (B-3 에서 실물로
+  잡았다). `VisibleRangeSync` 는 "같은 목록이면 안 민다" 이고 `thumbnails.Reset()` 은
+  "지금 보이는 것을 잊는다" 인데, 항목 인스턴스가 그대로면 (`MergeItems`) 다시 밀 신호가
+  없어 그림이 영영 오지 않는다. 그래서 `Reset()` 은 **폴더가 실제로 바뀔 때만** 부른다.
 - **`SetOwnerWindow` 를 부르지 않았다.** Shell 계층은 창을 모르므로 shell 대화상자에 소유
   창이 없다. 창이 생긴 뒤 다시 본다 — 소유 창을 주려면 포트에 창 핸들을 흘려야 하고,
   그것 자체가 결정거리다.
@@ -249,7 +292,7 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 ```
 A. Shell interop   포트 8/8 ✅   잔여: IContextMenuProvider
 C. Host 뼈대        ✅  진입점 + DI + single instance + IUsageLog + 계측, 화면 없이 조립까지
-B. View            ← 진행 중. B-1 완료 — 다음은 B-2 (창 + Details)
+B. View            ← 진행 중. B-1·B-2·B-3 완료 — 다음은 B-4 (상호작용)
 → 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007, v1 완성 후)
 ```
 
@@ -270,7 +313,12 @@ B-2  창 + Details     ✅ 골격 + 시작 폴더 복원 + 계측 둘(WindowShow
                      주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
                      Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
                      → 매일 쓸 수 있다. 도그푸딩하며 B-3 로 간다
-B-3  나머지 뷰 3종     합성 행 템플릿 · attached behavior(SetVisibleRange·SetViewportSize)
+B-3  나머지 뷰 3종     ✅ 합성 행 템플릿 3종 + 뷰 전환(툴바 4버튼·Ctrl+Shift+1~4) +
+                     behavior 넷(ViewportSync·VisibleRangeSync·TypeAheadInput·AddressFocus) +
+                     Pbgra32 변환. 실물 확인 (2026-08-06 · manual-plan §B-3) — 이때
+                     SHGetFileInfo 동시 호출 실패와 Reset/중복제거 어긋남을 잡았다.
+                     확인 잔여: type-ahead · Ctrl+L · 뷰 3종 키보드 이동 · wrap 뷰 클릭 ·
+                     대용량 폴더 스크롤 체감.
 B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
 ```
 
