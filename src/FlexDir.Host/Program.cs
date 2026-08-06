@@ -104,9 +104,11 @@ internal static class Program
         // 아이콘은 이 스레드의 것이라 메뉴 이벤트도 이 스레드(UI)로 온다.
         Task OpenWindowAsync() => router.ActivateAsync([], lifetime.Token);
 
+        using var trayIcon = ProductIcon.LoadTray();
+
         using var tray = new System.Windows.Forms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application,
+            Icon = trayIcon,
             Text = "flex-dir",
             ContextMenuStrip = TrayMenu.Create(
                 () => _ = OpenWindowAsync(),

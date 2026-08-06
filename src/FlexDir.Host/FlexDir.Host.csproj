@@ -8,12 +8,24 @@
     <!-- 트레이 아이콘(NotifyIcon) 하나 때문이다. WPF 에는 알림 영역 API 가 없고,
          Shell_NotifyIcon 을 직접 감싸면 메시지 창·콜백 배관이 이 프로젝트에 자란다. -->
     <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- exe 에 박히는 아이콘. 탐색기·작업표시줄·Alt+Tab 이 이것을 읽고, WPF 창은 Icon 을
+         따로 주지 않으면 이것으로 떨어진다. 트레이만 다르다 — NotifyIcon 은 Icon 객체를
+         요구하므로 아래 EmbeddedResource 를 ProductIcon 이 꺼내 준다. -->
+    <ApplicationIcon>..\..\assets\flex-dir.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FlexDir.Core\FlexDir.Core.csproj" />
     <ProjectReference Include="..\FlexDir.Shell\FlexDir.Shell.csproj" />
     <ProjectReference Include="..\FlexDir.App\FlexDir.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 같은 .ico 를 리소스로도 싣는다. NotifyIcon 은 exe 아이콘을 스스로 읽지 못하고
+         Icon 객체를 요구한다. LogicalName 을 못박는 이유: 파일이 프로젝트 폴더 밖이라
+         기본 이름이 경로에서 유도되지 않는다 — ProductIcon.ResourceName 과 같아야 한다. -->
+    <EmbeddedResource Include="..\..\assets\flex-dir.ico" LogicalName="FlexDir.Host.flex-dir.ico" />
   </ItemGroup>
 
   <ItemGroup>
