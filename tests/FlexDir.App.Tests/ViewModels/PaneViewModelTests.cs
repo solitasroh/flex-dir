@@ -34,6 +34,7 @@ public class PaneViewModelTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 초기 상태 ─────────────────────────────────────────────────
@@ -57,25 +58,27 @@ public class PaneViewModelTests
     public void Ctor_NullArguments_Throw()
     {
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            null!, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            null!, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, null!, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, null!, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, null!, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, null!, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, null!, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, null!, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, null!, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, viewStates, null!, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, null!, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, viewStates, operations, null!, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, null!, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, null!, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, null!, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, null!, Culture, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, null!, TimeZoneInfo.Utc));
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, null!, TimeZoneInfo.Utc, contextMenus));
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, null!));
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, null!, contextMenus));
+        Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, null!));
     }
 
     // ── 목록 채우기 ───────────────────────────────────────────────
@@ -226,7 +229,7 @@ public class PaneViewModelTests
 
         var zone = TimeZoneInfo.CreateCustomTimeZone("flexdir-test", TimeSpan.FromHours(9), "flexdir-test", "flexdir-test");
         var pane = new PaneViewModel(
-            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, zone);
+            source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, zone, contextMenus);
 
         await pane.NavigateAsync(folder);
 
@@ -863,7 +866,7 @@ public class PaneViewModelTests
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>폴더를 등록한다. 이름이 <c>\</c> 로 끝나면 디렉터리다.</summary>
     private LocationId Folder(string path, params string[] names)

@@ -31,6 +31,7 @@ public class PaneInputCommandsTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 키보드 — MoveFocus 3종 ────────────────────────────────────
@@ -313,7 +314,7 @@ public class PaneInputCommandsTests
     }
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>폴더를 등록한다. 이름이 <c>\</c> 로 끝나면 디렉터리다.</summary>
     private LocationId Folder(string path, params string[] names)

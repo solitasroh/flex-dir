@@ -38,7 +38,30 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
 
     private readonly Func<Request, Outcome> execute;
 
-    public ShellFileOperations() => execute = Execute;
+    /// <summary>
+    /// shell 의 진행률·충돌·오류 대화상자가 뜰 소유 창. <b>Core 포트에는 창 핸들이 없으므로</b>
+    /// (사용자 결정 2026-08-06 · <c>IContextMenuProvider</c> 와 같은 결정) <c>FlexDir.Host</c>
+    /// 가 조립할 때 물려 준다. 없으면 0 — 그때 대화상자는 소유 창 없이 뜨고 작업표시줄에
+    /// 항목이 하나 더 생긴다.
+    /// </summary>
+    private readonly Func<nint> ownerWindow;
+
+    public ShellFileOperations()
+        : this(static () => 0)
+    {
+    }
+
+    /// <param name="owner">
+    /// 대화상자의 소유 창을 내는 공급자. <b>부를 때마다 묻는다</b> — 창은 조작보다 늦게
+    /// 생기고 완전 종료 뒤 재실행은 새 창이다 (ADR-003).
+    /// </param>
+    public ShellFileOperations(Func<nint> owner)
+    {
+        ArgumentNullException.ThrowIfNull(owner);
+
+        ownerWindow = owner;
+        execute = Execute;
+    }
 
     /// <summary>
     /// 실행 지점을 바꿔 끼운다. 실물은 파일을 실제로 옮기고 지우며 실패하면 shell 이
@@ -50,6 +73,7 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
     {
         ArgumentNullException.ThrowIfNull(execute);
 
+        ownerWindow = static () => 0;
         this.execute = execute;
     }
 
@@ -223,7 +247,7 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
     /// (docs/SHELL_NOTES.md §아이콘 함정 3 과 같은 규칙). 나가는 것은
     /// <see cref="Outcome"/> — HRESULT 와 값 타입 위치뿐이다.
     /// </summary>
-    private static Outcome Execute(Request request)
+    private Outcome Execute(Request request)
     {
         var clsid = FileOperationClsid;
         var iid = typeof(IFileOperation).GUID;
@@ -245,6 +269,10 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
         {
             return new Outcome(hr, null);
         }
+
+        // 소유 창을 주지 않으면 진행률·충돌 대화상자가 별도 작업표시줄 항목으로 뜨고 창
+        // 뒤로 숨는다. 실패해도 조작을 접지 않는다 — 대화상자의 부모일 뿐이다.
+        shell.SetOwnerWindow(ownerWindow());
 
         var opened = new List<ComRef<IShellItem>>();
 
@@ -585,7 +613,8 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
 
         void SetProperties();
 
-        void SetOwnerWindow();
+        [PreserveSig]
+        int SetOwnerWindow(nint owner);
 
         void ApplyPropertiesToItem();
 

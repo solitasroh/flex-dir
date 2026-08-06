@@ -55,12 +55,15 @@ internal static class Program
 
         var state = AppComposition.DefaultStateDirectory;
         var uiDispatcher = new WpfUiDispatcher(Dispatcher.CurrentDispatcher);
-        var composition = AppComposition.Create(uiDispatcher, state);
+        // shell 대화상자·컨텍스트 메뉴의 소유 창. 조립 시점에는 창이 없으므로 공급자를 넘긴다.
+        var ownerWindow = new OwnerWindow();
+        var composition = AppComposition.Create(uiDispatcher, state, ownerWindow.Source);
 
         // 창은 활성화가 보여준다 (ActivationRouter) — 여기서는 만들기만 한다.
         // 상주 규약(닫기 = 숨기기 · 배치 복원)은 ResidentWindow 가 건다.
         var window = new MainWindow { DataContext = composition.Workspace };
         ResidentWindow.Attach(window, composition.Workspace);
+        ownerWindow.Track(window);
 
         // 계측이 쌓이는 파일은 하나다 (perf.log). 지점마다 만들면 같은 곳을 두 번 연다.
         var perf = new PerformanceLog(state);

@@ -24,7 +24,7 @@ namespace FlexDir.Host.Composition;
 /// <b>DI 컨테이너를 쓰지 않는다.</b> 조립 대상은 열두 개 남짓이고 그래프가 하나뿐이다.
 /// 컨테이너를 들이면 (1) cold start 에 리플렉션 비용이 얹히고 — 그것이 ADR-003 이 상주
 /// 프로세스를 고른 바로 그 비용이다 — (2) 수명 관리가 컨테이너의 규약으로 옮겨가는데,
-/// 여기서 정말 어려운 수명은 <b>STA 스레드를 든 shell 구현체 다섯</b>이고 그것은 아래
+/// 여기서 정말 어려운 수명은 <b>STA 스레드를 든 shell 구현체 여섯</b>이고 그것은 아래
 /// <see cref="DisposeAsync"/> 가 손으로 다루는 편이 읽힌다.
 /// </para>
 ///
@@ -72,10 +72,15 @@ public sealed class AppComposition : IAsyncDisposable
     /// <summary>정리 순서와 정리 여부를 테스트가 보는 자리. Host 밖으로 나가지 않는다.</summary>
     internal IReadOnlyList<IDisposable> ShellServices => shellServices;
 
-    public static AppComposition Create(IUiDispatcher dispatcher, string stateDirectory)
+    /// <param name="ownerWindow">
+    /// shell 대화상자와 컨텍스트 메뉴의 소유 창을 내는 공급자 (<c>Startup/OwnerWindow</c>).
+    /// <b>값이 아니라 함수다</b> — 창은 활성화가 만들므로 여기서는 아직 없다.
+    /// </param>
+    public static AppComposition Create(IUiDispatcher dispatcher, string stateDirectory, Func<nint> ownerWindow)
     {
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(stateDirectory);
+        ArgumentNullException.ThrowIfNull(ownerWindow);
 
         var folderSource = new FileSystemFolderSource();
         var folderWatcher = new FileSystemFolderWatcher();
@@ -83,9 +88,12 @@ public sealed class AppComposition : IAsyncDisposable
 
         var typeNames = new ShellTypeNameProvider();
         var thumbnails = new ShellThumbnailSource();
-        var fileOperations = new ShellFileOperations();
+        // shell 대화상자에 소유 창을 준다 — 컨텍스트 메뉴와 같은 결정이다 (사용자 결정
+        // 2026-08-06). 없으면 진행률·충돌 대화상자가 별도 작업표시줄 항목으로 뜬다.
+        var fileOperations = new ShellFileOperations(ownerWindow);
         var clipboard = new ShellClipboardBridge();
         var activator = new ShellItemActivator();
+        var contextMenus = new ShellContextMenuProvider(ownerWindow);
 
         // 환경을 읽는 곳은 여기 한 곳이다. ViewModel 이 CultureInfo.CurrentCulture 를 직접
         // 읽으면 같은 목록에 다른 형식이 섞이고 테스트가 기계 설정에 따라 갈린다.
@@ -103,14 +111,15 @@ public sealed class AppComposition : IAsyncDisposable
             activator,
             dispatcher,
             culture,
-            timeZone);
+            timeZone,
+            contextMenus);
 
         var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates);
 
         return new AppComposition(
             workspace,
             new FileUsageLog(stateDirectory),
-            [typeNames, thumbnails, fileOperations, clipboard, activator]);
+            [typeNames, thumbnails, fileOperations, clipboard, activator, contextMenus]);
     }
 
     /// <summary>

@@ -33,6 +33,7 @@ public class PaneFocusTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 시작 상태 ─────────────────────────────────────────────────
@@ -389,7 +390,7 @@ public class PaneFocusTests
     }
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>이름순 정렬이 자명하도록 a00…aNN 으로 만든다.</summary>
     private LocationId Folder(string path, int itemCount)

@@ -93,7 +93,8 @@ public class ResidentWindowTests
         PaneViewModel Pane() => new(
             new FakeFolderSource(), new FakeFolderWatcher(), new FakeTypeNameProvider(),
             new FakeThumbnailSource(), viewStates, new FakeFileOperations(), new FakeClipboardBridge(),
-            new FakeItemActivator(), new InlineUiDispatcher(), CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+            new FakeItemActivator(), new InlineUiDispatcher(), CultureInfo.InvariantCulture, TimeZoneInfo.Utc,
+            new FakeContextMenuProvider());
 
         return new WorkspaceViewModel(Pane(), Pane(), viewStates);
     }

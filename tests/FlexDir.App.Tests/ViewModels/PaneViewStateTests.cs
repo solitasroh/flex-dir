@@ -41,6 +41,7 @@ public class PaneViewStateTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 기본값 ────────────────────────────────────────────────────
@@ -287,7 +288,7 @@ public class PaneViewStateTests
             activator,
             dispatcher,
             Culture,
-            TimeZoneInfo.Utc);
+            TimeZoneInfo.Utc, contextMenus);
 
         await pane.NavigateAsync(folder);
 
@@ -353,7 +354,7 @@ public class PaneViewStateTests
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>크기를 함께 준다 — 이름 순서와 크기 순서가 달라야 정렬 전환이 보인다.</summary>
     private LocationId Folder(string path, params (string Name, long Size)[] entries)

@@ -33,6 +33,7 @@ public class PaneRowsTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── Details 는 합성 행을 지나지 않는다 ────────────────────────
@@ -227,7 +228,7 @@ public class PaneRowsTests
     }
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>이름순 정렬이 자명하도록 a00…a07 로 만든다.</summary>
     private LocationId Folder(string path, int itemCount)

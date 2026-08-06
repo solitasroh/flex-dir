@@ -62,7 +62,7 @@ public class AppCompositionTests : IDisposable
         // Application.Current 가 null 인 채로 여기까지 온다는 것이 이 단정문의 핵심이다.
         Assert.Null(Application.Current);
 
-        await using var composition = AppComposition.Create(dispatcher, State());
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         Assert.NotNull(composition.Workspace);
         Assert.NotNull(composition.UsageLog);
@@ -80,7 +80,7 @@ public class AppCompositionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
         await File.WriteAllTextAsync(Path.Combine(folder, "b.txt"), "b");
 
-        await using var composition = AppComposition.Create(dispatcher, State());
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         await composition.Workspace.Left.NavigateAsync(Loc(folder));
 
@@ -96,7 +96,7 @@ public class AppCompositionTests : IDisposable
         Directory.CreateDirectory(folder);
         await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
 
-        await using var composition = AppComposition.Create(dispatcher, State());
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         await composition.Workspace.Left.NavigateAsync(Loc(folder));
 
@@ -113,7 +113,7 @@ public class AppCompositionTests : IDisposable
         Directory.CreateDirectory(folder);
 
         var state = State();
-        await using var composition = AppComposition.Create(dispatcher, state);
+        await using var composition = AppComposition.Create(dispatcher, state, () => 0);
 
         await composition.Workspace.Left.NavigateAsync(Loc(folder));
         await composition.Workspace.Left.ChangeViewModeCommand.ExecuteAsync(
@@ -132,7 +132,7 @@ public class AppCompositionTests : IDisposable
         // 안 된 경우에</b> 프로그램이 뜨고 휴지통에 항목이 남고 사용자의 클립보드가
         // 덮인다 — 게이트가 돌 때마다 일어나서는 안 되는 일이다 (.harness/HANDOFF.md §규칙 5).
         // 나머지 셋이 같은 배열에 들어 있다는 것은 아래 테스트가 본다.
-        var composition = AppComposition.Create(dispatcher, State());
+        var composition = AppComposition.Create(dispatcher, State(), () => 0);
         var thumbnails = composition.ShellServices.OfType<ShellThumbnailSource>().Single();
         var typeNames = composition.ShellServices.OfType<ShellTypeNameProvider>().Single();
 
@@ -147,9 +147,10 @@ public class AppCompositionTests : IDisposable
     [Fact]
     public async Task Create_OwnsEveryShellImplementationThatHoldsAnStaThread()
     {
-        // 다섯이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 다.
-        // 이 배열에 없는 구현체는 아무도 닫지 않고 STA 스레드가 프로세스에 남는다.
-        await using var composition = AppComposition.Create(dispatcher, State());
+        // 여섯이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 였다.
+        // B-4 가 ShellContextMenuProvider 를 더했다. 이 배열에 없는 구현체는 아무도 닫지
+        // 않고 STA 스레드가 프로세스에 남는다.
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         Assert.Equal(
             [
@@ -158,6 +159,7 @@ public class AppCompositionTests : IDisposable
                 typeof(Shell.Operations.ShellFileOperations),
                 typeof(Shell.Operations.ShellClipboardBridge),
                 typeof(Shell.Activation.ShellItemActivator),
+                typeof(Shell.Operations.ShellContextMenuProvider),
             ],
             composition.ShellServices.Select(service => service.GetType()));
     }
@@ -166,7 +168,7 @@ public class AppCompositionTests : IDisposable
     public async Task DisposeAsync_Twice_IsFine()
     {
         // 완전 종료 경로가 겹칠 수 있다. 두 번째가 던지면 종료가 예외로 끝난다.
-        var composition = AppComposition.Create(dispatcher, State());
+        var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         await composition.DisposeAsync();
         await composition.DisposeAsync();
@@ -186,9 +188,9 @@ public class AppCompositionTests : IDisposable
     [Fact]
     public void Create_InvalidArguments_Throw()
     {
-        Assert.Throws<ArgumentNullException>(() => AppComposition.Create(null!, State()));
-        Assert.Throws<ArgumentNullException>(() => AppComposition.Create(dispatcher, null!));
-        Assert.Throws<ArgumentException>(() => AppComposition.Create(dispatcher, "  "));
+        Assert.Throws<ArgumentNullException>(() => AppComposition.Create(null!, State(), () => 0));
+        Assert.Throws<ArgumentNullException>(() => AppComposition.Create(dispatcher, null!, () => 0));
+        Assert.Throws<ArgumentException>(() => AppComposition.Create(dispatcher, "  ", () => 0));
     }
 
     /// <summary>이 테스트만의 저장 위치. 테스트마다 갈라 서로의 뷰 상태를 읽지 않게 한다.</summary>

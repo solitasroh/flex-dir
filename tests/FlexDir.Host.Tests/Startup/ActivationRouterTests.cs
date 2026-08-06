@@ -265,7 +265,7 @@ public class ActivationRouterTests
 
     private PaneViewModel CreatePane() => new(
         source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator,
-        dispatcher, CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        dispatcher, CultureInfo.InvariantCulture, TimeZoneInfo.Utc, new FakeContextMenuProvider());
 
     /// <summary>
     /// 활성화 요청 흐름. 실물(<c>SingleInstanceGate.ActivationsAsync</c>)처럼 비동기이고

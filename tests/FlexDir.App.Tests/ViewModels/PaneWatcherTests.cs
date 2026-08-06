@@ -49,6 +49,7 @@ public class PaneWatcherTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 개별 변경 ─────────────────────────────────────────────────
@@ -329,7 +330,7 @@ public class PaneWatcherTests
         var pics = Folder(@"C:\Temp\Pics", "p1.jpg");
         var held = new HeldItemReads(source);
         await using var pane = new PaneViewModel(
-            held, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+            held, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
         await pane.NavigateAsync(docs);
 
@@ -375,7 +376,7 @@ public class PaneWatcherTests
         var pics = Folder(@"C:\Temp\Pics", "b.jpg");
         var held = new HeldTypeNames(typeNames, "aa", "jpg");
         await using var pane = new PaneViewModel(
-            source, watcher, held, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+            source, watcher, held, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
         await pane.NavigateAsync(docs);
         await WaitForAsync(() => watcher.Current is not null, "Docs 의 감시가 걸린다");
@@ -414,7 +415,7 @@ public class PaneWatcherTests
         var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
         var failing = new FailingFolderWatcher();
         await using var pane = new PaneViewModel(
-            source, failing, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+            source, failing, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
         await pane.NavigateAsync(folder);
         await failing.Asked.WaitAsync(Limit);
@@ -581,7 +582,7 @@ public class PaneWatcherTests
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     private LocationId Folder(string path, params string[] names)
     {

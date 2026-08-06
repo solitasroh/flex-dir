@@ -33,6 +33,7 @@ public class PaneThumbnailsTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 크기는 뷰 모드가 정한다 ───────────────────────────────────
@@ -181,7 +182,7 @@ public class PaneThumbnailsTests
     public void Ctor_NullThumbnailSource_Throws()
     {
         Assert.Throws<ArgumentNullException>(() => new PaneViewModel(
-            source, watcher, typeNames, null!, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc));
+            source, watcher, typeNames, null!, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus));
     }
 
     [Fact]
@@ -195,7 +196,7 @@ public class PaneThumbnailsTests
     // ── 헬퍼 ─────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     private LocationId Folder(string path, params string[] names)
     {

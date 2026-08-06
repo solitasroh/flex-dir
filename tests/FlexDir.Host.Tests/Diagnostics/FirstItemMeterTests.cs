@@ -138,7 +138,7 @@ public class FirstItemMeterTests : IDisposable
 
     private PaneViewModel CreatePane() => new(
         source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator,
-        dispatcher, CultureInfo.InvariantCulture, TimeZoneInfo.Utc);
+        dispatcher, CultureInfo.InvariantCulture, TimeZoneInfo.Utc, new FakeContextMenuProvider());
 
     private LocationId Folder(string path, params string[] names)
     {

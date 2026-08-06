@@ -36,6 +36,7 @@ public class FileOperationCommandsTests
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
+    private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
     // ── 선택이 비었을 때 ──────────────────────────────────────────
@@ -671,7 +672,7 @@ public class FileOperationCommandsTests
     private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
 
     private PaneViewModel CreatePane()
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc);
+        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);
 
     /// <summary>폴더를 등록한다. 이름이 <c>\</c> 로 끝나면 디렉터리다.</summary>
     private LocationId Folder(string path, params string[] names)

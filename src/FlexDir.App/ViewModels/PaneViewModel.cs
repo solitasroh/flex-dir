@@ -132,6 +132,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private readonly IFileOperations fileOperations;
     private readonly IClipboardBridge clipboard;
     private readonly IItemActivator activator;
+    private readonly IContextMenuProvider contextMenus;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -221,6 +222,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         IUiDispatcher dispatcher,
         IFormatProvider culture,
         TimeZoneInfo timeZone,
+        IContextMenuProvider contextMenus,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
@@ -234,6 +236,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(dispatcher);
         ArgumentNullException.ThrowIfNull(culture);
         ArgumentNullException.ThrowIfNull(timeZone);
+        ArgumentNullException.ThrowIfNull(contextMenus);
 
         // 감시 알림을 받은 항목은 다시 읽어야 한다 (TryGetItemAsync) — 세션은 폴더 열거만 안다.
         this.folderSource = folderSource;
@@ -247,6 +250,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         this.dispatcher = dispatcher;
         this.culture = culture;
         this.timeZone = timeZone;
+        this.contextMenus = contextMenus;
 
         // 시계만 기본값이 있다 — 실물은 시스템 시계면 충분하고, 바꿔 넣는 쪽은 TypeAhead 의
         // 리셋 판정을 결정적으로 채점하는 테스트뿐이다 (docs/DESIGN.md §9).
@@ -1066,6 +1070,30 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return item.IsDirectory
             ? NavigateAsync(item.Item.Location, ct)
             : RunAsync(token => activator.ActivateAsync(item.Item.Location, token), ct);
+    }
+
+    /// <summary>
+    /// 컨텍스트 메뉴를 띄운다 (docs/SHELL_NOTES.md §컨텍스트 메뉴).
+    /// <para>
+    /// <b>선택이 비어 있으면 현재 폴더의 배경 메뉴다.</b> shell 에서 둘은 다른 API 이지만
+    /// 그 판정은 여기서 한다 — 어느 쪽인가를 아는 것은 선택을 든 이쪽이다.
+    /// </para>
+    /// <para>
+    /// 메뉴가 무엇을 했는지 묻지 않는다. shell verb 는 파일시스템을 직접 고치고 우리는
+    /// <c>IFolderWatcher</c> 로 그것을 본다 (CLAUDE.md §4).
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task ShowContextMenuAsync(ScreenPoint at, CancellationToken ct)
+    {
+        if (currentLocation is not { } folder)
+        {
+            return Task.CompletedTask;
+        }
+
+        var items = Selection.SelectedNames.Select(folder.Combine).ToArray();
+
+        return RunAsync(token => contextMenus.ShowAsync(items, folder, at, token), ct);
     }
 
     /// <summary>이름 편집을 시작한다. 선택이 정확히 하나일 때만.</summary>
