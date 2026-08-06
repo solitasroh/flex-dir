@@ -8,16 +8,16 @@
 
 ## 한 줄
 
-A(포트 8/8) · C(Host 뼈대) · B-1(ViewModel 확장) · B-2(창 + Details) · **B-3(아이콘·썸네일
-+ 뷰 3종) 완료**다. 뷰 4종이 전부 그려지고 shell 아이콘과 96px 실제 썸네일이 붙는 것까지
-**실물 확인됐다** (2026-08-06). 다음은 B-4 (이름변경 인라인 편집 · 드래그앤드롭 ·
-`IContextMenuProvider`). 키보드·체감 확인 잔여는 `manual-plan.md` §B-3 에 있다.
+**v1 의 기능이 전부 들어왔다.** A(포트 9/9) · C(Host) · B-1~B-4 완료 — 뷰 4종 · 아이콘 ·
+썸네일 · 이름변경 인라인 편집 · 드래그앤드롭 · shell 컨텍스트 메뉴가 **전부 실물
+확인됐다** (2026-08-06). 남은 것은 마감(제품 아이콘 · 커스텀 타이틀바)과 도그푸딩이다.
+확인 잔여는 `manual-plan.md` 에 있고 전부 "이 기계에서 못 보는 것"뿐이다.
 
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 보다 앞 (B-1·B-2·B-3 작업분, 푸시하지 않았다)
-테스트   1036 통과   Core 343 · App 437 · Shell 196 · Host 60
+브랜치   main  ·  origin/main 보다 앞 (B-1~B-4 작업분, 푸시하지 않았다)
+테스트   1139 통과   Core 349 · App 511 · Shell 214 · Host 65
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -33,7 +33,7 @@ pwsh -File scripts/check-structure.ps1
 dotnet build -c Release --nologo -warnaserror
 ```
 
-## 포트 현황 — 9/10
+## 포트 현황 — 10/10
 
 | 포트 | 구현 | 테스트 |
 |---|---|---|
@@ -46,12 +46,16 @@ dotnet build -c Release --nologo -warnaserror
 | `IFileOperations` | `Shell/Operations/ShellFileOperations.cs` | 48 |
 | `IClipboardBridge` | `Shell/Operations/ShellClipboardBridge.cs` | 24 |
 | `IUsageLog` | `Shell/Usage/FileUsageLog.cs` | 9 + fake 3 |
+| `IContextMenuProvider` | `Shell/Operations/ShellContextMenuProvider.cs` | 12 + fake 6 |
 | `IUiDispatcher` (App 의 포트) | `App/Threading/WpfUiDispatcher.cs` | 8 |
 
 공용 배관은 `Interop/StaWorkQueue.cs`(아파트먼트)와 `Interop/ShellInfoGate.cs`
-(`SHGetFileInfo` 직렬화 — 둘은 다른 문제다, §규칙 8). **`IContextMenuProvider` 는
-`FlexDir.Core` 에 포트 정의부터 없다** — 창 핸들과 메뉴 메시지 펌핑이 필요해 의도적으로
-미뤘다(§열린 결정).
+(`SHGetFileInfo` 직렬화 — 둘은 다른 문제다, §규칙 8).
+
+**소유 창은 `Host/Startup/OwnerWindow` 가 쥔다** (사용자 결정 2026-08-06). Core 포트에는
+창 핸들이 없고(CLAUDE.md §1) Host 가 공급자(`Func<nint>`)를 물려 준다 — `IContextMenuProvider`
+와 `IFileOperations`(`SetOwnerWindow`) 둘이 그것을 쓴다. 대가는 "어느 창 위에"를 호출자가
+못 정한다는 것이고, 창이 하나라는 전제(ADR-003)에 기댄다.
 
 확인용 프로브 `.harness/probe/` (ADR-015):
 `typeicons` · `thumbnail <경로>` · `leak [폴더]` · `activate <경로>` · `recycle` ·
@@ -85,10 +89,21 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 **FirstItem 0~18ms**(예산 150) — 첫 표시만 367ms(창 생성 포함, 상주가 한 번만 내는 비용).
 닫기 = 숨기기 · 트레이 완전 종료 · 시작 상태 복원도 실물 확인됐다 (manual-plan §B-2).
 
-## 다음 작업 — phase B-4 (상호작용)
+## 다음 작업 — v1 마감
 
-> 아래 §시안 · §B-1 표면은 phase B 전체의 배경이다. **B-1·B-2·B-3 은 끝났다** — 남은 것은
-> 이 절 끝의 "그 다음 — B-4" 다.
+**phase B 는 끝났다.** 남은 것은 둘뿐이다.
+
+- **제품 아이콘** — 트레이가 임시로 `SystemIcons.Application` 을 쓴다.
+- **커스텀 타이틀바** — 지금은 OS 기본 크롬이라 `DESIGN.md` §1 의 32px 와 다르다.
+
+그 다음은 **매일 쓰기 → 도그푸딩 게이트 ON** (ADR-007). 게이트가 세는 것은 서로 다른
+날짜 수이고 `IUsageLog` 는 이미 기록하고 있다.
+
+`DESIGN.md` §10 의 미결 둘(#4 밀도 옵션 · #5 비활성 페인 크롬 강등)은 이제 실물을 매일
+보며 판단하면 된다.
+
+> 아래 §시안 · §B-1 표면 · §B-3 View 배선은 phase B 의 배경이다. **B-1~B-4 가 전부
+> 끝났으므로** 지금은 "왜 그렇게 돼 있는가" 를 읽는 자료다.
 
 ### 시안은 이미 있다 — `docs/mockups/v1-two-pane.html`
 
@@ -148,24 +163,36 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 | `Views/AddressFocus.cs` | `Ctrl+L`·`Alt+D` → 그 페인 주소줄. **창이 아니라 페인 루트에 건다** |
 | `Views/ViewConverters.cs` | `ViewSourceConverter`(뷰 모드 → `Items`/`Rows`) · `ThumbnailImageConverter`(BGRA → `Pbgra32`) |
 
-**왜 `ItemsPanel` 인가**: 가상화 패널이 스크롤 주인(`IScrollInfo`)이라 그 `RenderSize` 가
-곧 픽셀 뷰포트다. `ListBox` 의 크기에는 스크롤바가 들어 있어 마지막 칸이 잘리고,
-`ScrollViewer` 의 `Viewport*` 는 `ScrollUnit="Item"` 아래에서 **스크롤 축이 픽셀이 아니라
-항목 수**다 — PageUp/Down 이 그 축의 픽셀을 쓴다.
+**왜 `ItemsPanel` 인가** → `ARCHITECTURE.md` §5 에 규칙으로 올렸다. 목록 컨트롤에 걸면
+마지막 칸이 잘리고 PageUp/Down 이 조용히 틀린다.
 
 **왜 `LayoutUpdated` 하나인가**: 스크롤·뷰 전환·목록 갱신이 전부 레이아웃을 지난다. 셋을
 따로 훅하면 컨테이너가 아직 실현되지 않은 시점에 물어보는 자리가 생긴다. 대신 **같은
 목록이면 밀지 않는다** — 스케줄러는 부를 때마다 진행 중 요청을 전부 끊고 새 세대를 연다.
 
-### 그 다음 — B-4
+### B-4 가 만든 View 배선 — 클릭은 전부 `ListInput` 하나를 지난다
 
-- **이름변경 인라인 편집** (`DESIGN.md` §9-1). 포커스 상실이 취소다. `RenamingName` 이
-  목록에 아직 없는 이름일 수 있다 — 그 이름이 나타나는 순간 편집기를 연다.
-  **주소줄 찾기가 표시(`AddressFocus.IsAddressBox`) 기반인 이유가 이것이다**: 편집기가
-  같은 서브트리에 `TextBox` 를 하나 더 만든다.
-- **드래그앤드롭** (`DESIGN.md` §9-1). `PaneViewModel.DropAsync` 는 이미 있다.
-  `FlexDir.Shell` 이 필요 없다 — WPF `DataObject` 로 충분하다.
-- **`IContextMenuProvider`** — 포트 정의부터. 창 핸들이 필요해 여기로 미뤘다.
+| 파일 | 하는 일 |
+|---|---|
+| `Views/FocusScroll.cs` | `FocusedName`·`RenamingName` → `ScrollIntoView`. **바인딩으로 받는다** (스레드 마샬링) |
+| `Views/RenameEditor.cs` | 편집기의 포커스·초기 선택 범위·키 판정. **여는 것은 행 템플릿이다** |
+| `Views/DragDropInput.cs` | 수정키 → 효과 · 놓인 자리 → 폴더 · 임계값. `FlexDir.Shell` 을 쓰지 않는다 |
+| `Views/ListInput.cs` | 좌·우·더블클릭 전부. 미룬 선택 확정 · 재클릭 타이머 · `IsEditing` |
+
+**B-4 가 값을 치르고 배운 것 넷** (전부 자동 채점이 닿지 않던 자리다):
+
+1. **`KeyDown` 을 전부 `Handled` 로 표시하면 타이핑이 죽는다.** WPF 가 그 키에서
+   `TextInput` 을 만들지 않는다 — 캐럿·선택은 멀쩡한데 글자만 안 들어간다. 삼킬 키를
+   명시한다 (`RenameEditor.Swallows`). `Delete` 는 창이 휴지통에 걸어 두었으므로 삼킨다.
+2. **목록의 터널링 핸들러가 편집기 클릭을 먼저 가져간다.** `PreviewMouseLeftButtonDown` 은
+   목록 → 편집기 순서라 목록이 `Focus()` 하면 편집이 취소된다. 같은 함정이 더블클릭(파일이
+   열린다)·우클릭(shell 메뉴가 뜬다)·드래그(파일이 딸려 나간다)에도 있다. `ListInput.IsEditing`.
+3. **마우스 다운이 선택을 즉시 접으면 여러 개를 끌 수 없다.** 탐색기가 선택 확정을 마우스
+   업으로 미루는 이유가 이것이다. `ListInput.DefersSelection`.
+4. **COM 인터페이스에서 배열 파라미터의 기본 마샬링은 `SafeArray` 다** (P/Invoke 는
+   `LPArray`). `GetUIObjectOf` 가 PIDL 배열을 SAFEARRAY 로 받아 **프로세스가 죽었다**.
+   `SHELL_NOTES.md` §컨텍스트 메뉴 함정 9. **선언이 틀려도 컴파일되고, 실행 지점을 바꿔
+   끼운 테스트는 진짜 vtable 을 지나지 않는다** — 이 종류는 실물 말고 잡을 방법이 없다.
 
 ## 반드시 알아야 하는 규칙 (값을 치르고 배운 것)
 
@@ -195,11 +222,10 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 7. **`Program.cs` 는 TDD 가드의 검사 대상이 아니다.** 그래서 판단을 한 줄도 두지 않았다.
    조립·활성화·single instance 는 전부 채점되는 클래스 안에 있다 — 그 선을 넘기면
    채점되지 않는 자리에 로직이 자란다.
-8. **아파트먼트와 동시성은 다른 문제다.** `StaWorkQueue` 는 STA 를 보장할 뿐 워커가 넷이라
-   **동시 호출은 그대로 남는다.** `SHGetFileInfo` 경로는 그 동시성에 조용히 무너진다 —
-   예외도 오류 코드도 없이 0 을 내고, 그것을 막으면 뒤의 시스템 이미지 리스트가 던진다.
-   `Interop/ShellInfoGate` 가 프로세스 단위로 직렬화한다. **새 shell API 를 붙일 때
-   "이건 동시에 불려도 되는가" 를 따로 묻는다** — STA 를 잡았다고 끝난 것이 아니다.
+8. **아파트먼트와 동시성은 다른 문제다.** STA 를 잡았다고 끝난 것이 아니다 — 워커가 넷이면
+   동시 호출이 그대로 남고 `SHGetFileInfo` 경로는 거기서 조용히 무너진다.
+   전문은 `SHELL_NOTES.md` §COM 아파트먼트 함정 2 · §아이콘 함정 4 에 올렸다.
+   **새 shell API 를 붙일 때 "STA 인가" 와 "동시에 불려도 되는가" 를 따로 묻는다.**
 9. **실패를 캐시하는 정책은 조용한 버그를 영구화한다.** `ThumbnailRequestScheduler` 는
    실패도 시도로 세어 재요청을 막는다 (PRD §4, 옳다). 그래서 §8 의 경합에 한 번 지면
    그 페인의 아이콘이 **끝까지** 비어 있었다. 캐시하는 실패는 원인을 반드시 그 자리에서
@@ -263,9 +289,10 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 ## 열린 결정 · 미완
 
-- [ ] **`IContextMenuProvider`** — A 잔여. 포트 정의부터 수동이고 창 핸들이 필요하므로
-      창이 생기는 phase B 와 함께 본다 (`SHELL_NOTES.md` §컨텍스트 메뉴).
-- [ ] **완전 종료 = 트레이 아이콘 (사용자 결정 2026-08-06, 구현됨 — 실물 확인 대기).**
+- [x] **`IContextMenuProvider` — 끝났다** (B-4). 포트에 창 핸들을 두지 않고 Host 가 쥔다.
+      메뉴 루프는 STA 워커 + 자체 숨은 창 (`SHELL_NOTES.md` §컨텍스트 메뉴). 오너드로
+      항목이 그려지는 것과 메뉴 밖 클릭으로 닫히는 것까지 실물 확인됐다.
+- [x] **완전 종료 = 트레이 아이콘 (사용자 결정 2026-08-06, 구현됨 — 실물 확인 대기).**
       알림 영역 아이콘 우클릭 → "완전 종료" 가 유일한 `Application.Shutdown()` 경로다
       (`Startup/TrayMenu` + Program 의 WinForms `NotifyIcon` — WPF 에는 알림 영역 API 가
       없다). 주의: `ResidentWindow` 가 `Closing` 을 취소하므로 종료는 반드시 `Shutdown()`
@@ -290,10 +317,10 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 ## 순서
 
 ```
-A. Shell interop   포트 8/8 ✅   잔여: IContextMenuProvider
+A. Shell interop   포트 9/9 ✅
 C. Host 뼈대        ✅  진입점 + DI + single instance + IUsageLog + 계측, 화면 없이 조립까지
-B. View            ← 진행 중. B-1·B-2·B-3 완료 — 다음은 B-4 (상호작용)
-→ 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007, v1 완성 후)
+B. View            ✅  B-1·B-2·B-3·B-4 완료 — v1 기능이 전부 들어왔다
+→ 마감(제품 아이콘 · 커스텀 타이틀바) → 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007)
 ```
 
 **phase B 를 쪼갠다면 이 순서를 권한다** (자율 실행 대상이 아니므로 `phases/` 에 넣지 않는다):
@@ -319,7 +346,12 @@ B-3  나머지 뷰 3종     ✅ 합성 행 템플릿 3종 + 뷰 전환(툴바 4�
                      SHGetFileInfo 동시 호출 실패와 Reset/중복제거 어긋남을 잡았다.
                      확인 잔여: type-ahead · Ctrl+L · 뷰 3종 키보드 이동 · wrap 뷰 클릭 ·
                      대용량 폴더 스크롤 체감.
-B-4  상호작용         이름변경 인라인 편집 · 드래그앤드롭 · IContextMenuProvider
+B-4  상호작용        ✅ 이름변경 인라인 편집 + 드래그앤드롭 + IContextMenuProvider
+                     (포트·Shell 구현·Host 소유 창) + 클릭 경로 정리.
+                     실물 확인 (2026-08-06 · manual-plan §B-4) — 이때 KeyDown 을 전부
+                     삼켜 타이핑이 죽던 것, 편집기 클릭을 목록이 가로채던 것,
+                     다중 드래그가 접히던 것, GetUIObjectOf 의 SafeArray AV 를 잡았다.
+                     이 확인이 B-3 이 남긴 스크롤 결함도 함께 드러냈다.
 ```
 
 B-1 을 먼저 두는 이유: 그 덩이가 **화면 없이 전부 자동 채점된다.** 화면부터 붙이면

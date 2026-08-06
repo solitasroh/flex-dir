@@ -20,14 +20,21 @@ C# 에서는 대부분 [CsWin32] 또는 [Vanara.Windows.Shell] 로 같은 API �
 **사실**: `IFileOperation` · `SHGetFileInfo` · `IContextMenu` 는 **STA** 를 요구한다.
 워커 스레드에서 쓰려면 그 스레드를 STA 로 초기화해야 한다.
 
-**함정**: 호스트가 스레드를 MTA 로 먼저 초기화했으면 `CoInitializeEx` 가
+**함정 1**: 호스트가 스레드를 MTA 로 먼저 초기화했으면 `CoInitializeEx` 가
 `RPC_E_CHANGED_MODE` 를 낸다. 이때 큐를 막지 말고 계속 비우되 각 명령을 실패로
 처리해야 한다 — 안 그러면 큐가 영원히 멈춘다.
+
+**함정 2 — 아파트먼트는 동시성이 아니다.** STA 를 잡았다고 끝난 것이 아니다. 워커가
+여럿이면 **같은 API 를 동시에 부르는 상황이 그대로 남는다**, 그리고 shell API 중에는
+그것을 견디지 못하는 것이 있다 (§아이콘 함정 4). 새 shell API 를 붙일 때
+"STA 인가" 와 "동시에 불려도 되는가" 를 **따로** 묻는다.
 
 **C#**: 전용 워커 스레드에 `SetApartmentState(ApartmentState.STA)`.
 `Task.Run`/스레드풀은 MTA 라 그대로 쓰면 안 된다.
 
-**원본**: `src/explorer/shell-worker.cpp` `workerMain`
+**원본**: `src/explorer/shell-worker.cpp` `workerMain`.
+함정 2 는 flex-dir 에서 나왔다 — `src/FlexDir.Shell/Interop/StaWorkQueue.cs`(아파트먼트)와
+`ShellInfoGate.cs`(직렬화)가 서로 다른 문제를 푼다.
 
 ---
 
@@ -122,10 +129,24 @@ OneDrive 등의 미다운로드 파일이다. **내용을 건드리면 다운로
 버려진다. 워커를 **명시적으로 join 한 뒤** 남은 결과를 드레인해서 `DestroyIcon`
 해야 한다. 메시지 루프 종료가 마지막 post 를 삼킨다.
 
+**함정 4 — 동시 호출이 조용히 실패한다**: `SHGetFileInfoW` 를 두 스레드가 같은 순간에
+부르면 한쪽이 **예외도 오류 코드도 없이 0 을 낸다** (`SHGFI_SYSICONINDEX` 면 아이콘 인덱스가
+`-1`). 그것만 직렬화하면 이번엔 그 뒤의 **시스템 이미지 리스트**(`SHGetImageList` →
+`IImageList.GetIcon`)가 던진다. **형식 아이콘 경로 전체를 프로세스 단위로 직렬화해야 한다.**
+
+- STA 워커를 여럿 두면 바로 재현된다 (§COM 아파트먼트 함정 2).
+- 대가는 없다시피 하다: `SHGFI_USEFILEATTRIBUTES` 라 저장소에 닿지 않고 조회는 확장자마다
+  한 번뿐이다. 오래 걸리는 **썸네일** 조회(`IShellItemImageFactory`)는 직렬화하지 않는다.
+- **실패를 캐시하는 호출자와 만나면 영구 버그가 된다.** 실패도 시도로 세어 재요청을 막는
+  정책(`PRD.md` §4)과 겹쳐, 경합에 한 번 진 페인의 아이콘이 끝까지 비어 있었다.
+  화면만 보면 "아이콘 기능이 없다" 로 보인다.
+
 **폴백 체인**: 실제 경로 조회 → 실패 시 `SHGFI_USEFILEATTRIBUTES` +
 디렉터리/일반 속성으로 재시도 → 실패 시 자리표시자.
 
-**원본**: `src/explorer/icon-provider.cpp` · `icon-cache-coordinator.cpp`
+**원본**: `src/explorer/icon-provider.cpp` · `icon-cache-coordinator.cpp`.
+함정 4 는 flex-dir 에서 나왔다 (2026-08-06, 페인 둘이 동시에 폴더 아이콘을 물었다) —
+`src/FlexDir.Shell/Interop/ShellInfoGate.cs` 가 막고 있다.
 
 ---
 
@@ -168,7 +189,41 @@ shell verb 가 중첩 메뉴를 펌프하면서 같은 메시지를 또 낸다. 
 **함정 8**: 앱 자체 항목이 선택됐을 때는 `PostMessage` 로 미룬다(`Send` 아님).
 `TrackPopupMenuEx` 가 완전히 풀리고 메뉴가 파괴된 뒤에 처리돼야 한다.
 
-**원본**: `src/explorer/shell-context-menu.cpp` — 이 파일은 통째로 읽을 가치가 있다
+**함정 9 — C# 고유. 배열 파라미터의 기본 마샬링이 `SafeArray` 다**: `[ComImport]`
+인터페이스에서 `nint[] apidl` 을 그냥 선언하면 런타임이 **SAFEARRAY** 로 마샬링한다
+(P/Invoke 의 기본은 `LPArray` 라 습관이 어긋난다). shell 은 그것을 PIDL 포인터 배열로
+역참조하고 **프로세스가 죽는다** — `GetUIObjectOf` 안에서 `0xC0000005` 다.
+`[MarshalAs(UnmanagedType.LPArray)]` 를 반드시 붙인다.
+
+**자동 테스트가 잡을 수 없다**: 선언이 틀려도 컴파일되고, 실행 지점을 바꿔 끼운 테스트는
+진짜 vtable 을 지나지 않는다. flex-dir 에서 우클릭 첫 시도가 이렇게 끝났다 (2026-08-06).
+
+**함정 10 — `as` 로 얻은 `IContextMenu2/3` 는 같은 RCW 다**: `menu as IContextMenu3` 는
+새 참조가 아니라 **같은 객체를 다른 타입으로** 돌려준다. 거기에 `ReleaseComObject` 를
+부르면 원본이 이미 세고 있는 것을 한 번 더 놓아 과다 해제가 되고, 죽는 자리는 한참 뒤다.
+수명은 메뉴를 만든 쪽 하나가 쥔다.
+
+### 메뉴 루프를 어디서 도는가 — flex-dir 의 결정
+
+`TrackPopupMenuEx` 는 **창을 소유한 스레드에서만** 돌 수 있고 오너드로 메시지도 그
+스레드의 창 프로시저로 온다. 그런데 `QueryContextMenu`·`InvokeCommand` 는 저장소에
+닿는다 (확장 열거 · 네트워크 경로에서 초 단위). WPF 창을 쓰면 그 호출이 UI 스레드로 온다.
+
+**STA 워커에서 전부 돌리고 메뉴의 주인은 자체 숨은 창으로 만든다** (사용자 결정
+2026-08-06). WPF 핸들은 shell 확장이 띄우는 대화상자의 부모로만 넘긴다. 숨은 창은
+WPF 창을 소유자로 삼고, `SetForegroundWindow` + 뒤이은 `PostMessage`(KB135788)로
+메뉴 밖 클릭이 메뉴를 닫게 한다.
+
+**실물로 확인됐다** (2026-08-06): 오너드로 항목(7-Zip·TortoiseSVN·공유 등)이 글자와
+아이콘까지 제대로 그려지고, 메뉴 밖을 누르면 닫힌다.
+
+**소유 창은 `FlexDir.Host` 가 쥔다.** `FlexDir.Core` 의 포트에는 창 핸들이 없다
+(CLAUDE.md §1) — `Host/Startup/OwnerWindow` 가 창의 `SourceInitialized` 에서 HWND 를
+잡아 두고 공급자(`Func<nint>`)를 구현체에 물려 준다. **`IFileOperation.SetOwnerWindow`
+도 같은 배선을 쓴다** — shell 의 진행률·충돌 대화상자가 그래야 소유 창을 갖는다.
+
+**원본**: `src/explorer/shell-context-menu.cpp` — 이 파일은 통째로 읽을 가치가 있다.
+함정 9·10 과 위 결정은 flex-dir 에서 나왔다 (`src/FlexDir.Shell/Operations/ShellContextMenuProvider.cs`).
 
 ---
 
