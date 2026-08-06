@@ -10,7 +10,31 @@
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Background="#F3F3F3"
-        Foreground="#1B1B1B">
+        Foreground="#1B1B1B"
+        v:WindowCaption.Enabled="True">
+
+    <!-- ═══ 커스텀 크롬 32 (docs/DESIGN.md §1) ═══
+         CaptionHeight 가 위 32px 띠를 OS 캡션으로 넘긴다. 그래서 끌어서 옮기기 ·
+         더블클릭 최대화 · Aero Snap · Win+방향키 · 화면 위로 밀어 최대화가 **우리 코드
+         없이** 그대로 온다. 직접 만들면 그 다섯을 하나씩 되살려야 하고 거기서 회귀가 난다.
+         캡션 위에 놓인 버튼은 IsHitTestVisibleInChrome 으로 다시 꺼내 온다.
+
+         GlassFrameThickness=0 · CornerRadius=0 : 기본값은 DWM 이 유리 테를 그려 넣어
+         우리 배경 위에 회색 띠가 남는다. ResizeBorderThickness 는 기본값을 그대로 둔다 —
+         숫자를 박으면 배율이 다른 모니터에서 잡히는 폭이 달라진다.
+
+         **최대화 여백은 손대지 않는다 (2026-08-06 실측).** 최대화하면 창 rect 가
+         (-8,-8)-(2568,1400) 으로 작업영역(0,0)-(2560,1392) 밖으로 나가지만, 보이는 내용은
+         창 기준 (8,8) 에서 시작해 화면 좌표로 정확히 작업영역과 맞는다 — 잘리지 않는다.
+         WM_GETMINMAXINFO 훅을 붙여 봤고 값도 맞게 왔지만 결과가 한 픽셀도 달라지지 않아
+         걷어냈다. 대신 그 훅의 MaxTrackSize 클램프는 모니터를 옮길 때 새 회귀를 만든다.
+         다른 배율·작업표시줄 위치에서 실제로 잘리는 것을 보면 그때 다시 판단한다. -->
+    <WindowChrome.WindowChrome>
+        <WindowChrome CaptionHeight="32"
+                      GlassFrameThickness="0"
+                      CornerRadius="0"
+                      UseAeroCaptionButtons="False" />
+    </WindowChrome.WindowChrome>
 
     <!-- 수치·색은 전부 docs/DESIGN.md §1~§7 이 정본이다. 색은 아래 리소스 사전이 정의하고,
          루트 attribute 둘(창 배경·전경)만 파서 순서 때문에 값을 직접 쓴다 — 같은 §5 값이다. -->
@@ -100,6 +124,65 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- 캡션 버튼 46×32 (목업 .titlebar .caption-btns button). 글리프는 Windows 의
+             캡션 전용 코드포인트다 — 최소화 E921 · 최대화 E922 · 복원 E923 · 닫기 E8BB
+             (docs/DESIGN.md §7). 크기 10 인 이유는 이 글리프들이 이미 버튼 크기를 전제로
+             그려져 있어서다. 툴바 버튼과 달리 모서리를 굴리지 않는다 — 창 오른쪽 끝까지
+             꽉 차야 Fitts 의 법칙대로 모서리로 던져 닫을 수 있다. -->
+        <Style x:Key="CaptionButton" TargetType="Button">
+            <Setter Property="Width" Value="46" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+            <Setter Property="FontSize" Value="10" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <!-- 호버·눌림을 템플릿이 아니라 Style 에 두는 이유: 템플릿 트리거가
+                         TargetName 으로 Border 를 직접 집으면 TemplateBinding 을 덮어써서
+                         파생 스타일(닫기의 빨강)이 영원히 못 이긴다. -->
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                </Trigger>
+                <Trigger Property="IsPressed" Value="True">
+                    <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 최대화 버튼만 글리프가 상태를 따라간다. 최대화 중에는 '복원' 을 보여야 한다. -->
+        <Style x:Key="MaximizeButton" TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+            <Setter Property="Content" Value="&#xE922;" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding WindowState, RelativeSource={RelativeSource AncestorType=Window}}"
+                             Value="Maximized">
+                    <Setter Property="Content" Value="&#xE923;" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 닫기만 호버가 빨강이다 (목업 .close:hover). 되돌릴 수 없어 보이는 조작에
+             경고색을 주는 것은 Windows 관례이고, 여기서는 실제로는 숨기기다 (ADR-003). -->
+        <Style x:Key="CloseButton" TargetType="Button" BasedOn="{StaticResource CaptionButton}">
+            <Setter Property="Content" Value="&#xE8BB;" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ErrorBrush}" />
+                    <Setter Property="Foreground" Value="White" />
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
         <!-- 뷰 버튼 — 지금 뷰는 강조된다 (목업 .tbtn.on). 어느 뷰인가는 Tag 로 온다:
@@ -640,12 +723,34 @@
 
     <Grid>
         <Grid.RowDefinitions>
+            <RowDefinition Height="32" />
             <RowDefinition Height="*" />
             <RowDefinition Height="24" />
         </Grid.RowDefinitions>
 
-        <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1). 비율은 복원·저장 대상이다 -->
-        <Grid Margin="4,4,4,0"
+        <!-- 타이틀바 32 (docs/DESIGN.md §1 · 목업 .titlebar). 배경을 따로 칠하지 않는다 —
+             창 배경이 그대로 보여야 크롬이 한 덩어리로 읽힌다. -->
+        <Grid>
+            <TextBlock Text="flex-dir" Margin="12,0,0,0" VerticalAlignment="Center"
+                       Foreground="{StaticResource TextBrush}" />
+
+            <!-- 캡션 위에 놓인 것은 OS 가 먼저 가져간다. 버튼만 다시 꺼내 온다 —
+                 이것이 없으면 눌러도 창이 끌린다. -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right"
+                        WindowChrome.IsHitTestVisibleInChrome="True">
+                <Button Style="{StaticResource CaptionButton}" Content="&#xE921;"
+                        Command="{x:Static SystemCommands.MinimizeWindowCommand}" />
+                <Button Style="{StaticResource MaximizeButton}"
+                        Command="{x:Static SystemCommands.MaximizeWindowCommand}" />
+                <Button Style="{StaticResource CloseButton}"
+                        Command="{x:Static SystemCommands.CloseWindowCommand}" />
+            </StackPanel>
+        </Grid>
+
+        <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1). 비율은 복원·저장 대상이다.
+             위 여백이 0 인 것은 목업 .panes 그대로다 — 페인의 둥근 위 모서리가 타이틀바에
+             붙어야 크롬이 이어져 보인다. -->
+        <Grid Grid.Row="1" Margin="4,0,4,0"
               v:SplitterSync.Enabled="True"
               v:SplitterSync.Ratio="{Binding SplitterRatio, Mode=TwoWay}">
             <Grid.ColumnDefinitions>
@@ -677,7 +782,7 @@
         </Grid>
 
         <!-- 상태표시줄 24 — 활성 페인의 문구 (docs/DESIGN.md §1·§6) -->
-        <Border Grid.Row="1" Background="{StaticResource WinBgBrush}"
+        <Border Grid.Row="2" Background="{StaticResource WinBgBrush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
             <TextBlock Text="{Binding ActivePane.StatusText}" Margin="12,0" VerticalAlignment="Center" FontSize="11">
                 <TextBlock.Style>
