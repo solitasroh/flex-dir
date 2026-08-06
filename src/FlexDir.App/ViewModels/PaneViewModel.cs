@@ -1200,11 +1200,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
             var movedAway = !location.Equals(currentLocation);
 
-            // 폴더가 바뀐다. 이전 폴더의 진행 중 요청을 끊지 않으면 새 폴더의 행에 옛 그림이
-            // 붙는다. LoadAsync 본문이 아니라 이 블록 안에서 부르는 이유: 스케줄러는 UI
-            // 스레드에서만 부르기로 돼 있는데 폴더 전환은 UI 밖에서도 들어온다
+            // 폴더가 바뀔 때만 끊는다. 이전 폴더의 진행 중 요청이 남으면 새 폴더의 행에 옛
+            // 그림이 붙는다. LoadAsync 본문이 아니라 이 블록 안에서 부르는 이유: 스케줄러는
+            // UI 스레드에서만 부르기로 돼 있는데 폴더 전환은 UI 밖에서도 들어온다
             // (Host 의 활성화 경로). 이 블록은 dispatcher 가 직렬화한다.
-            thumbnails.Reset();
+            //
+            // 같은 폴더를 다시 여는 경로에서 끊으면 그림이 영영 오지 않는다 — 항목
+            // 인스턴스가 그대로라 (MergeItems) View 가 "보이는 것이 바뀌었다" 고 볼 일이
+            // 없어 다시 밀지 않는다. 시작할 때 복원과 활성화 라우팅이 겹쳐 실제로 그랬다.
+            if (movedAway)
+            {
+                thumbnails.Reset();
+            }
 
             // 목록은 건드리지 않는다. 먼저 비우면 폴더 전환마다 빈 화면이 번쩍인다
             // (docs/UI_GUIDE.md §상태 표현).

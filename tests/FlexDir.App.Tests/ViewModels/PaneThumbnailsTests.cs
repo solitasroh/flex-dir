@@ -110,6 +110,34 @@ public class PaneThumbnailsTests
     }
 
     [Fact]
+    public async Task ReopeningTheSameFolder_DoesNotCancelTheRequestsInFlight()
+    {
+        // 같은 폴더를 다시 여는 경로가 여럿이다 — 시작할 때의 복원과 활성화 라우팅이 겹치고,
+        // F5 도 여기로 온다. 그때 끊으면 그림이 영영 오지 않는다: 항목 인스턴스는 그대로라
+        // (MergeItems) View 가 "보이는 것이 바뀌었다" 고 볼 일이 없어 다시 밀지 않는다.
+        // 실물에서 시작 폴더의 아이콘이 통째로 비어 있었다.
+        var folder = Folder(@"C:\Temp", "a.jpg");
+        var gate = new TaskCompletionSource();
+        thumbnails.ThumbnailGate = gate.Task;
+
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(folder);
+
+        var rows = pane.Items.ToList();
+        pane.SetVisibleRange(rows);
+
+        // 요청이 관문에 걸려 있는 동안 같은 폴더를 다시 연다.
+        await pane.NavigateAsync(folder);
+
+        gate.SetResult();
+        await pane.ThumbnailWork;
+
+        Assert.Equal(0, thumbnails.CancellationsObserved);
+        Assert.NotNull(rows[0].Thumbnail);
+    }
+
+    [Fact]
     public async Task NavigateAsync_KeepsTheTypeIconCache()
     {
         // 확장자 아이콘은 폴더와 무관하다. 폴더를 옮길 때마다 다시 물으면 같은 값을 사 온다.
