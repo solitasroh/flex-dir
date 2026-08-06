@@ -91,26 +91,31 @@ public sealed partial class ShellTypeNameProvider : ITypeNameProvider, IDisposab
         var sentinel = isDirectory || extension.Length == 0 ? SentinelName : SentinelName + "." + extension;
         var attributes = isDirectory ? FileAttributeDirectory : FileAttributeNormal;
 
-        var info = default(ShellFileInfo);
-
-        var handle = SHGetFileInfo(
-            sentinel,
-            attributes,
-            ref info,
-            (uint)Marshal.SizeOf<ShellFileInfo>(),
-            ShgfiTypeName | ShgfiUseFileAttributes);
-
-        if (handle == 0)
+        // 동시 호출이 예외도 오류 코드도 없이 0 을 낸다 (ShellInfoGate). 아이콘 조회와
+        // 같은 API 라 서로 부딪히기도 한다 — 열거와 스크롤이 동시에 일어나는 것이 정상이다.
+        return ShellInfoGate.Query(() =>
         {
-            return string.Empty;
-        }
+            var info = default(ShellFileInfo);
 
-        // szTypeName 은 고정 길이 버퍼이고 남는 자리는 정의되지 않는다. NUL 까지만 읽는다.
-        ReadOnlySpan<ushort> raw = info.TypeName;
-        var type = MemoryMarshal.Cast<ushort, char>(raw);
-        var end = type.IndexOf('\0');
+            var handle = SHGetFileInfo(
+                sentinel,
+                attributes,
+                ref info,
+                (uint)Marshal.SizeOf<ShellFileInfo>(),
+                ShgfiTypeName | ShgfiUseFileAttributes);
 
-        return (end < 0 ? type : type[..end]).ToString();
+            if (handle == 0)
+            {
+                return string.Empty;
+            }
+
+            // szTypeName 은 고정 길이 버퍼이고 남는 자리는 정의되지 않는다. NUL 까지만 읽는다.
+            ReadOnlySpan<ushort> raw = info.TypeName;
+            var type = MemoryMarshal.Cast<ushort, char>(raw);
+            var end = type.IndexOf('\0');
+
+            return (end < 0 ? type : type[..end]).ToString();
+        });
     }
 
     /// <summary>

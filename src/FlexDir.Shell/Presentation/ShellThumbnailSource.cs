@@ -126,16 +126,24 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
             : SentinelName + "." + extension;
 
         var attributes = isDirectory ? FileAttributeDirectory : FileAttributeNormal;
-        var info = default(ShellFileInfo);
 
-        var list = SHGetFileInfo(
-            sentinel,
-            attributes,
-            ref info,
-            (uint)Marshal.SizeOf<ShellFileInfo>(),
-            ShgfiSysIconIndex | ShgfiUseFileAttributes);
+        // 형식 아이콘 경로 <b>전체</b>가 동시 호출에 약하다 (<see cref="ShellInfoGate"/>):
+        // SHGetFileInfo 는 조용히 0 을 내고, 그 뒤의 시스템 이미지 리스트는 던진다. 워커가
+        // 넷이라 두 페인이 같은 순간에 물으면 한쪽이 아이콘을 통째로 잃었다 — 그리고 실패는
+        // 호출자 캐시에 남아 다시 묻지 않는다.
+        return ShellInfoGate.Query<ThumbnailBitmap?>(() =>
+        {
+            var info = default(ShellFileInfo);
 
-        return list == 0 ? null : FromImageList(ImageListFor(requestedSize), info.IconIndex);
+            var list = SHGetFileInfo(
+                sentinel,
+                attributes,
+                ref info,
+                (uint)Marshal.SizeOf<ShellFileInfo>(),
+                ShgfiSysIconIndex | ShgfiUseFileAttributes);
+
+            return list == 0 ? null : FromImageList(ImageListFor(requestedSize), info.IconIndex);
+        });
     }
 
     /// <summary>
