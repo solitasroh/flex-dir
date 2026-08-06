@@ -127,6 +127,28 @@ public class StatusSummaryTests
         Assert.Equal("빈 폴더", StatusSummary.Empty);
     }
 
+    // ── 여유 공간 (목업 .free — 상태표시줄 오른쪽 끝) ───────────────
+
+    [Fact]
+    public void ForFreeSpace_ReadsLikeTheMockup()
+    {
+        Assert.Equal(
+            "여유 공간 213.0 GB",
+            StatusSummary.ForFreeSpace(213L * 1024 * 1024 * 1024, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void ForFreeSpace_UsesTheSameUnitsAsTheSizeColumn()
+    {
+        // 같은 창 안에서 크기 표기가 갈리면 안 된다 — 1024 기반도 SizeFormatter 의 것이다.
+        var bytes = 1536L * 1024 * 1024;
+
+        Assert.EndsWith(
+            SizeFormatter.Format(bytes, CultureInfo.InvariantCulture),
+            StatusSummary.ForFreeSpace(bytes, CultureInfo.InvariantCulture),
+            StringComparison.Ordinal);
+    }
+
     // ── culture 는 반드시 인자로 온다 ───────────────────────────────
 
     [Fact]
@@ -135,5 +157,6 @@ public class StatusSummaryTests
         Assert.Throws<ArgumentNullException>(() => StatusSummary.ForItems(1, null!));
         Assert.Throws<ArgumentNullException>(() => StatusSummary.ForSelection(1, 1, 0, null!));
         Assert.Throws<ArgumentNullException>(() => StatusSummary.ForEnumerating(1, null!));
+        Assert.Throws<ArgumentNullException>(() => StatusSummary.ForFreeSpace(1, null!));
     }
 }

@@ -10,6 +10,7 @@ using FlexDir.Shell.Activation;
 using FlexDir.Shell.Enumeration;
 using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
+using FlexDir.Shell.Storage;
 using FlexDir.Shell.Usage;
 using FlexDir.Shell.ViewState;
 using FlexDir.Shell.Watching;
@@ -95,6 +96,10 @@ public sealed class AppComposition : IAsyncDisposable
         var activator = new ShellItemActivator();
         var contextMenus = new ShellContextMenuProvider(ownerWindow);
 
+        // STA 도 정리도 필요 없다 — COM 이 아니라 GetDiskFreeSpaceEx 다. 그래서 아래
+        // 정리 목록에 들어가지 않는다.
+        var driveSpace = new FileSystemDriveSpace();
+
         // 환경을 읽는 곳은 여기 한 곳이다. ViewModel 이 CultureInfo.CurrentCulture 를 직접
         // 읽으면 같은 목록에 다른 형식이 섞이고 테스트가 기계 설정에 따라 갈린다.
         var culture = CultureInfo.CurrentCulture;
@@ -112,7 +117,8 @@ public sealed class AppComposition : IAsyncDisposable
             dispatcher,
             culture,
             timeZone,
-            contextMenus);
+            contextMenus,
+            driveSpace: driveSpace);
 
         var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates);
 

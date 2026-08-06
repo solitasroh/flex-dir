@@ -12,6 +12,20 @@ public static class StatusSummary
 {
     private const string Separator = " · ";
 
+    /// <summary>
+    /// 예: <c>여유 공간 213.0 GB</c>. 상태표시줄 오른쪽 끝에 붙는다 (목업 <c>.free</c>).
+    /// <para>
+    /// 단위는 크기 컬럼과 같은 <see cref="SizeFormatter"/> 를 지난다 — 같은 창 안에서
+    /// 1024 기반과 SI 가 섞이면 어느 쪽이 맞는지 알 수 없게 된다.
+    /// </para>
+    /// </summary>
+    public static string ForFreeSpace(long freeBytes, IFormatProvider culture)
+    {
+        ArgumentNullException.ThrowIfNull(culture);
+
+        return $"여유 공간 {SizeFormatter.Format(freeBytes, culture)}";
+    }
+
     /// <summary>예: <c>항목 232개</c>. 0 도 그대로 낸다 — 빈 폴더 문구를 고르는 것은 호출자다.</summary>
     public static string ForItems(int itemCount, IFormatProvider culture)
     {

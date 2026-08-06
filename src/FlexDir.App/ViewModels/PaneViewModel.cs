@@ -14,6 +14,7 @@ using FlexDir.Core.Model;
 using FlexDir.Core.Operations;
 using FlexDir.Core.Presentation;
 using FlexDir.Core.Sorting;
+using FlexDir.Core.Storage;
 using FlexDir.Core.ViewState;
 using FlexDir.Core.Watching;
 
@@ -133,6 +134,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private readonly IClipboardBridge clipboard;
     private readonly IItemActivator activator;
     private readonly IContextMenuProvider contextMenus;
+
+    /// <summary>여유 용량 포트. 주입되지 않으면 그 자리를 비운다 (선택 주입).</summary>
+    private readonly IDriveSpace? driveSpace;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -189,6 +193,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private LocationId? currentLocation;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
+
+    private string freeSpaceText = string.Empty;
+
+    private Task freeSpaceWork = Task.CompletedTask;
     private string? renamingName;
     private string? focusedName;
     private string addressEdit = string.Empty;
@@ -223,7 +231,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         IFormatProvider culture,
         TimeZoneInfo timeZone,
         IContextMenuProvider contextMenus,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        // 선택 주입이다 (timeProvider 와 같은 자리). 주지 않으면 여유 용량 자리가 빈 채로
+        // 나머지가 그대로 돈다 — 이 포트 하나 때문에 페인 테스트 수백 개를 고치지 않는다.
+        IDriveSpace? driveSpace = null)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(folderWatcher);
@@ -237,6 +248,8 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(culture);
         ArgumentNullException.ThrowIfNull(timeZone);
         ArgumentNullException.ThrowIfNull(contextMenus);
+
+        this.driveSpace = driveSpace;
 
         // 감시 알림을 받은 항목은 다시 읽어야 한다 (TryGetItemAsync) — 세션은 폴더 열거만 안다.
         this.folderSource = folderSource;
@@ -463,6 +476,22 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// <see cref="SetVisibleRange"/> 는 스크롤 이벤트가 기다려 주지 않으므로 <c>void</c> 다.
     /// </summary>
     internal Task ThumbnailWork => thumbnails.WhenIdle;
+
+    /// <summary>
+    /// 상태표시줄 오른쪽 끝의 여유 용량 문구. <b>모르면 빈 문자열이다</b> — 자리를 비우는
+    /// 것과 <c>0 B</c> 를 적는 것은 다르다 (<see cref="IDriveSpace"/>).
+    /// </summary>
+    public string FreeSpaceText
+    {
+        get => freeSpaceText;
+        private set => SetProperty(ref freeSpaceText, value);
+    }
+
+    /// <summary>
+    /// 진행 중인 여유 용량 조회가 끝나면 완료된다. 테스트의 관측 지점이다 —
+    /// 폴더 열기는 이 조회를 기다리지 않는다.
+    /// </summary>
+    internal Task FreeSpaceWork => freeSpaceWork;
 
     /// <summary>
     /// wrap 뷰 3종의 합성 행. Details 는 이것을 지나지 않고 평평한 <see cref="Items"/> 를
@@ -1368,7 +1397,53 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             RefreshStatusText();
         }).ConfigureAwait(false);
 
+        // 열거가 끝난 뒤에 묻는다. 앞에 두면 저장소에 닿는 조회(네트워크에서 초 단위)가
+        // 첫 항목 도착을 뒤로 민다 — 그것이 이 앱의 예산 항목이다 (docs/PRD.md §5).
+        MeasureFreeSpace(run, location, ct);
+
         return new LoadResult(false, null);
+    }
+
+    /// <summary>
+    /// 여유 용량을 뒤에서 재고 도착하면 상태표시줄에 올린다.
+    /// <para>
+    /// <b>기다리지 않는다.</b> 곁다리 값이고, 응답하지 않는 볼륨에서 기다리면 폴더 열기가
+    /// 통째로 그만큼 늦어진다. 늦게 온 답은 <see cref="run"/> 이 낡았는지로 걸러진다 —
+    /// 폴더를 빠르게 옮기면 이전 드라이브의 값이 새 폴더 옆에 남는다.
+    /// </para>
+    /// </summary>
+    private void MeasureFreeSpace(EnumerationRun run, LocationId location, CancellationToken ct)
+    {
+        if (driveSpace is null)
+        {
+            return;
+        }
+
+        freeSpaceWork = Measure();
+
+        async Task Measure()
+        {
+            DriveSpace? space;
+
+            try
+            {
+                space = await driveSpace.MeasureAsync(location, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            var text = space is { } value ? StatusSummary.ForFreeSpace(value.FreeBytes, culture) : string.Empty;
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                if (!run.IsStale)
+                {
+                    FreeSpaceText = text;
+                }
+            }).ConfigureAwait(false);
+        }
     }
 
     private Task ShowParseErrorAsync(string? address, LocationParseError error)

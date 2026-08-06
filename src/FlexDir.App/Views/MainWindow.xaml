@@ -784,6 +784,14 @@
         <!-- 상태표시줄 24 — 활성 페인의 문구 (docs/DESIGN.md §1·§6) -->
         <Border Grid.Row="2" Background="{StaticResource WinBgBrush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
+          <Grid>
+            <!-- 여유 용량은 오른쪽 끝이다 (목업 .free 의 margin-left:auto). 활성 페인의
+                 드라이브이고, 모르면 빈 문자열이라 자리가 조용히 비워진다. 겹쳐 두는 것이
+                 의도다 — 왼쪽 문구가 길어지면 밀려나는 대신 뒤로 지나간다. -->
+            <TextBlock Text="{Binding ActivePane.FreeSpaceText}" Margin="12,0" FontSize="11"
+                       HorizontalAlignment="Right" VerticalAlignment="Center"
+                       Foreground="{StaticResource Text2Brush}" />
+
             <TextBlock Text="{Binding ActivePane.StatusText}" Margin="12,0" VerticalAlignment="Center" FontSize="11">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
@@ -796,6 +804,7 @@
                     </Style>
                 </TextBlock.Style>
             </TextBlock>
+          </Grid>
         </Border>
     </Grid>
 </Window>
