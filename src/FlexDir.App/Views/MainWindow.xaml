@@ -515,6 +515,8 @@
                             <!-- 소스가 둘이다 — Details 는 평평한 Items, wrap 뷰 3종은 합성 행 (ADR-016) -->
                             <ListBox Style="{StaticResource PaneList}"
                                      v:TypeAheadInput.Enabled="True"
+                                     v:FocusScroll.FocusedName="{Binding FocusedName}"
+                                     v:FocusScroll.RenamingName="{Binding RenamingName}"
                                      v:ListInput.SelectCommand="{Binding SelectItemCommand}"
                                      v:ListInput.ToggleCommand="{Binding ToggleItemCommand}"
                                      v:ListInput.RangeCommand="{Binding RangeSelectItemCommand}"
