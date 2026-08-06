@@ -4,6 +4,7 @@
         xmlns:v="clr-namespace:FlexDir.App.Views"
         xmlns:vm="clr-namespace:FlexDir.App.ViewModels"
         xmlns:sorting="clr-namespace:FlexDir.Core.Sorting;assembly=FlexDir.Core"
+        xmlns:state="clr-namespace:FlexDir.Core.ViewState;assembly=FlexDir.Core"
         Title="flex-dir"
         Width="1280" Height="800" MinWidth="900" MinHeight="560"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12"
@@ -36,6 +37,11 @@
         <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Size}" />
         <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Type}" />
         <KeyBinding Key="D4" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Modified}" />
+        <!-- 뷰 4종. 탐색기는 Ctrl+Shift+1~8 이지만 우리 뷰는 4종이라 툴바 버튼 순서에 맞춘다 -->
+        <KeyBinding Key="D1" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}" />
+        <KeyBinding Key="D2" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.List}" />
+        <KeyBinding Key="D3" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Tiles}" />
+        <KeyBinding Key="D4" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -56,12 +62,12 @@
         <SolidColorBrush x:Key="SelInactiveBrush" Color="#12000000" />
         <SolidColorBrush x:Key="FocusRingBrush" Color="#1B1B1B" />
         <SolidColorBrush x:Key="ErrorBrush" Color="#C42B1C" />
-        <SolidColorBrush x:Key="IconFolderBrush" Color="#BDBDBD" />
-        <SolidColorBrush x:Key="IconFileBrush" Color="#D6D6D6" />
 
         <v:NameMembershipConverter x:Key="NameMembership" />
         <v:NameEqualityConverter x:Key="NameEquality" />
         <v:EnumEqualityConverter x:Key="EnumEquality" />
+        <v:ViewSourceConverter x:Key="ViewSource" />
+        <v:ThumbnailImageConverter x:Key="ThumbnailImage" />
 
         <!-- 툴바 버튼 32×28 · 아이콘 16 (docs/DESIGN.md §1·§7) -->
         <Style x:Key="ToolButton" TargetType="Button">
@@ -93,6 +99,19 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- 뷰 버튼 — 지금 뷰는 강조된다 (목업 .tbtn.on). 어느 뷰인가는 Tag 로 온다:
+             ConverterParameter 는 바인딩이 될 수 없어 비교를 버튼마다 미리 접어 둔다. -->
+        <Style x:Key="ViewButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Style.Triggers>
+                <!-- Trigger 가 아니라 DataTrigger 다 — Tag 는 object 라 Trigger 의 Value 가
+                     문자열 "True" 로 남고 bool 과 영원히 다르다 (실물에서 강조가 안 붙었다) -->
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource SelBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!-- Details 컬럼 헤더 버튼 — 클릭이 정렬이다 (ChangeSortCommand) -->
@@ -136,22 +155,89 @@
             </Style.Triggers>
         </Style>
 
-        <!-- ═══ Details 행 (docs/DESIGN.md §2·§3·§6) — 높이 24 고정 ═══ -->
-        <DataTemplate x:Key="DetailsRow" DataType="{x:Type vm:FileItemViewModel}">
-            <Border x:Name="SelChrome" Height="24" CornerRadius="3" Background="Transparent">
-                <Border.Tag>
+        <!-- ═══ 항목 크롬 — 뷰 4종이 공유한다 (docs/DESIGN.md §6) ═══
+             Tag 가 판정을 실어 나른다. 선택은 이름 집합이 들고 있으므로 (ADR-011) 행마다
+             "내 이름이 집합에 있는가" 를 묻는다 — 가상화가 실현한 것만 계산한다. -->
+        <Style x:Key="ItemSelection" TargetType="Border">
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Tag">
+                <Setter.Value>
                     <MultiBinding Converter="{StaticResource NameMembership}">
                         <Binding Path="DataContext.Selection.SelectedNames" RelativeSource="{RelativeSource AncestorType=ListBox}" />
                         <Binding Path="Name" />
                     </MultiBinding>
-                </Border.Tag>
-                <Border x:Name="FocusChrome" CornerRadius="3" BorderThickness="1" BorderBrush="Transparent">
-                    <Border.Tag>
-                        <MultiBinding Converter="{StaticResource NameEquality}">
-                            <Binding Path="DataContext.FocusedName" RelativeSource="{RelativeSource AncestorType=ListBox}" />
-                            <Binding Path="Name" />
-                        </MultiBinding>
-                    </Border.Tag>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                </Trigger>
+                <!-- 선택 — 비활성 페인은 강등된다. 뒤에 오는 트리거가 이기므로 순서가 규칙이다 -->
+                <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource SelInactiveBrush}" />
+                </DataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{StaticResource SelBrush}" />
+                </MultiDataTrigger>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="Background" Value="{StaticResource SelHoverBrush}" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 키보드 포커스 테두리 — 활성 페인에서만. 두께는 항상 1 이라 레이아웃이 흔들리지 않는다 -->
+        <Style x:Key="ItemFocus" TargetType="Border">
+            <Setter Property="CornerRadius" Value="3" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Tag">
+                <Setter.Value>
+                    <MultiBinding Converter="{StaticResource NameEquality}">
+                        <Binding Path="DataContext.FocusedName" RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                        <Binding Path="Name" />
+                    </MultiBinding>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
+                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="BorderBrush" Value="{StaticResource FocusRingBrush}" />
+                </MultiDataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 아이콘·썸네일. 썸네일이 있으면 그것, 없으면 형식 아이콘이다 — 크기만 뷰가 정한다.
+             96 요청은 SHIL_JUMBO 의 256×256 을 내므로 축소가 여기서 일어난다 -->
+        <Style x:Key="ItemIcon" TargetType="Image">
+            <Setter Property="Stretch" Value="Uniform" />
+            <Setter Property="RenderOptions.BitmapScalingMode" Value="HighQuality" />
+            <Setter Property="Source">
+                <Setter.Value>
+                    <MultiBinding Converter="{StaticResource ThumbnailImage}">
+                        <Binding Path="Thumbnail" />
+                        <Binding Path="Icon" />
+                    </MultiBinding>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ Details 행 (docs/DESIGN.md §2·§3) — 높이 24 고정 ═══ -->
+        <DataTemplate x:Key="DetailsRow" DataType="{x:Type vm:FileItemViewModel}">
+            <Border Style="{StaticResource ItemSelection}" Height="24">
+                <Border Style="{StaticResource ItemFocus}">
                     <Grid Background="Transparent">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" MinWidth="160" />
@@ -159,12 +245,15 @@
                             <ColumnDefinition Width="120" />
                             <ColumnDefinition Width="140" />
                         </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Margin="8,0">
-                            <Border x:Name="TypeIcon" Width="16" Height="16" CornerRadius="2"
-                                    VerticalAlignment="Center" Background="{StaticResource IconFileBrush}" />
-                            <TextBlock Text="{Binding Name}" Margin="6,0,0,0" VerticalAlignment="Center"
+                        <Grid Margin="8,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Image Style="{StaticResource ItemIcon}" Width="16" Height="16" VerticalAlignment="Center" />
+                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="6,0,0,0" VerticalAlignment="Center"
                                        TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
+                        </Grid>
                         <TextBlock Grid.Column="1" Text="{Binding SizeText}" Margin="8,0" VerticalAlignment="Center"
                                    HorizontalAlignment="Right" Foreground="{StaticResource Text2Brush}" />
                         <TextBlock Grid.Column="2" Text="{Binding TypeText}" Margin="8,0" VerticalAlignment="Center"
@@ -174,45 +263,147 @@
                     </Grid>
                 </Border>
             </Border>
-            <DataTemplate.Triggers>
-                <DataTrigger Binding="{Binding IsDirectory}" Value="True">
-                    <Setter TargetName="TypeIcon" Property="Background" Value="{StaticResource IconFolderBrush}" />
-                </DataTrigger>
-                <Trigger SourceName="SelChrome" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="SelChrome" Property="Background" Value="{StaticResource HoverBrush}" />
-                </Trigger>
-                <!-- 선택 — 비활성 페인은 강등된다 (docs/DESIGN.md §6) -->
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding Tag, ElementName=SelChrome}" Value="True" />
-                    </MultiDataTrigger.Conditions>
-                    <Setter TargetName="SelChrome" Property="Background" Value="{StaticResource SelInactiveBrush}" />
-                </MultiDataTrigger>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding Tag, ElementName=SelChrome}" Value="True" />
-                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), ElementName=SelChrome}" Value="True" />
-                    </MultiDataTrigger.Conditions>
-                    <Setter TargetName="SelChrome" Property="Background" Value="{StaticResource SelBrush}" />
-                </MultiDataTrigger>
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding Tag, ElementName=SelChrome}" Value="True" />
-                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), ElementName=SelChrome}" Value="True" />
-                        <Condition Binding="{Binding IsMouseOver, ElementName=SelChrome}" Value="True" />
-                    </MultiDataTrigger.Conditions>
-                    <Setter TargetName="SelChrome" Property="Background" Value="{StaticResource SelHoverBrush}" />
-                </MultiDataTrigger>
-                <!-- 키보드 포커스 테두리 — 활성 페인에서만 (docs/DESIGN.md §6) -->
-                <MultiDataTrigger>
-                    <MultiDataTrigger.Conditions>
-                        <Condition Binding="{Binding Tag, ElementName=FocusChrome}" Value="True" />
-                        <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), ElementName=FocusChrome}" Value="True" />
-                    </MultiDataTrigger.Conditions>
-                    <Setter TargetName="FocusChrome" Property="BorderBrush" Value="{StaticResource FocusRingBrush}" />
-                </MultiDataTrigger>
-            </DataTemplate.Triggers>
         </DataTemplate>
+
+        <!-- ═══ 목록 뷰 (docs/DESIGN.md §2) — 항목 200×22, 가로 간격 12 ═══
+             세로로 채우고 다음 열로 넘어간다. 그래서 합성 행 하나가 한 '열' 이다 (ADR-016). -->
+        <DataTemplate x:Key="ListCell" DataType="{x:Type vm:FileItemViewModel}">
+            <Border Style="{StaticResource ItemSelection}" Width="200" Height="22" Margin="0,0,12,0">
+                <Border Style="{StaticResource ItemFocus}">
+                    <Grid Margin="8,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Style="{StaticResource ItemIcon}" Width="16" Height="16" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="6,0,0,0" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" />
+                    </Grid>
+                </Border>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ListRow" DataType="{x:Type vm:RowViewModel}">
+            <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource ListCell}" Focusable="False" />
+        </DataTemplate>
+
+        <!-- ═══ 타일 뷰 (docs/DESIGN.md §2) — 높이 56, 아이콘 32, 최소 폭 220 가변 ═══ -->
+        <DataTemplate x:Key="TileCell" DataType="{x:Type vm:FileItemViewModel}">
+            <Border Style="{StaticResource ItemSelection}" Height="56" Margin="0,2,8,2">
+                <Border Style="{StaticResource ItemFocus}">
+                    <Grid Margin="10,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Image Style="{StaticResource ItemIcon}" Width="32" Height="32" VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Text="{Binding TypeText}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource Text2Brush}" />
+                            <TextBlock Text="{Binding SizeText}" FontSize="11" TextTrimming="CharacterEllipsis"
+                                       Foreground="{StaticResource Text2Brush}" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Border>
+        </DataTemplate>
+
+        <!-- 칸 수를 행에서 받는다 — 항목 수로 나누면 두 칸뿐인 마지막 줄이 화면을 반씩 쓴다 -->
+        <DataTemplate x:Key="TileRow" DataType="{x:Type vm:RowViewModel}">
+            <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource TileCell}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1" Columns="{Binding Capacity}" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DataTemplate>
+
+        <!-- ═══ 큰 아이콘 뷰 (docs/DESIGN.md §2) — 항목 116×140, 썸네일 96, 이름 2줄 ═══ -->
+        <DataTemplate x:Key="IconCell" DataType="{x:Type vm:FileItemViewModel}">
+            <Border Style="{StaticResource ItemSelection}" Width="116" Height="140" Margin="0,4,8,4">
+                <Border Style="{StaticResource ItemFocus}">
+                    <StackPanel Margin="6" VerticalAlignment="Center">
+                        <Image Style="{StaticResource ItemIcon}" Width="96" Height="96" HorizontalAlignment="Center" />
+                        <TextBlock Text="{Binding Name}" Width="104" Margin="0,4,0,0" TextAlignment="Center"
+                                   TextWrapping="Wrap" TextTrimming="CharacterEllipsis"
+                                   LineHeight="14" LineStackingStrategy="BlockLineHeight" MaxHeight="28" />
+                    </StackPanel>
+                </Border>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="IconRow" DataType="{x:Type vm:RowViewModel}">
+            <ItemsControl ItemsSource="{Binding Items}" ItemTemplate="{StaticResource IconCell}" Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DataTemplate>
+
+        <!-- ═══ 목록 컨트롤 ═══
+             가상화 필수 조합 (docs/ARCHITECTURE.md §5). 뷰 전환은 DataTemplate 교체이고
+             (ADR-002) 컨트롤은 하나다. 뷰포트·보이는 범위는 패널이 민다 — 가상화 패널이
+             스크롤 주인이라 그 크기가 곧 픽셀 뷰포트다. -->
+        <ItemsPanelTemplate x:Key="VerticalItems">
+            <VirtualizingStackPanel Orientation="Vertical"
+                                    v:ViewportSync.Enabled="True"
+                                    v:VisibleRangeSync.Enabled="True" />
+        </ItemsPanelTemplate>
+
+        <ItemsPanelTemplate x:Key="HorizontalItems">
+            <VirtualizingStackPanel Orientation="Horizontal"
+                                    v:ViewportSync.Enabled="True"
+                                    v:VisibleRangeSync.Enabled="True" />
+        </ItemsPanelTemplate>
+
+        <!-- 내장 선택·포커스를 쓰지 않는다 — 이동·선택은 ViewModel 이 한다 (ADR-016) -->
+        <Style x:Key="RowContainer" TargetType="ListBoxItem">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <ContentPresenter />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PaneList" TargetType="ListBox">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource RowContainer}" />
+            <Setter Property="ItemTemplate" Value="{StaticResource DetailsRow}" />
+            <Setter Property="ItemsPanel" Value="{StaticResource VerticalItems}" />
+            <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+            <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+            <Setter Property="VirtualizingPanel.IsVirtualizing" Value="True" />
+            <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
+            <Setter Property="VirtualizingPanel.ScrollUnit" Value="Item" />
+            <Style.Triggers>
+                <!-- 목록 뷰만 가로 스크롤이다 — 세로로 채우고 다음 열로 넘어간다 (ADR-016) -->
+                <DataTrigger Binding="{Binding ViewMode}" Value="List">
+                    <Setter Property="ItemTemplate" Value="{StaticResource ListRow}" />
+                    <Setter Property="ItemsPanel" Value="{StaticResource HorizontalItems}" />
+                    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+                    <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ViewMode}" Value="Tiles">
+                    <Setter Property="ItemTemplate" Value="{StaticResource TileRow}" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ViewMode}" Value="LargeIcons">
+                    <Setter Property="ItemTemplate" Value="{StaticResource IconRow}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
 
         <!-- ═══ 페인 하나 (좌우가 공유한다) ═══ -->
         <DataTemplate x:Key="PaneTemplate" DataType="{x:Type vm:PaneViewModel}">
@@ -233,6 +424,21 @@
                             <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72C;" ToolTip="새로 고침 (F5)"
                                     Command="{Binding RefreshCommand}" />
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
+                            <Button Style="{StaticResource ViewButton}" Content="&#xE8A4;" ToolTip="자세히 (Ctrl+Shift+1)"
+                                    Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}"
+                                    Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}" />
+                            <Button Style="{StaticResource ViewButton}" Content="&#xE8FD;" ToolTip="목록 (Ctrl+Shift+2)"
+                                    Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.List}"
+                                    Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.List}}" />
+                            <Button Style="{StaticResource ViewButton}" Content="&#xE8A9;" ToolTip="타일 (Ctrl+Shift+3)"
+                                    Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Tiles}"
+                                    Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Tiles}}" />
+                            <!-- 큰 아이콘만 DESIGN §7 의 E8A6 이 아니다 — 그 자리는 잠긴 문서
+                                 (ProtectedDocument) 글리프다. 큰 사각 하나로 바꿨다 -->
+                            <Button Style="{StaticResource ViewButton}" Content="&#xE15B;" ToolTip="큰 아이콘 (Ctrl+Shift+4)"
+                                    Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}"
+                                    Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.LargeIcons}}" />
                         </StackPanel>
                     </Border>
 
@@ -257,8 +463,9 @@
 
                     <Grid>
                         <DockPanel Margin="8,0">
-                            <!-- Details 헤더 24 — 클릭 = 정렬 (탐색기와 같다) -->
-                            <Grid DockPanel.Dock="Top" Height="24">
+                            <!-- Details 헤더 24 — 클릭 = 정렬 (탐색기와 같다). 다른 뷰에는 컬럼이 없다 -->
+                            <Grid DockPanel.Dock="Top" Height="24"
+                                  Visibility="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="160" />
                                     <ColumnDefinition Width="90" />
@@ -299,36 +506,20 @@
                                 </Button>
                             </Grid>
 
-                            <!-- Details 목록 — 가상화 필수 조합 (docs/ARCHITECTURE.md §5) -->
-                            <ListBox ItemsSource="{Binding Items}"
-                                     ItemTemplate="{StaticResource DetailsRow}"
-                                     Background="Transparent" BorderThickness="0" Padding="0"
-                                     HorizontalContentAlignment="Stretch"
-                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
-                                     VirtualizingPanel.IsVirtualizing="True"
-                                     VirtualizingPanel.VirtualizationMode="Recycling"
-                                     VirtualizingPanel.ScrollUnit="Item"
+                            <!-- 소스가 둘이다 — Details 는 평평한 Items, wrap 뷰 3종은 합성 행 (ADR-016) -->
+                            <ListBox Style="{StaticResource PaneList}"
                                      v:ListInput.SelectCommand="{Binding SelectItemCommand}"
                                      v:ListInput.ToggleCommand="{Binding ToggleItemCommand}"
                                      v:ListInput.RangeCommand="{Binding RangeSelectItemCommand}"
                                      v:ListInput.OpenCommand="{Binding ActivateCommand}"
                                      v:ListInput.EmptyCommand="{Binding ClickBackgroundCommand}">
-                                <ListBox.ItemContainerStyle>
-                                    <!-- 내장 선택·포커스를 쓰지 않는다 — 이동·선택은 ViewModel 이 한다 (ADR-016) -->
-                                    <Style TargetType="ListBoxItem">
-                                        <Setter Property="Focusable" Value="False" />
-                                        <Setter Property="IsTabStop" Value="False" />
-                                        <Setter Property="Margin" Value="0" />
-                                        <Setter Property="Padding" Value="0" />
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ListBoxItem">
-                                                    <ContentPresenter />
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </ListBox.ItemContainerStyle>
+                                <ListBox.ItemsSource>
+                                    <MultiBinding Converter="{StaticResource ViewSource}">
+                                        <Binding Path="ViewMode" />
+                                        <Binding Path="Items" />
+                                        <Binding Path="Rows" />
+                                    </MultiBinding>
+                                </ListBox.ItemsSource>
                                 <ListBox.InputBindings>
                                     <!-- 이동·선택 (docs/DESIGN.md §9) — 합성 행 위에서 내장 이동은 못 쓴다 -->
                                     <KeyBinding Key="Up" Command="{Binding MoveFocusToCommand}" CommandParameter="{x:Static vm:FocusMove.Up}" />
