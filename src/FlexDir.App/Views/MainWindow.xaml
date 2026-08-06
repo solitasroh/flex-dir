@@ -223,8 +223,88 @@
             </Style.Triggers>
         </Style>
 
-        <!-- Details 컬럼 헤더 버튼 — 클릭이 정렬이다 (ChangeSortCommand) -->
+        <!-- 툴바의 드롭다운 머리 — ToolButton 과 같은 크기·크롬. Menu/MenuItem 을 쓰는 이유는
+             눌러서 펴지는 것이 내장이라 코드비하인드가 필요 없기 때문이다 (CLAUDE.md §2) -->
+        <Style x:Key="ToolMenu" TargetType="MenuItem">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="28" />
+            <!-- 아이콘 폰트를 여기 걸면 안 된다 — FontFamily 는 상속되므로 하위 메뉴의
+                 한글 항목이 전부 두부(□)가 된다. 글리프를 그리는 TextBlock 에만 건다 -->
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Chrome" CornerRadius="4" Background="Transparent">
+                            <Grid>
+                                <TextBlock Text="{TemplateBinding Header}"
+                                           FontFamily="Segoe Fluent Icons" FontSize="16"
+                                           Foreground="{TemplateBinding Foreground}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <!-- 하위 항목이 뜨는 자리. MenuItem 템플릿은 Popup 을 직접 들어야 한다 -->
+                                <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
+                                       Placement="Bottom" PlacementTarget="{Binding ElementName=Chrome}"
+                                       IsOpen="{TemplateBinding IsSubmenuOpen}">
+                                    <Border Background="{StaticResource ChromeBgBrush}"
+                                            BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                                            CornerRadius="6" Padding="2">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ 분류 방법 (docs/PRD-v2.md §6-1 · ADR-017) ═══
+             항목 다섯은 PaneViewModel.GroupOptions 가 소유한다 — 툴바와 컬럼 헤더 우클릭이
+             같은 목록을 쓴다. XAML 두 곳에 두 벌 쓰면 곧 어긋나고 체크 표시도 채점할 수 없다. -->
+        <Style x:Key="GroupOptionItem" TargetType="MenuItem">
+            <Setter Property="Header" Value="{Binding Label}" />
+            <!-- 본문 글꼴을 명시한다 (docs/DESIGN.md §4). 툴바 드롭다운은 아이콘 폰트를 쓰는
+                 버튼 아래에 달리므로, 비워 두면 상속으로 한글이 두부가 된다 -->
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="MinWidth" Value="140" />
+            <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=OneWay}" />
+            <Setter Property="IsCheckable" Value="True" />
+            <!-- Key 가 null 인 "없음" 도 그대로 넘긴다 = 그룹화 끔 -->
+            <Setter Property="CommandParameter" Value="{Binding Key}" />
+        </Style>
+
+        <!-- 헤더 우클릭용. x:Shared="False" 로 참조마다 새 인스턴스를 만든다 —
+             하나를 좌우 페인이 나눠 쓰면 PlacementTarget 이 엇갈린다 -->
+        <ContextMenu x:Key="GroupByMenu" x:Shared="False"
+                     DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                     ItemsSource="{Binding GroupOptions}"
+                     ItemContainerStyle="{StaticResource GroupOptionItem}">
+            <ContextMenu.Resources>
+                <!-- ItemContainerStyle 이 Command 를 못 든다 — 항목의 DataContext 는
+                     GroupOption 이라 ChangeGroupCommand 가 거기 없다. 메뉴에서 끌어온다 -->
+                <Style TargetType="MenuItem" BasedOn="{StaticResource GroupOptionItem}">
+                    <Setter Property="Command"
+                            Value="{Binding DataContext.ChangeGroupCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                </Style>
+            </ContextMenu.Resources>
+        </ContextMenu>
+
+        <!-- Details 컬럼 헤더 버튼 — 클릭이 정렬이다 (ChangeSortCommand).
+             우클릭은 분류 메뉴다. **버튼이 헤더를 꽉 채우므로 여기에도 달아야 한다** —
+             Grid 에만 달면 우클릭의 원본이 늘 버튼이라 메뉴가 뜨지 않는다 (실물에서 확인) -->
         <Style x:Key="HeaderButton" TargetType="Button">
+            <Setter Property="ContextMenu" Value="{StaticResource GroupByMenu}" />
             <Setter Property="FontSize" Value="11" />
             <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
             <Setter Property="Background" Value="Transparent" />
@@ -424,6 +504,57 @@
             </Border>
         </DataTemplate>
 
+        <!-- ═══ 그룹화를 켠 Details (docs/PRD-v2.md §6-1) ═══
+             헤더도 행이다. 그래서 목록은 여전히 평평한 한 겹이고 VirtualizingStackPanel 이
+             그대로 산다 — 전작이 그룹핑으로 가상화를 깨뜨린 자리를 이렇게 피한다.
+             WPF 내장 GroupStyle 을 쓰지 않는 이유가 그것이다. -->
+        <DataTemplate x:Key="DetailsGroupedRow" DataType="{x:Type vm:DetailRowViewModel}">
+            <Grid>
+                <!-- 헤더. 클릭이 접기·펴기다 (ListInput 은 이 자리를 빈 곳으로 보지 않는다) -->
+                <Button x:Name="Header" Visibility="Collapsed" Height="28" Focusable="False"
+                        HorizontalContentAlignment="Left" Background="Transparent" BorderThickness="0"
+                        Command="{Binding DataContext.ToggleGroupCommand, RelativeSource={RelativeSource AncestorType=ListBox}}"
+                        CommandParameter="{Binding Label}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="{TemplateBinding Background}" Padding="8,0">
+                                <ContentPresenter VerticalAlignment="Center" />
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Segoe Fluent E70D(▼ 펼침) / E70E(▲ 접힘)  — SortGlyph 와 같은 글꼴 -->
+                        <TextBlock x:Name="Chevron" FontFamily="Segoe Fluent Icons" FontSize="8" Text="&#xE70D;"
+                                   VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" />
+                        <TextBlock Text="{Binding Label}" Margin="8,0,0,0" FontSize="12" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" />
+                        <!-- 접혀 있을 때 개수가 그 그룹의 유일한 단서다 -->
+                        <TextBlock Text="{Binding Count}" Margin="6,0,0,0" FontSize="11"
+                                   VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" />
+                    </StackPanel>
+                </Button>
+
+                <!-- 항목. Content 를 물리면 ContentPresenter 의 DataContext 가 항목이 되어
+                     ListInput.ItemAt 이 여기서 항목을 찾는다 (기존 클릭 경로 그대로다) -->
+                <ContentPresenter x:Name="Row" Content="{Binding Item}"
+                                  ContentTemplate="{StaticResource DetailsRow}" />
+            </Grid>
+            <DataTemplate.Triggers>
+                <DataTrigger Binding="{Binding IsHeader}" Value="True">
+                    <Setter TargetName="Header" Property="Visibility" Value="Visible" />
+                    <Setter TargetName="Row" Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding IsCollapsed}" Value="True">
+                    <Setter TargetName="Chevron" Property="Text" Value="&#xE70E;" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
         <!-- ═══ 목록 뷰 (docs/DESIGN.md §2) — 항목 200×22, 가로 간격 12 ═══
              세로로 채우고 다음 열로 넘어간다. 그래서 합성 행 하나가 한 '열' 이다 (ADR-016). -->
         <DataTemplate x:Key="ListCell" DataType="{x:Type vm:FileItemViewModel}">
@@ -556,6 +687,15 @@
             <Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling" />
             <Setter Property="VirtualizingPanel.ScrollUnit" Value="Item" />
             <Style.Triggers>
+                <!-- 그룹화를 켠 Details 만 헤더가 섞인 행을 쓴다 (docs/PRD-v2.md §6-1).
+                     아래 뷰 모드 트리거들과 조건이 배타적이라 순서는 상관없다 -->
+                <MultiDataTrigger>
+                    <MultiDataTrigger.Conditions>
+                        <Condition Binding="{Binding ViewMode}" Value="Details" />
+                        <Condition Binding="{Binding IsGrouped}" Value="True" />
+                    </MultiDataTrigger.Conditions>
+                    <Setter Property="ItemTemplate" Value="{StaticResource DetailsGroupedRow}" />
+                </MultiDataTrigger>
                 <!-- 목록 뷰만 가로 스크롤이다 — 세로로 채우고 다음 열로 넘어간다 (ADR-016) -->
                 <DataTrigger Binding="{Binding ViewMode}" Value="List">
                     <Setter Property="ItemTemplate" Value="{StaticResource ListRow}" />
@@ -609,6 +749,23 @@
                             <Button Style="{StaticResource ViewButton}" Content="&#xE15B;" ToolTip="큰 아이콘 (Ctrl+Shift+4)"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.LargeIcons}}" />
+
+                            <!-- 분류 (docs/PRD-v2.md §6-1). 헤더 우클릭만 두었더니 찾을 수 없었다 —
+                                 Menu/MenuItem 은 눌러서 펴지는 것이 내장이라 코드비하인드가 필요 없다.
+                                 Details 전용이므로 다른 뷰에서는 비활성이다 -->
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
+                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
+                                <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE8EC;" ToolTip="분류 방법"
+                                          ItemsSource="{Binding GroupOptions}"
+                                          IsEnabled="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}">
+                                    <MenuItem.ItemContainerStyle>
+                                        <Style TargetType="MenuItem" BasedOn="{StaticResource GroupOptionItem}">
+                                            <Setter Property="Command"
+                                                    Value="{Binding DataContext.ChangeGroupCommand, RelativeSource={RelativeSource AncestorType=Menu}}" />
+                                        </Style>
+                                    </MenuItem.ItemContainerStyle>
+                                </MenuItem>
+                            </Menu>
                         </StackPanel>
                     </Border>
 
@@ -696,6 +853,11 @@
                             <!-- Details 헤더 24 — 클릭 = 정렬 (탐색기와 같다). 다른 뷰에는 컬럼이 없다 -->
                             <Grid DockPanel.Dock="Top" Height="24"
                                   Visibility="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}">
+                                <!-- 분류 방법 — 탐색기와 같은 자리(헤더 우클릭). 컬럼 사이 빈 틈에서만
+                                     여기가 잡히고, 버튼 위에서는 HeaderButton 스타일의 같은 메뉴가 뜬다 -->
+                                <Grid.ContextMenu>
+                                    <StaticResource ResourceKey="GroupByMenu" />
+                                </Grid.ContextMenu>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" MinWidth="160" />
                                     <ColumnDefinition Width="90" />
@@ -754,6 +916,7 @@
                                         <Binding Path="ViewMode" />
                                         <Binding Path="Items" />
                                         <Binding Path="Rows" />
+                                        <Binding Path="DetailRows" />
                                     </MultiBinding>
                                 </ListBox.ItemsSource>
                                 <ListBox.InputBindings>

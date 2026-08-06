@@ -119,6 +119,70 @@ public class FolderViewStateTests
         Assert.NotEqual(FolderViewState.Default, FolderViewState.Default with { Mode = ViewMode.List });
     }
 
+    // ── 그룹화 (docs/PRD-v2.md §6-1) ────────────────────────────────
+    // 꺼진 것이 기본이다. 그룹화가 꺼져 있으면 목록 경로가 v1 과 같아야 한다.
+
+    [Fact]
+    public void Default_HasNoGrouping()
+    {
+        Assert.Null(FolderViewState.Default.GroupBy);
+        Assert.Empty(FolderViewState.Default.Collapsed);
+    }
+
+    [Fact]
+    public void WithGroupBy_KeepsModeAndSort()
+    {
+        var state = FolderViewState.Default with { GroupBy = SortKey.Type };
+
+        Assert.Equal(SortKey.Type, state.GroupBy);
+        Assert.Equal(ViewMode.Details, state.Mode);
+        Assert.Equal([new SortOrder(SortKey.Name)], state.Sort);
+    }
+
+    [Fact]
+    public void DifferentGroupBy_IsNotEqual()
+    {
+        Assert.NotEqual(FolderViewState.Default, FolderViewState.Default with { GroupBy = SortKey.Size });
+    }
+
+    // 접힌 그룹은 집합이다 — 저장·복원 왕복이 순서를 뒤집어도 "바뀌었다" 가 되면
+    // 폴더를 떠날 때마다 쓸데없이 다시 쓴다.
+    [Fact]
+    public void CollapsedGroups_CompareAsASetNotAList()
+    {
+        var a = FolderViewState.Default with { Collapsed = ["ㄴ", "ㄱ"] };
+        var b = FolderViewState.Default with { Collapsed = ["ㄱ", "ㄴ"] };
+
+        Assert.Equal(a, b);
+        Assert.Equal(a.GetHashCode(), b.GetHashCode());
+    }
+
+    [Fact]
+    public void CollapsedGroups_DropDuplicates()
+    {
+        var state = FolderViewState.Default with { Collapsed = ["ㄱ", "ㄱ"] };
+
+        Assert.Equal(["ㄱ"], state.Collapsed);
+    }
+
+    // 정렬 키와 달리 비어 있는 것이 정상이므로 던지지 않는다.
+    [Fact]
+    public void CollapsedGroups_NullBecomesEmpty()
+    {
+        Assert.Empty(new FolderViewState(ViewMode.Details, [new SortOrder(SortKey.Name)], null, null).Collapsed);
+    }
+
+    [Fact]
+    public void MutatingTheCollapsedSourceList_DoesNotChangeTheState()
+    {
+        var collapsed = new List<string> { "ㄱ" };
+
+        var state = FolderViewState.Default with { Collapsed = collapsed };
+        collapsed.Clear();
+
+        Assert.Equal(["ㄱ"], state.Collapsed);
+    }
+
     // ── 전역 상태 ───────────────────────────────────────────────────
 
     [Fact]

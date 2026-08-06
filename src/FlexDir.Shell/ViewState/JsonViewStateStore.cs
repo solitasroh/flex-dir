@@ -82,7 +82,13 @@ public sealed class JsonViewStateStore : IViewStateStore
                     ? []
                     : new Dictionary<string, FolderRecord>(document.Folders, StringComparer.Ordinal);
 
-                folders[Key(folder)] = new FolderRecord(state.Mode, [.. state.Sort]);
+                // 접힌 그룹이 없으면 아예 쓰지 않는다 — 그룹화를 안 쓰는 폴더의 기록이
+                // v1 이 쓰던 모양 그대로 남는다.
+                folders[Key(folder)] = new FolderRecord(
+                    state.Mode,
+                    [.. state.Sort],
+                    state.GroupBy,
+                    state.Collapsed.Count == 0 ? null : [.. state.Collapsed]);
 
                 return document with { Folders = folders };
             },
@@ -128,7 +134,8 @@ public sealed class JsonViewStateStore : IViewStateStore
     {
         try
         {
-            return new FolderViewState(stored.Mode, stored.Sort ?? []);
+            // groupBy·collapsed 는 v1 이 쓴 파일에 없다. 없으면 그룹화가 꺼진 것으로 읽는다.
+            return new FolderViewState(stored.Mode, stored.Sort ?? [], stored.GroupBy, stored.Collapsed);
         }
         catch (ArgumentException)
         {
@@ -231,5 +238,13 @@ public sealed class JsonViewStateStore : IViewStateStore
         string? LeftFolder = null,
         string? RightFolder = null);
 
-    private sealed record FolderRecord(ViewMode Mode, List<SortOrder>? Sort);
+    /// <summary>
+    /// <c>GroupBy</c>·<c>Collapsed</c> 는 선택적이다 — v1 이 쓴 파일에는 없고, 없으면
+    /// 그룹화가 꺼진 것으로 읽힌다 (docs/PRD-v2.md §6-1).
+    /// </summary>
+    private sealed record FolderRecord(
+        ViewMode Mode,
+        List<SortOrder>? Sort,
+        SortKey? GroupBy = null,
+        List<string>? Collapsed = null);
 }

@@ -201,7 +201,9 @@ public static class ListInput
         var list = (ItemsControl)sender;
 
         // 편집기 안의 우클릭은 TextBox 자신의 메뉴(잘라내기·복사·붙여넣기)다.
-        if (IsEditing(list, args.OriginalSource as DependencyObject))
+        // 그룹 헤더는 항목도 빈 자리도 아니다 — 폴더 메뉴를 띄우지 않는다.
+        if (IsEditing(list, args.OriginalSource as DependencyObject)
+            || IsGroupHeader(list, args.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -260,6 +262,31 @@ public static class ListInput
     }
 
     /// <summary>
+    /// 눌린 자리가 그룹 헤더인가 (docs/PRD-v2.md §6-1).
+    /// <para>
+    /// 헤더는 항목이 아니라 <see cref="ItemAt"/> 이 <c>null</c> 을 낸다. 그대로 두면
+    /// <b>목록의 빈 자리</b>로 판정돼 접으려고 누를 때마다 선택이 통째로 풀린다.
+    /// 접기·펴기는 헤더 자신의 버튼이 하므로 목록은 손대지 않고 물러난다.
+    /// </para>
+    /// </summary>
+    internal static bool IsGroupHeader(DependencyObject list, DependencyObject? origin)
+    {
+        var node = origin;
+
+        while (node is not null && node != list)
+        {
+            if (node is FrameworkElement { DataContext: DetailRowViewModel { IsHeader: true } })
+            {
+                return true;
+            }
+
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// 눌린 자리가 이름변경 편집기 안인가.
     /// <para>
     /// 편집기는 행 템플릿 안에 있으므로 그 클릭이 <b>목록의 터널링 핸들러를 먼저 지난다</b>.
@@ -290,7 +317,9 @@ public static class ListInput
         var list = (ItemsControl)sender;
 
         // 편집기 안의 클릭은 캐럿 조작이다. 목록이 손대면 편집이 닫힌다.
-        if (IsEditing(list, args.OriginalSource as DependencyObject))
+        // 그룹 헤더 클릭은 접기·펴기다 — 빈 자리로 보면 누를 때마다 선택이 통째로 풀린다.
+        if (IsEditing(list, args.OriginalSource as DependencyObject)
+            || IsGroupHeader(list, args.OriginalSource as DependencyObject))
         {
             return;
         }

@@ -103,7 +103,7 @@ public class ViewConvertersTests
         var items = new object();
         var rows = new object();
 
-        Assert.Same(items, converter.Convert([ViewMode.Details, items, rows], typeof(object), null, Culture));
+        Assert.Same(items, converter.Convert([ViewMode.Details, items, rows, Grouped()], typeof(object), null, Culture));
     }
 
     [Theory]
@@ -116,7 +116,41 @@ public class ViewConvertersTests
         var items = new object();
         var rows = new object();
 
-        Assert.Same(rows, converter.Convert([mode, items, rows], typeof(object), null, Culture));
+        Assert.Same(rows, converter.Convert([mode, items, rows, Grouped()], typeof(object), null, Culture));
+    }
+
+    // ── 그룹화를 켜면 소스가 하나 더 있다 (docs/PRD-v2.md §6-1) ────
+
+    [Fact]
+    public void ViewSource_GivesGroupedDetailsTheProjection()
+    {
+        var converter = new ViewSourceConverter();
+        var grouped = Grouped(headers: 1);
+
+        Assert.Same(grouped, converter.Convert(
+            [ViewMode.Details, new object(), new object(), grouped], typeof(object), null, Culture));
+    }
+
+    // 비어 있으면 그룹화가 꺼진 것이다 — 그때 Details 는 v1 과 같은 경로를 탄다.
+    [Fact]
+    public void ViewSource_WithAnEmptyProjection_FallsBackToTheFlatItems()
+    {
+        var converter = new ViewSourceConverter();
+        var items = new object();
+
+        Assert.Same(items, converter.Convert(
+            [ViewMode.Details, items, new object(), Grouped()], typeof(object), null, Culture));
+    }
+
+    // wrap 뷰는 그룹 투영을 쓰지 않는다. 그룹화는 Details 전용이다.
+    [Fact]
+    public void ViewSource_GroupedWrapView_StillGetsTheCompositeRows()
+    {
+        var converter = new ViewSourceConverter();
+        var rows = new object();
+
+        Assert.Same(rows, converter.Convert(
+            [ViewMode.Tiles, new object(), rows, Grouped(headers: 1)], typeof(object), null, Culture));
     }
 
     [Fact]
@@ -125,8 +159,14 @@ public class ViewConvertersTests
         var converter = new ViewSourceConverter();
 
         Assert.Null(converter.Convert(
-            [System.Windows.DependencyProperty.UnsetValue, new object(), new object()], typeof(object), null, Culture));
+            [System.Windows.DependencyProperty.UnsetValue, new object(), new object(), Grouped()],
+            typeof(object),
+            null,
+            Culture));
     }
+
+    private static IReadOnlyList<DetailRowViewModel> Grouped(int headers = 0)
+        => [.. Enumerable.Range(0, headers).Select(index => DetailRowViewModel.Header($"G{index}", 1, false))];
 
     // ── 썸네일 픽셀 → 그릴 수 있는 그림 (phase B-3) ───────────────
 

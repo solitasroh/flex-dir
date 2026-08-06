@@ -110,6 +110,24 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
         Assert.Null(await CreateStore().TryLoadAsync(Folder(@"C:\Temp\Docs"), CancellationToken.None));
     }
 
+    // v1 이 쓴 파일에는 groupBy·collapsed 가 아예 없다. 그것을 읽지 못하면 도그푸딩 중인
+    // 기계에서 폴더별 기억이 통째로 날아간다 (docs/PRD-v2.md §6-1 저장 호환).
+    [Fact]
+    public async Task FileWrittenBeforeGrouping_LoadsWithGroupingOff()
+    {
+        WriteRawFile("""
+            { "folders": { "\\\\?\\C:\\TEMP\\DOCS": { "mode": "Tiles", "sort": [ { "key": "Size", "descending": true } ] } } }
+            """);
+
+        var loaded = await CreateStore().TryLoadAsync(Folder(@"C:\Temp\Docs"), CancellationToken.None);
+
+        Assert.NotNull(loaded);
+        Assert.Equal(ViewMode.Tiles, loaded.Mode);
+        Assert.Equal([new SortOrder(SortKey.Size, Descending: true)], loaded.Sort);
+        Assert.Null(loaded.GroupBy);
+        Assert.Empty(loaded.Collapsed);
+    }
+
     // 저장 파일이 손상돼 -3 이 들어와도 페인이 사라지면 안 된다 (GlobalViewState 가 거부한다).
     [Fact]
     public async Task FileWithOutOfRangeSplitter_FallsBackToDefault()

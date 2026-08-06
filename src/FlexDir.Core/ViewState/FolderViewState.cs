@@ -18,13 +18,18 @@ public enum ViewMode
 /// 폴더 하나의 뷰 상태 (docs/PRD.md §2 폴더별 기억). 영구 저장되는 값이며
 /// 소유자는 <see cref="IViewStateStore"/> 다 (docs/ARCHITECTURE.md §4).
 /// </summary>
-public sealed record FolderViewState(ViewMode Mode, IReadOnlyList<SortOrder> Sort)
+public sealed record FolderViewState(
+    ViewMode Mode,
+    IReadOnlyList<SortOrder> Sort,
+    SortKey? GroupBy = null,
+    IReadOnlyList<string>? Collapsed = null)
 {
     // 위치 매개변수를 직접 받아 검사한다. 생성자 경로는 이 초기화식,
     // 'with' 경로는 아래 init 접근자가 맡는다.
     private readonly IReadOnlyList<SortOrder> sort = Validate(Sort);
+    private readonly IReadOnlyList<string> collapsed = Normalize(Collapsed);
 
-    /// <summary>Details + 이름 오름차순. 기억된 상태가 없는 폴더에 쓴다.</summary>
+    /// <summary>Details + 이름 오름차순 + 그룹화 없음. 기억된 상태가 없는 폴더에 쓴다.</summary>
     public static FolderViewState Default { get; } = new(ViewMode.Details, [new SortOrder(SortKey.Name)]);
 
     /// <summary>
@@ -38,20 +43,49 @@ public sealed record FolderViewState(ViewMode Mode, IReadOnlyList<SortOrder> Sor
         init => sort = Validate(value);
     }
 
+    /// <summary>
+    /// 그룹 헤더로 나눌 기준 (docs/PRD-v2.md §6-1). <c>null</c> 이면 그룹화가 꺼진 것이고,
+    /// 그때 목록 경로는 v1 과 같다. 정렬 기준과 같은 열거형을 쓴다 — 그룹 키가 곧 정렬
+    /// 1차 키이므로 (<see cref="Grouping.FileItemGroups.WithGroupKey"/>) 둘이 갈리면
+    /// 그룹 경계와 정렬 순서가 어긋난다.
+    /// </summary>
+    public SortKey? GroupBy { get; init; } = GroupBy;
+
+    /// <summary>
+    /// 접혀 있는 그룹의 라벨. 정렬 키와 달리 <b>비어 있는 것이 정상</b>이라 검사하지 않고,
+    /// 순서·중복을 지운 집합으로 다룬다 — 왕복이 순서를 뒤집었다고 "바뀌었다" 가 되면
+    /// 폴더를 떠날 때마다 쓸데없이 다시 쓴다.
+    /// </summary>
+    public IReadOnlyList<string> Collapsed
+    {
+        get => collapsed;
+        init => collapsed = Normalize(value);
+    }
+
     // 리스트 내용을 비교한다. 저장·복원 왕복은 다른 인스턴스를 내므로 참조 비교로는
     // "정렬이 바뀌었는가" 를 판정할 수 없다 — 계약 테스트가 파일 기반 구현체에서
     // 실패하게 된다. SortOrder 는 record 라 요소 비교는 값 비교다.
     public bool Equals(FolderViewState? other)
-        => other is not null && Mode == other.Mode && Sort.SequenceEqual(other.Sort);
+        => other is not null
+            && Mode == other.Mode
+            && GroupBy == other.GroupBy
+            && Sort.SequenceEqual(other.Sort)
+            && Collapsed.SequenceEqual(other.Collapsed);
 
     public override int GetHashCode()
     {
         var hash = new HashCode();
         hash.Add(Mode);
+        hash.Add(GroupBy);
 
         foreach (var order in Sort)
         {
             hash.Add(order);
+        }
+
+        foreach (var label in Collapsed)
+        {
+            hash.Add(label);
         }
 
         return hash.ToHashCode();
@@ -69,6 +103,14 @@ public sealed record FolderViewState(ViewMode Mode, IReadOnlyList<SortOrder> Sor
 
         return [.. value];
     }
+
+    /// <summary>
+    /// 순서·중복을 지운다. 정렬해 두면 <see cref="Equals"/> 가 집합 비교가 되고, 저장 파일도
+    /// 매번 같은 모양으로 나가 diff 가 흔들리지 않는다. 호출자가 넘긴 리스트를 나중에
+    /// 바꿔도 상태가 흔들리지 않는 것은 <see cref="Validate"/> 와 같은 이유다.
+    /// </summary>
+    private static IReadOnlyList<string> Normalize(IReadOnlyList<string>? value)
+        => value is null ? [] : [.. value.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)];
 }
 
 /// <summary>

@@ -4,6 +4,8 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
+using FlexDir.App.ViewModels;
+
 using FlexDir.Core.Presentation;
 using FlexDir.Core.ViewState;
 
@@ -80,18 +82,28 @@ public sealed class EnumEqualityConverter : IValueConverter
 }
 
 /// <summary>
-/// 뷰 모드가 목록의 소스를 고른다 — <c>[ViewMode, Items, Rows]</c> 를 받는다 (ADR-016).
+/// 뷰 모드가 목록의 소스를 고른다 — <c>[ViewMode, Items, Rows, DetailRows]</c> 를 받는다
+/// (ADR-016 · docs/PRD-v2.md §6-1).
 /// <para>
-/// 소스가 둘인 것이 의도다. Details 는 평평한 <c>Items</c> 를 그대로 쓰고 (10만 항목의 주
-/// 경로에 래퍼를 두지 않는다), wrap 뷰 3종만 합성 행 위에 선다. 목록 컨트롤은 하나이고
-/// 바뀌는 것은 소스와 <c>DataTemplate</c> 뿐이다 (ADR-002).
+/// 소스가 여럿인 것이 의도다. 그룹화를 안 쓰는 Details 는 평평한 <c>Items</c> 를 그대로
+/// 쓰고 (10만 항목의 주 경로에 래퍼를 두지 않는다), wrap 뷰 3종은 합성 행, 그룹화를 켠
+/// Details 만 헤더가 섞인 투영 위에 선다. 목록 컨트롤은 하나이고 바뀌는 것은 소스와
+/// <c>DataTemplate</c> 뿐이다 (ADR-002).
 /// </para>
 /// </summary>
 public sealed class ViewSourceConverter : IMultiValueConverter
 {
+    /// <summary>
+    /// Details 는 평평한 항목, wrap 뷰 3종은 합성 행이다 (ADR-016). 넷째는 그룹 투영으로,
+    /// <b>비어 있으면 그룹화가 꺼진 것</b>이라 Details 가 v1 과 같은 경로를 탄다
+    /// (docs/PRD-v2.md §6-1). 켜짐 여부를 따로 묻지 않는 이유는 신호가 둘이면 어긋날 수
+    /// 있어서다 — 투영이 곧 답이다.
+    /// </summary>
     public object? Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
-        => values is [ViewMode mode, var items, var rows]
-            ? mode == ViewMode.Details ? items : rows
+        => values is [ViewMode mode, var items, var rows, var grouped]
+            ? mode != ViewMode.Details
+                ? rows
+                : grouped is IReadOnlyList<DetailRowViewModel> { Count: > 0 } ? grouped : items
             : null;
 
     public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture)

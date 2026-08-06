@@ -118,6 +118,46 @@ public class ListInputTests
         Assert.Equal(expected, ListInput.IsRenameGesture(modifiers, clicks, wasSoleSelection, listHadFocus));
     }
 
+    // ── 그룹 헤더 (docs/PRD-v2.md §6-1) ───────────────────────────
+    // 헤더는 항목이 아니지만 목록의 빈 자리도 아니다. 빈 자리로 보면 접으려고 누를
+    // 때마다 선택이 통째로 풀린다.
+
+    [Fact]
+    public void IsGroupHeader_AClickOnAHeaderRow_IsNotTheEmptyPartOfTheList()
+    {
+        OnSta(() =>
+        {
+            var text = new TextBlock();
+            var header = new Border { Child = text, DataContext = DetailRowViewModel.Header("TXT", 3, false) };
+            var list = new Border { Child = header };
+
+            Assert.True(ListInput.IsGroupHeader(list, text));
+            Assert.Null(ListInput.ItemAt(list, text));
+        });
+    }
+
+    [Fact]
+    public void IsGroupHeader_AClickOnAnItemRow_IsFalse()
+    {
+        OnSta(() =>
+        {
+            var item = Item("a.txt");
+            var text = new TextBlock();
+            var cell = new Border { Child = text, DataContext = item };
+            var row = new Border { Child = cell, DataContext = DetailRowViewModel.ForItem(item) };
+            var list = new Border { Child = row };
+
+            Assert.False(ListInput.IsGroupHeader(list, text));
+            Assert.Same(item, ListInput.ItemAt(list, text));
+        });
+    }
+
+    [Fact]
+    public void IsGroupHeader_WithoutAnOrigin_IsFalse()
+    {
+        OnSta(() => Assert.False(ListInput.IsGroupHeader(new Border(), null)));
+    }
+
     // ── 눌린 자리 → 항목 (phase B-3 · ADR-016) ────────────────────
 
     [Fact]

@@ -9,6 +9,7 @@ using FlexDir.App.Threading;
 using FlexDir.Core.Enumeration;
 using FlexDir.Core.Errors;
 using FlexDir.Core.Formatting;
+using FlexDir.Core.Grouping;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
 using FlexDir.Core.Operations;
@@ -74,6 +75,66 @@ public sealed class RowViewModel
     /// </para>
     /// </summary>
     public int Capacity { get; }
+}
+
+/// <summary>
+/// "분류 방법" 메뉴의 항목 하나 (docs/DESIGN.md §9). 목록을 ViewModel 이 소유하는 이유는
+/// 그것을 <b>툴바와 컬럼 헤더 우클릭이 함께 쓰기</b> 때문이다 — XAML 두 곳에 항목을 두 벌
+/// 쓰면 곧 어긋나고, 어느 것이 켜져 있는지도 자동 채점할 수 없게 된다.
+/// </summary>
+/// <param name="Key">그룹 기준. <c>null</c> 이 "없음" 이다 — 커맨드에 그대로 넘어간다.</param>
+public sealed record GroupOption(string Label, SortKey? Key, bool IsSelected);
+
+/// <summary>
+/// 그룹화를 켠 Details 의 한 줄 — 그룹 헤더이거나 항목이다 (docs/PRD-v2.md §6-1).
+/// <para>
+/// 전작은 그룹핑으로 데이터 가상화를 깨뜨렸다 (docs/PRD.md §3). <b>헤더도 행이면</b>
+/// 목록은 여전히 평평한 한 겹이고 <c>VirtualizingStackPanel</c> 이 그대로 산다 —
+/// WPF 내장 <c>GroupStyle</c> 을 쓰지 않는 이유가 그것이다. <see cref="RowViewModel"/> 이
+/// wrap 뷰에 쓴 수와 같다 (ADR-016).
+/// </para>
+/// <para>
+/// 불변이다. 접기·정렬·갱신은 <c>PaneViewModel</c> 이 투영을 통째로 다시 만든다 —
+/// 행마다 알림을 걸면 10만 항목에 알림 10만 개가 매달린다.
+/// </para>
+/// </summary>
+public sealed class DetailRowViewModel
+{
+    private DetailRowViewModel(FileItemViewModel? item, string? label, int count, bool collapsed)
+    {
+        Item = item;
+        Label = label;
+        Count = count;
+        IsCollapsed = collapsed;
+    }
+
+    /// <summary>항목 행. <see cref="PaneViewModel.Items"/> 와 인스턴스를 공유한다.</summary>
+    public static DetailRowViewModel ForItem(FileItemViewModel item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        return new DetailRowViewModel(item, null, 0, false);
+    }
+
+    /// <param name="count">접혀 있어도 개수는 보인다 — 헤더만 남았을 때 유일한 단서다.</param>
+    public static DetailRowViewModel Header(string label, int count, bool collapsed)
+    {
+        ArgumentNullException.ThrowIfNull(label);
+
+        return new DetailRowViewModel(null, label, count, collapsed);
+    }
+
+    public FileItemViewModel? Item { get; }
+
+    /// <summary>헤더의 그룹 라벨. 항목 행은 <c>null</c> 이다.</summary>
+    public string? Label { get; }
+
+    public int Count { get; }
+
+    public bool IsCollapsed { get; }
+
+    /// <summary>템플릿 선택이 이것으로 갈린다 (View 의 <c>DetailsGroupedRow</c>).</summary>
+    public bool IsHeader => Item is null;
 }
 
 /// <summary>
@@ -219,7 +280,30 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private IReadOnlyList<RowViewModel> rows = [];
 
-    /// <summary><see cref="sort"/> 에서 만든다. 정렬이 바뀔 때만 새로 만든다.</summary>
+    /// <summary>그룹 기준. <c>null</c> 이면 그룹화가 꺼진 것이다 (docs/PRD-v2.md §6-1).</summary>
+    private SortKey? groupBy;
+
+    /// <summary>접혀 있는 그룹의 라벨. 라벨은 우리가 만든 것이라 대소문자를 그대로 본다.</summary>
+    private readonly HashSet<string> collapsed = new(StringComparer.Ordinal);
+
+    /// <summary><see cref="DetailRows"/> 가 낡았다. <see cref="Rows"/> 의 rowsStale 과 같은 수다.</summary>
+    private bool detailRowsStale;
+
+    private IReadOnlyList<DetailRowViewModel> detailRows = [];
+
+    /// <summary>"분류 방법" 메뉴 항목. 기준이 바뀌면 버린다 (<see cref="GroupOptions"/>).</summary>
+    private IReadOnlyList<GroupOption>? groupOptions;
+
+    /// <summary>
+    /// 접힌 그룹을 뺀 항목. 그룹화가 꺼져 있거나 접힌 그룹이 없으면 <see cref="Items"/> 그대로다 —
+    /// 그때 키보드 이동은 v1 과 한 글자도 다르지 않다.
+    /// </summary>
+    private IReadOnlyList<FileItemViewModel> visibleItems = [];
+
+    /// <summary>
+    /// <see cref="sort"/> 와 <see cref="groupBy"/> 에서 만든다. 둘 중 하나가 바뀔 때만
+    /// 새로 만든다 — 그룹 키가 정렬 1차 키다 (<see cref="FileItemGroups.WithGroupKey"/>).
+    /// </summary>
     private FileItemComparer comparer = FileItemComparer.Default;
 
     public PaneViewModel(
@@ -339,6 +423,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 // 줄당 항목 수가 모드에 달려 있다. 전환은 DataTemplate 교체이고 (ADR-002)
                 // 합성 행은 여기서 갈아끼운다 (ADR-016).
                 RefreshRowLayout();
+
+                // 그룹 투영은 Details 전용이다 — 나가면 비우고, 돌아오면 다시 만든다.
+                InvalidateDetailRows();
             }
         }
     }
@@ -360,10 +447,61 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             }
 
             sort = [.. value];
-            comparer = new FileItemComparer(sort);
+            RebuildComparer();
             OnPropertyChanged();
         }
     }
+
+    /// <summary>
+    /// 그룹 헤더로 나눌 기준. <c>null</c> 이면 꺼진 것이고, 그때 Details 는 평평한
+    /// <see cref="Items"/> 를 그대로 쓴다 (docs/PRD-v2.md §6-1).
+    /// </summary>
+    public SortKey? GroupBy
+    {
+        get => groupBy;
+        private set
+        {
+            if (groupBy == value)
+            {
+                return;
+            }
+
+            groupBy = value;
+
+            // 기준이 바뀌면 접혀 있던 라벨은 의미가 없다 — 유형의 "PNG" 와 이름의 "P" 가
+            // 같은 집합에 섞이면 엉뚱한 그룹이 접힌 채로 열린다.
+            collapsed.Clear();
+
+            RebuildComparer();
+            SortItems();
+            InvalidateDetailRows();
+
+            groupOptions = null;
+
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsGrouped));
+            OnPropertyChanged(nameof(GroupOptions));
+        }
+    }
+
+    /// <summary>템플릿 선택이 이것으로 갈린다 — XAML 트리거는 nullable enum 을 다루기 나쁘다.</summary>
+    public bool IsGrouped => groupBy is not null;
+
+    /// <summary>
+    /// "분류 방법" 메뉴에 올릴 다섯. 툴바와 컬럼 헤더 우클릭이 <b>같은 목록</b>을 쓴다.
+    /// 기준이 바뀌면 통째로 새로 만든다 — 인스턴스가 그대로면 View 가 체크 표시를 다시
+    /// 그릴 신호를 못 받는다.
+    /// </summary>
+    public IReadOnlyList<GroupOption> GroupOptions => groupOptions ??= BuildGroupOptions();
+
+    private IReadOnlyList<GroupOption> BuildGroupOptions() =>
+    [
+        new GroupOption("없음", null, groupBy is null),
+        new GroupOption("이름", SortKey.Name, groupBy == SortKey.Name),
+        new GroupOption("크기", SortKey.Size, groupBy == SortKey.Size),
+        new GroupOption("유형", SortKey.Type, groupBy == SortKey.Type),
+        new GroupOption("수정한 날짜", SortKey.Modified, groupBy == SortKey.Modified),
+    ];
 
     /// <summary>
     /// 이름 편집 중인 항목의 이름. 편집 중이 아니면 null.
@@ -546,6 +684,28 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
+    /// 그룹화를 켠 Details 의 행 — 헤더와 항목이 한 겹에 섞여 있다 (docs/PRD-v2.md §6-1).
+    /// 그룹화가 꺼져 있거나 wrap 뷰면 비어 있고, 그때 View 는 평평한 <see cref="Items"/> 를
+    /// 그대로 쓴다.
+    /// <para>
+    /// <see cref="Rows"/> 와 같은 수다 — 낡음 표시를 두고 View 가 읽을 때 한 번만 만든다.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<DetailRowViewModel> DetailRows
+    {
+        get
+        {
+            if (detailRowsStale)
+            {
+                detailRowsStale = false;
+                detailRows = BuildDetailRows();
+            }
+
+            return detailRows;
+        }
+    }
+
+    /// <summary>
     /// View 가 뷰포트 크기를 민다 — 항목 치수 표(docs/DESIGN.md §2)를 아는 쪽이 ViewModel
     /// 이기 때문이다 (ADR-016). <see cref="SetVisibleRange"/>·IconSize 와 같은 경계다.
     /// <para>
@@ -597,6 +757,97 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         {
             InvalidateRows();
         }
+
+        InvalidateDetailRows();
+    }
+
+    /// <summary>
+    /// 그룹 투영을 낡음으로 표시한다. 그룹화가 꺼져 있어도 <see cref="visibleItems"/> 는
+    /// 다시 잡아야 한다 — 목록이 바뀌었는데 옛 인스턴스를 들고 있으면 키보드 이동이
+    /// 사라진 항목을 짚는다.
+    /// </summary>
+    private void InvalidateDetailRows()
+    {
+        visibleItems = [];
+
+        if (detailRowsStale)
+        {
+            return;
+        }
+
+        detailRowsStale = true;
+        OnPropertyChanged(nameof(DetailRows));
+    }
+
+    /// <summary>
+    /// 정렬된 <see cref="Items"/> 를 훑다 <b>라벨이 바뀌는 자리</b>에 헤더를 낸다. 그룹마다
+    /// 순서 번호를 따로 두지 않는 이유는 <see cref="FileItemGroups"/> 에 적었다 — 그 번호가
+    /// 정렬과 어긋나는 순간 같은 라벨의 헤더가 두 자리에 생긴다.
+    /// </summary>
+    private IReadOnlyList<DetailRowViewModel> BuildDetailRows()
+    {
+        // wrap 뷰는 합성 행(Rows)을 지난다. 그룹화는 Details 전용이다.
+        if (groupBy is not { } key || ViewMode != ViewMode.Details || Items.Count == 0)
+        {
+            return [];
+        }
+
+        var built = new List<DetailRowViewModel>(Items.Count + 8);
+        var visible = new List<FileItemViewModel>(Items.Count);
+        var now = DateTimeOffset.UtcNow;
+
+        var index = 0;
+
+        while (index < Items.Count)
+        {
+            var label = FileItemGroups.LabelOf(Items[index].Item, key, now, timeZone);
+
+            var end = index + 1;
+            while (end < Items.Count
+                && FileItemGroups.LabelOf(Items[end].Item, key, now, timeZone) == label)
+            {
+                end++;
+            }
+
+            var isCollapsed = collapsed.Contains(label);
+            built.Add(DetailRowViewModel.Header(label, end - index, isCollapsed));
+
+            if (!isCollapsed)
+            {
+                for (var offset = index; offset < end; offset++)
+                {
+                    built.Add(DetailRowViewModel.ForItem(Items[offset]));
+                    visible.Add(Items[offset]);
+                }
+            }
+
+            index = end;
+        }
+
+        visibleItems = visible;
+
+        return built;
+    }
+
+    /// <summary>
+    /// 키보드가 실제로 밟을 수 있는 항목. 접힌 그룹이 없으면 <see cref="Items"/> 그대로라
+    /// 그룹화를 안 쓸 때 새로 도는 것이 없다.
+    /// </summary>
+    private IReadOnlyList<FileItemViewModel> VisibleItems
+    {
+        get
+        {
+            if (groupBy is null || ViewMode != ViewMode.Details)
+            {
+                return Items;
+            }
+
+            // DetailRows 를 읽는 김에 visibleItems 가 채워진다 — 둘이 같은 순회의 결과라
+            // 따로 만들면 접힌 집합이 어긋날 자리가 생긴다.
+            _ = DetailRows;
+
+            return visibleItems.Count == 0 && collapsed.Count == 0 ? Items : visibleItems;
+        }
     }
 
     private void InvalidateRows()
@@ -647,20 +898,24 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     public void MoveFocus(FocusMove move, bool extend, bool toggleOnly)
     {
-        if (Items.Count == 0)
+        // 접힌 그룹의 항목은 화면에 없다 — 키보드도 그것을 건너뛴다. 그러지 않으면
+        // 포커스가 보이지 않는 줄에 앉고 스크롤이 엉뚱한 자리로 간다 (docs/PRD-v2.md §6-1).
+        var reachable = VisibleItems;
+
+        if (reachable.Count == 0)
         {
             return;
         }
 
-        var current = focusedName is { } name ? IndexOfRow(name, 0) : -1;
+        var current = focusedName is { } name ? IndexOf(reachable, name) : -1;
 
         // 포커스가 없거나(첫 키 입력) 갱신으로 사라진 이름이다. 끝으로 가는 키만 끝에서
         // 시작하고 나머지는 첫 항목부터다 (탐색기와 같다).
         var target = current < 0
-            ? move == FocusMove.End ? Items.Count - 1 : 0
-            : Step(current, move);
+            ? move == FocusMove.End ? reachable.Count - 1 : 0
+            : Step(current, move, reachable.Count);
 
-        var landed = Items[target].Name;
+        var landed = reachable[target].Name;
 
         FocusedName = landed;
 
@@ -671,7 +926,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         if (extend)
         {
-            Selection.SelectRange(landed, [.. Items.Select(row => row.Name)]);
+            Selection.SelectRange(landed, [.. reachable.Select(row => row.Name)]);
         }
         else
         {
@@ -796,10 +1051,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 짧으면 마지막 항목까지만 간다. 줄 안의 이동은 화면 순서 그대로라 줄 끝에서 다음
     /// 줄로 넘어간다 (탐색기와 같다).
     /// </summary>
-    private int Step(int index, FocusMove move)
+    /// <param name="count">
+    /// 밟을 수 있는 항목 수. <see cref="Items"/> 의 개수가 아니다 — 접힌 그룹이 있으면
+    /// 그만큼 짧다 (docs/PRD-v2.md §6-1).
+    /// </param>
+    private int Step(int index, FocusMove move, int count)
     {
-        var count = Items.Count;
-
         switch (move)
         {
             case FocusMove.Home:
@@ -914,6 +1171,44 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         Sort = [current.Key == key ? new SortOrder(key, !current.Descending) : new SortOrder(key)];
         SortItems();
+
+        return SaveViewStateAsync();
+    }
+
+    /// <summary>
+    /// 그룹 기준을 바꾼다 (docs/PRD-v2.md §6-1). <c>null</c> 이면 그룹화를 끈다 —
+    /// 헤더 우클릭 메뉴의 "없음" 이 인자 없이 부르는 자리다.
+    /// <para>
+    /// <see cref="ChangeSortAsync"/> 와 같이 열거를 다시 시작하지 않는다. 이미 받은 항목을
+    /// 다시 배치할 뿐이다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private Task ChangeGroupAsync(SortKey? key)
+    {
+        GroupBy = key;
+
+        return SaveViewStateAsync();
+    }
+
+    /// <summary>
+    /// 그룹 헤더 클릭 — 접거나 편다. 라벨로 기억한다: 인덱스로 기억하면 갱신으로 그룹이
+    /// 하나 생기는 순간 접힌 그룹이 옆으로 밀린다.
+    /// </summary>
+    [RelayCommand]
+    private Task ToggleGroupAsync(string? label)
+    {
+        if (label is null || groupBy is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!collapsed.Remove(label))
+        {
+            collapsed.Add(label);
+        }
+
+        InvalidateDetailRows();
 
         return SaveViewStateAsync();
     }
@@ -1305,6 +1600,11 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             SetLocation(location);
             ViewMode = view.Mode;
             Sort = view.Sort;
+
+            // 그룹 기준을 먼저 세운다 — GroupBy 세터가 접힌 집합을 비우므로 순서가 뒤집히면
+            // 방금 복원한 라벨이 지워진다.
+            GroupBy = view.GroupBy;
+            RestoreCollapsed(view.Collapsed);
             Status = PaneStatus.Enumerating;
             StatusText = StatusSummary.ForEnumerating(0, culture);
 
@@ -1848,6 +2148,43 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         return -1;
     }
 
+    /// <summary>이름 비교 규칙은 파일시스템과 같다 — <see cref="IndexOfRow"/> 와 한 규칙이어야 한다.</summary>
+    private static int IndexOf(IReadOnlyList<FileItemViewModel> items, string name)
+    {
+        for (var index = 0; index < items.Count; index++)
+        {
+            if (StringComparer.OrdinalIgnoreCase.Equals(items[index].Name, name))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>
+    /// 기억해 둔 접힌 그룹을 되살린다. <see cref="GroupBy"/> 를 세운 <b>뒤에</b> 부른다 —
+    /// 그 세터가 기준이 바뀔 때 접힌 집합을 비우기 때문이다.
+    /// </summary>
+    private void RestoreCollapsed(IReadOnlyList<string> labels)
+    {
+        collapsed.Clear();
+
+        foreach (var label in labels)
+        {
+            collapsed.Add(label);
+        }
+
+        InvalidateDetailRows();
+    }
+
+    /// <summary>
+    /// 그룹 키를 정렬 1차 키로 앞세워 비교기를 다시 만든다. 이것이 그룹화의 뼈대다 —
+    /// 같은 그룹이 붙어 있지 않으면 인접 비교로 잡는 헤더가 여러 자리에 생긴다.
+    /// </summary>
+    private void RebuildComparer()
+        => comparer = new FileItemComparer(FileItemGroups.WithGroupKey(sort, groupBy));
+
     private void SortItems()
     {
         // Reset 알림이 나가지만 선택은 PaneSelection 이 이름으로 들고 있어 재배치로 잃지 않는다.
@@ -1889,7 +2226,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         try
         {
             await viewStates
-                .SaveAsync(folder, new FolderViewState(ViewMode, Sort), CancellationToken.None)
+                .SaveAsync(
+                    folder,
+                    new FolderViewState(ViewMode, Sort, GroupBy, [.. collapsed]),
+                    CancellationToken.None)
                 .ConfigureAwait(false);
         }
         catch (Exception error) when (error is not OperationCanceledException)

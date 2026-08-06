@@ -33,6 +33,21 @@ public abstract class ViewStateStoreContract
         Assert.Equal(state, await store.TryLoadAsync(folder, CancellationToken.None));
     }
 
+    // 그룹 기준과 접힌 그룹도 폴더별 기억이다 (docs/PRD-v2.md §6-1). 접힌 상태가 왕복하지
+    // 않으면 폴더를 떠났다 돌아올 때마다 그룹이 전부 펼쳐진다.
+    [Fact]
+    public async Task SavedFolderState_KeepsGroupingAndCollapsedGroups()
+    {
+        var store = CreateStore();
+        var folder = Folder(@"C:\Temp\Docs");
+        var state = new FolderViewState(
+            ViewMode.Details, [new SortOrder(SortKey.Name)], SortKey.Type, ["PNG", "확장자 없음"]);
+
+        await store.SaveAsync(folder, state, CancellationToken.None);
+
+        Assert.Equal(state, await store.TryLoadAsync(folder, CancellationToken.None));
+    }
+
     [Fact]
     public async Task SavedGlobalState_IsLoadedBack()
     {
