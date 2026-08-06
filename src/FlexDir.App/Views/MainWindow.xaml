@@ -380,6 +380,9 @@
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <!-- 내장 type-ahead 를 끈다 — wrap 뷰에서 컨테이너는 항목이 아니라 행이라
+                 (ADR-016) 엉뚱한 것을 고른다. 문자 키는 TypeAheadInput 이 받는다 -->
+            <Setter Property="IsTextSearchEnabled" Value="False" />
             <Setter Property="ItemContainerStyle" Value="{StaticResource RowContainer}" />
             <Setter Property="ItemTemplate" Value="{StaticResource DetailsRow}" />
             <Setter Property="ItemsPanel" Value="{StaticResource VerticalItems}" />
@@ -407,8 +410,10 @@
 
         <!-- ═══ 페인 하나 (좌우가 공유한다) ═══ -->
         <DataTemplate x:Key="PaneTemplate" DataType="{x:Type vm:PaneViewModel}">
+            <!-- Ctrl+L·Alt+D 를 창이 아니라 여기서 받는다 — 키가 온 쪽이 곧 그 페인이다 -->
             <Border x:Name="PaneRoot" Background="{StaticResource PaneBgBrush}"
-                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
+                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0"
+                    v:AddressFocus.Enabled="True">
                 <DockPanel>
                     <!-- 툴바 36 (docs/DESIGN.md §1·§7) -->
                     <Border x:Name="ToolbarChrome" DockPanel.Dock="Top" Height="36"
@@ -452,7 +457,8 @@
                             <TextBox Text="{Binding AddressEdit, UpdateSourceTrigger=PropertyChanged}"
                                      BorderThickness="0" Background="Transparent" Margin="8,0,8,0"
                                      VerticalContentAlignment="Center"
-                                     Foreground="{StaticResource TextBrush}">
+                                     Foreground="{StaticResource TextBrush}"
+                                     v:AddressFocus.IsAddressBox="True">
                                 <TextBox.InputBindings>
                                     <KeyBinding Key="Return" Command="{Binding OpenAddressCommand}"
                                                 CommandParameter="{Binding AddressEdit}" />
@@ -508,6 +514,7 @@
 
                             <!-- 소스가 둘이다 — Details 는 평평한 Items, wrap 뷰 3종은 합성 행 (ADR-016) -->
                             <ListBox Style="{StaticResource PaneList}"
+                                     v:TypeAheadInput.Enabled="True"
                                      v:ListInput.SelectCommand="{Binding SelectItemCommand}"
                                      v:ListInput.ToggleCommand="{Binding ToggleItemCommand}"
                                      v:ListInput.RangeCommand="{Binding RangeSelectItemCommand}"
