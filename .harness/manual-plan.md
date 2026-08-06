@@ -151,8 +151,9 @@ sln 밖 콘솔 앱이라 게이트(`dotnet build`·`dotnet test`·`check-structu
       비우지 않으므로 상주 프로세스(ADR-003)에서 계속 쌓인다. 확장자 100종이면 25MB 수준이라
       지금은 두지만, phase B 에서 실제 사용량을 한 번 본다.
 
-- **`IContextMenuProvider` 는 포트 정의부터 수동이다.** 창 핸들과 네이티브 메뉴 메시지
+- **`IContextMenuProvider` 는 포트 정의부터 수동이었다** — 창 핸들과 네이티브 메뉴 메시지
   펌핑이 필요해 ViewModel 테스트로 채점할 수 없다(자율 phase 2 step 5 에서 의도적으로 제외).
+  **B-4 에서 손으로 끝냈다** (아래 §B-4 · `docs/SHELL_NOTES.md` §컨텍스트 메뉴).
 - 각 구현체 테스트는 자율 phase 가 만든 **계약 기반 클래스를 상속**한다 —
   `FolderSourceContract` · `FolderWatcherContract` · `ViewStateStoreContract`.
   같은 검증을 fake 와 실물이 함께 받는 것이 이 계약 클래스들의 존재 이유다.
@@ -255,8 +256,9 @@ B-1(ViewModel 확장)과 B-2 골격이 끝났다. 창이 뜨고 Details 로 탐�
       OS 입력 기능으로 추정. 메모장 등 다른 앱의 텍스트 입력에서도 뜨는지로 판별한다.
       해가 없으면 방치, v1 에 자체 자동완성을 넣을지는 별도 결정.
 - [x] **아이콘·썸네일 · 뷰 3종 · type-ahead · Ctrl+L → B-3 에서 들어왔다** (아래 §B-3).
-- [ ] **아직 없는 것 (다음 세션)** — 이름변경 편집기 (B-4) · 드래그앤드롭 (B-4) ·
-      `IContextMenuProvider` (B-4) · 제품 아이콘(트레이는 임시 `SystemIcons.Application`) ·
+- [x] **이름변경 편집기 · 드래그앤드롭 · `IContextMenuProvider` → B-4 에서 들어왔다**
+      (아래 §B-4).
+- [ ] **아직 없는 것** — 제품 아이콘(트레이는 임시 `SystemIcons.Application`) ·
       커스텀 타이틀바(지금은 OS 기본 크롬 — DESIGN §1 의 32px 와 다르다).
 
 그리고 `docs/DESIGN.md` §10 의 미결 두 건은 실물을 보고 판단한다:

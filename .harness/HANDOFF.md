@@ -250,9 +250,8 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
   잡았다). `VisibleRangeSync` 는 "같은 목록이면 안 민다" 이고 `thumbnails.Reset()` 은
   "지금 보이는 것을 잊는다" 인데, 항목 인스턴스가 그대로면 (`MergeItems`) 다시 밀 신호가
   없어 그림이 영영 오지 않는다. 그래서 `Reset()` 은 **폴더가 실제로 바뀔 때만** 부른다.
-- **`SetOwnerWindow` 를 부르지 않았다.** Shell 계층은 창을 모르므로 shell 대화상자에 소유
-  창이 없다. 창이 생긴 뒤 다시 본다 — 소유 창을 주려면 포트에 창 핸들을 흘려야 하고,
-  그것 자체가 결정거리다.
+- **`SetOwnerWindow` 는 이제 부른다** (B-4). Shell 계층은 여전히 창을 모른다 — Host 가
+  공급자를 물려 준다 (위 §포트 현황). shell 대화상자가 flex-dir 창을 부모로 한다.
 - **`ViewMode` → 아이콘 크기는 `PaneViewModel` 안에 있다** (16·16·32·96, `DESIGN.md` §2).
   View 가 크기를 계산해 넘기지 않는다 — 그 표가 두 계층으로 갈린다.
 

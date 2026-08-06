@@ -37,6 +37,14 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 `Host` 를 따로 둔 이유가 이것뿐이다 — DI 조립은 두 쪽을 모두 알아야 하므로,
 그 지식을 로직 없는 프로젝트 하나에 가둔다.
 
+**`FlexDir.App` 에 Win32 호출이 하나 있다 — 지우지 마라** (사용자 결정 2026-08-06).
+`Views/ListInput.cs` 의 `GetDoubleClickTime`. 재클릭 이름변경을 더블클릭과 구분하려면
+그 값이 필요한데 WPF 가 `ClickCount` 안에서만 쓰고 밖으로 열지 않는다 —
+`SystemParameters.MinimumHorizontalDragDistance` 와 같은 성격의 시스템 메트릭이다.
+**금지 대상은 `Core` 이지 `App` 이 아니다.** interop 을 `Shell` 이 맡는다는 것은 관례이고,
+이 한 줄은 shell 이 아니라 입력 장치를 묻는다. `LibraryImport` 가 아니라 `DllImport` 인
+이유도 거기 적혀 있다 — 호출 하나 때문에 `App` 전체에 `AllowUnsafeBlocks` 를 켜지 않는다.
+
 ## 2. 포트 (Core 가 정의, Shell 이 구현)
 
 | 포트 | 책임 |
@@ -119,6 +127,11 @@ WPF 데이터 가상화는 쉽게 무력화된다. 다음을 금지한다:
   `ListBox` 의 크기에는 스크롤바가 들어 있어 마지막 칸이 잘리고, `ScrollViewer` 의
   `Viewport*` 는 `ScrollUnit="Item"` 아래에서 **스크롤 축이 픽셀이 아니라 항목 수**다 —
   PageUp/Down 이 그 축의 픽셀을 쓰므로 거기서 읽으면 조용히 틀린다.
+- **반대로 스크롤을 *시키는* 배선은 목록 컨트롤에 건다** (`Views/FocusScroll.cs`).
+  `ScrollIntoView` 가 목록 컨트롤의 API 이고 받는 것도 **목록의 원소**다 — Details 는
+  항목, wrap 뷰 3종은 행. 바로 위 규칙을 기계적으로 적용해 이것까지 `ItemsPanel` 로
+  옮기면 안 된다. **이것이 없으면 이동·선택을 내장에 맡기지 않는 대가로 화면이 포커스를
+  따라오지 않는다** — B-3 이 그 상태로 끝났고 B-4 실물에서 드러났다.
 
 전작은 속도를 위해 `LVS_OWNERDATA` 를 골랐고, 그 대가로 뷰 모드가 Details
 하나로 고정됐다. WPF 에서는 `DataTemplate` 교체로 뷰 모드가 바뀌고 가상화는
