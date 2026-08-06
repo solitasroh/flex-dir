@@ -58,6 +58,7 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | `IViewStateStore` | 폴더별 뷰 모드·정렬 저장/복원 |
 | `IUsageLog` | 실행·사용 시간 기록 |
 | `IItemActivator` | 더블클릭 시 연결 프로그램 실행 |
+| `IDriveSpace` | 위치가 속한 볼륨의 여유/전체 용량 (상태표시줄) |
 
 포트는 **경로를 문자열이 아니라 `LocationId` 로** 주고받는다. v1 은 로컬
 파일시스템 경로만 담지만, v2 의 UNC·shell 네임스페이스(PIDL)를 같은 타입으로

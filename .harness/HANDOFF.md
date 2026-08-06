@@ -31,11 +31,17 @@ phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
 (`git@github.com:solitasroh/flex-dir.git`).
 
 ```
+Stop-Process -Name FlexDir.Host -Force -ErrorAction SilentlyContinue   # 먼저 (아래)
 dotnet build --nologo -warnaserror
 dotnet test --nologo --blame-hang --blame-hang-timeout 120s
 pwsh -File scripts/check-structure.ps1
 dotnet build -c Release --nologo -warnaserror
 ```
+
+> **게이트 전에 상주 프로세스를 반드시 죽인다.** 도그푸딩 중인 `FlexDir.Host` 는 자기가
+> 띄워진 산출물을 잠그고, 그 빌드는 오류 수십 개로 깨진다. **Debug 든 Release 든 마찬가지다**
+> — 한때 이 문서는 "Release 실행 파일로 띄우면 된다" 고 적었지만 그러면 게이트 4번째
+> (Release 빌드)가 대신 깨진다. 어느 쪽으로 띄우든 게이트 전에는 죽여야 한다.
 
 ## 포트 현황 — 11/11
 
@@ -125,24 +131,14 @@ pwsh -File scripts/check-dogfooding.ps1      # 지난 7일 중 N일 · PASS/BLOC
 `DESIGN.md` §10 의 미결 둘(#4 밀도 옵션 · #5 비활성 페인 크롬 강등)은 이제 실물을 매일
 보며 판단하면 된다.
 
-### 사람이 눈으로 봐야 하는 것 (이번 세션이 남긴 것)
+### 사람 확인 — 끝났다 (2026-08-06 smoke 테스트)
 
-자동 채점이 닿지 않아 남겨 둔 것들이다. `manual-plan.md` §마감 에 같은 목록이 있다.
+마감이 만든 다섯 항목(트레이 아이콘 · 타이틀바 조작감 · 다른 배율/모니터 최대화 ·
+breadcrumb 상호작용 · 여유 용량)을 **사용자가 손으로 확인했고 전부 통과했다.**
+항목별 결과는 `manual-plan.md` §마감 에 있다 — 여기서 되풀이하지 않는다.
 
-- [ ] **트레이 아이콘** — 알림 영역 오버플로(`^`)에 접혀 있어 캡처할 수 없었다.
-      펼쳐서 제품 아이콘이 보이는지, 우클릭 메뉴와 완전 종료가 그대로인지 본다.
-      (창·작업표시줄·exe 셋은 실물 확인됐다.)
-- [ ] **타이틀바 조작감** — 끌어서 옮기기 · 더블클릭 최대화 · Aero Snap · Win+방향키 ·
-      화면 위로 밀어 최대화. 전부 `WindowChrome.CaptionHeight` 가 OS 에 넘긴 것이라
-      우리 코드가 없다 — 그래서 **한 번은 손으로 만져 봐야 한다.**
-- [ ] **다른 배율·다른 모니터에서의 최대화.** 이 기계(2560×1440·100%)에서는 맞았다
-      (아래 §최대화 여백). 배율이 걸린 모니터나 작업표시줄이 옆에 있는 구성은 못 봤다.
-- [ ] **주소줄 breadcrumb 의 상호작용** — 칸 클릭으로 상위 이동 · 빈 자리 클릭으로 편집 ·
-      `Ctrl+L`/`Alt+D` 로 편집 진입 + 전체 선택 · `Esc` 로 breadcrumb 복귀 ·
-      `Enter` 로 이동. **표시는 실물 확인됐지만 키보드·클릭은 사람이 본다** (CLAUDE.md §5).
-      되돌리려면 `feat(core,app): 주소줄을 breadcrumb 으로 바꾼다` 하나만 되돌린다.
-- [ ] **여유 용량이 드라이브를 따라가는가** — 표시는 확인됐다(`여유 공간 252.8 GB`).
-      다른 드라이브 폴더로 옮겼을 때 값이 바뀌는지, USB 를 뽑으면 자리가 비는지는 못 봤다.
+**확인 잔여는 이 기계에서 못 보는 것뿐이다**: 클라우드 자리표시자 · 네트워크 경로 ·
+연결 프로그램 없는 확장자와 파일 조작 실패 대화상자. 전부 `manual-plan.md` §A 에 있다.
 
 ### 시안 대조 (2026-08-06) — 실물 캡처 vs `docs/mockups/v1-two-pane.html`
 
@@ -424,8 +420,7 @@ B-2  창 + Details     ✅ 골격 + 시작 폴더 복원 + 계측 둘(WindowShow
                      Shift/Ctrl 키 조합 · 대용량 폴더 스크롤 · 두 번째 실행의 인자 폴더.
                      모니터 구성이 바뀌면 복원 위치가 화면 밖일 수 있다(의도적으로 안
                      막았다 — 필요해지면 VirtualScreen 클램프).
-                     주의: 도그푸딩 상주 프로세스가 Debug 산출물을 잠근다 — 게이트 전에
-                     Stop-Process FlexDir.Host 하거나 Release 실행 파일로 띄워라.
+                     주의: 도그푸딩 상주 프로세스가 산출물을 잠근다 — 위 §현재 상태 참조.
                      → 매일 쓸 수 있다. 도그푸딩하며 B-3 로 간다
 B-3  나머지 뷰 3종     ✅ 합성 행 템플릿 3종 + 뷰 전환(툴바 4버튼·Ctrl+Shift+1~4) +
                      behavior 넷(ViewportSync·VisibleRangeSync·TypeAheadInput·AddressFocus) +
