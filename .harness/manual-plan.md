@@ -657,6 +657,51 @@ phases/ 자율 실행 (Core + ViewModel)          ✅
   330px→595px→890px). 재현 조건을 못 잡았고 이번 변경과 무관해 보인다 (오류 분류만
   건드렸다). `SplitterSync`·`ResidentWindow` 근처를 볼 것.
 
+  > **원인 하나를 찾아 고쳤다** (2026-08-07 · 커밋 `6617eb8`). `Thumb.DragCompleted` 가
+  > 버블링이라 **페인 안의 스크롤바 썸**이 올린 것도 `SplitterSync` 의 핸들러에 닿았고
+  > (실물로 확인: `Grid` 가 스크롤바 Thumb 과 GridSplitter 를 똑같이 받는다), 그것이
+  > 실측 폭을 비율로 되썼다. 열에는 `MinWidth="320"` 이 걸려 있어서 **좁은 창에서는 실측
+  > 폭이 사용자가 고른 비율이 아니라 벽에 막힌 폭**이다 — 목록을 한 번 스크롤하면 그
+  > 값이 정본이 되고 넓은 창으로 돌아와도 원래 자리로 오지 않는다.
+  > 이 기계는 **2560 과 1080(세로) 두 모니터**를 오간다: 1080 폭에서 도달 가능한 비율은
+  > 0.30~0.70 뿐인데 VM 의 클램프는 0.15~0.85 라 **레이아웃이 자르는 구간이 넓다.**
+  > 관찰된 330px 이 `MinWidth` 320 + 페인 안쪽 여백과 맞는다.
+  >
+  > **다만 이것이 관찰된 그 현상이라고 단정하지 않았다.** 원래 관찰(330→595→890)을
+  > 재현하지는 못했다. 재현을 시도해 **아닌 것으로 밝혀진 것 둘**:
+  > 닫기(=숨기기)→다시 열기 왕복은 **일반 창에서도 최대화 상태에서도 고정점이었다**
+  > (각 6회, `rect`·`normalPosition`·DPI 가 한 픽셀도 안 변했다). `ResidentWindow` 의
+  > `Closing`→`WindowPlacement`→`Apply` 되먹임은 적어도 그 두 경로에서 표류하지 않는다.
+
+## 확인 도구 — 포그라운드를 뺏지 않고 창을 읽는 법 (2026-08-07)
+
+합성 입력의 함정(포그라운드를 못 잡으면 남의 창으로 간다)을 아예 피하는 방법이다.
+**읽기와 버튼 누르기는 UI Automation 으로 되고, 그것은 포그라운드를 요구하지 않는다.**
+
+```powershell
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes, WindowsBase
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+
+# 화면의 글자 전부 — 알림 바·상태표시줄·breadcrumb 가 여기 다 나온다
+$c = New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+    [System.Windows.Automation.ControlType]::Text)
+$root.FindAll('Descendants', $c) | ForEach-Object { $_.Current.Name }
+
+# 버튼 누르기 (포그라운드 불필요)
+$btn = $root.FindFirst('Descendants', (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::NameProperty, '나중에')))
+$btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+```
+
+- **페인 폭(= 스플리터 위치)** 은 `ControlType.List` 의 `BoundingRectangle` 로 잰다.
+  페인마다 List 가 **둘씩** 잡히므로 X 로 정렬해 양 끝을 쓴다.
+- 창 핸들은 `EnumWindows` 로 **제목이 정확히 `flex-dir`** 인 것을 고른다 — shell 대화상자가
+  뜨면 `MainWindowHandle` 이 그쪽으로 옮겨간다 (아래 §열린 결정 의 주의와 같은 이유).
+- 창을 닫는(=숨기는) 것은 `PostMessage(hwnd, WM_CLOSE)` 로 한다. 이것도 포그라운드가 없다.
+- **그림이 필요할 때만** `PrintWindow` 로 캡처한다. 그 캡처의 바깥 8px 은 창이 아니다
+  (§시안 대조 참조).
+
 ## 배포 — 사람 확인 항목
 
 정본은 `docs/PRD-v2.md` §9. 여기는 **사람이 봐야 하는 것**만이다.
@@ -671,16 +716,35 @@ phases/ 자율 실행 (Core + ViewModel)          ✅
       `usage.log`·`perf.log` 가 남는다. **옮기기 전에는 첫 설치가 그것을 지웠다.**
 - [x] **설치본을 켠 채 게이트 4종 통과.** 저장소 산출물을 잠그지 않는다.
 
+- [x] **제거 → 재설치** (2026-08-07 · 0.1.2). 제어판에 등록된 명령 그대로
+      (`Update.exe --uninstall`) **상주 중인 채로** 돌렸다: 프로세스가 종료되고
+      `%LOCALAPPDATA%\flex-dir` 가 통째로 사라지고 바로가기 둘(시작 메뉴·바탕화면)과
+      제어판 등록도 지워진다. **`%APPDATA%\flex-dir` 셋은 해시까지 그대로 남았다**
+      (`usage.log`·`perf.log`·`view-state.json`). 재설치 뒤 `usage.log`·`view-state.json`
+      해시가 여전히 같고, **창이 저장된 자리(세로 모니터 최대화)로 복원됐다.**
+- [x] **`나중에` 를 누른 뒤의 동작** (2026-08-07 · 0.1.1 → 0.1.2). 알림 바가 접히고 버튼
+      둘이 사라진다. **그런데 다음 실행에 다시 뜨지 않는다** — 이 문서와 주석이 기대하던
+      것과 다르다. 받아 둔 패키지를 다음 실행의 `VelopackApp.Build().Run()` 이 시작
+      지점에서 적용하므로 **그 실행이 이미 새 버전**이고 피드에는 더 새 것이 없다.
+      결론: **미루는 대상은 재시작이지 설치가 아니다.** 결정이 지키려던 것("상주 앱을
+      마음대로 재시작하지 않는다")은 지켜진다. 정본은 `docs/PRD-v2.md` §9.
+
 **아직 사람이 봐야 하는 것**
 
 - [ ] **SmartScreen 경고.** 코드 서명이 없어 처음 받는 기계에서 "Windows의 PC 보호" 가
-      뜬다. 이 기계에서는 이미 실행했으므로 **다른 기계에서만 볼 수 있다.**
-- [ ] **제거.** 설정 → 앱에서 제거했을 때 깨끗이 지워지는지, 그리고 **`%APPDATA%` 의
-      상태가 남는지** (남는 것이 의도다 — 재설치 시 이어져야 한다).
-- [ ] **`나중에` 를 누른 뒤의 동작.** 알림이 접히고 다음 실행에서 다시 뜨는지.
-      코드로는 그렇게 돼 있고(`UpdateViewModel.Dismiss`) 테스트도 있지만 실물은 미확인.
+      뜬다. **이 기계에서 재현을 시도했고 실패했다** (2026-08-07): 릴리스에서 받은
+      `Setup.exe` 에 브라우저가 붙이는 것과 같은 MOTW
+      (`Zone.Identifier` / `ZoneId=3`)를 달아 실행했는데 **경고가 뜨지 않고 그냥
+      설치됐다.** 이 기계의 SmartScreen 설정 레지스트리 값은 비어 있고(기본값)
+      `Get-MpPreference` 는 실패해 켜짐 여부를 확정하지 못했다.
+      → **차단 요인은 "이미 실행한 기계" 가 아니라 이 기계의 평판/설정일 수 있다.**
+      여전히 다른 기계가 필요하다.
+      주의: 그 시도가 **상주 앱을 끄고 재설치했다** — setup 은 기존 인스턴스를 먼저 죽인다.
 - [ ] **피드에 못 닿을 때.** 사내망 밖·서버 꺼짐에서 조용히 지나가는지. 실패를 삼키는
       경로라 **틀려도 화면에 아무것도 안 나온다** — 그래서 사람이 봐야 한다.
+      **2026-08-07 세션에서 건너뛰기로 했다** (어댑터 제어에 관리자 권한이 필요하다).
+      볼 때는 오프라인에서 재시작해 화면·대화상자와 **`perf.log` 의 ColdStart 수치**를
+      함께 본다 — 확인이 시작을 붙잡으면 그 수치가 먼저 말한다.
 
 ## v1.1 — 사람 확인 항목
 
