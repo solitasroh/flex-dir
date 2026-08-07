@@ -15,7 +15,10 @@
 [CmdletBinding()]
 param(
     # 기본값은 실물 로그다. 합성 로그로 이 스크립트 자체를 확인할 때만 바꾼다.
-    [string]$LogPath = (Join-Path $env:LOCALAPPDATA 'flex-dir\usage.log')
+    # %APPDATA% 다. 2026-08-07 에 옮겼다 — Velopack 이 %LOCALAPPDATA%\flex-dir 에 설치하는데
+    # 그것이 예전 상태 폴더와 같은 경로였고, 첫 설치에서 여기 있던 기록이 실제로 지워졌다
+    # (AppComposition.DefaultStateDirectory 의 주석이 정본이다).
+    [string]$LogPath = (Join-Path $env:APPDATA 'flex-dir\usage.log')
 )
 
 Set-StrictMode -Version Latest

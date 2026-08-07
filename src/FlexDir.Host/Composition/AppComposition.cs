@@ -11,6 +11,7 @@ using FlexDir.Shell.Enumeration;
 using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
 using FlexDir.Shell.Storage;
+using FlexDir.Shell.Updates;
 using FlexDir.Shell.Usage;
 using FlexDir.Shell.ViewState;
 using FlexDir.Shell.Watching;
@@ -52,6 +53,12 @@ public sealed class AppComposition : IAsyncDisposable
 
     private bool disposed;
 
+    /// <summary>
+    /// 릴리스가 올라가는 곳 (docs/PRD-v2.md §9). 저장소가 public 이라 토큰이 없다
+    /// (사용자 결정 2026-08-07) — 배포물에 비밀값을 싣지 않는다.
+    /// </summary>
+    private const string UpdateFeed = "https://github.com/solitasroh/flex-dir";
+
     private AppComposition(WorkspaceViewModel workspace, IUsageLog usageLog, IDisposable[] shellServices)
     {
         Workspace = workspace;
@@ -62,9 +69,20 @@ public sealed class AppComposition : IAsyncDisposable
     /// <summary>
     /// 뷰 상태·사용 기록·계측이 쌓이는 곳 (docs/ARCHITECTURE.md §4).
     /// 읽는 것만으로 만들지 않는다 — 만들면 이 속성을 보기만 해도 흔적이 남는다.
+    ///
+    /// <para>
+    /// <b><c>%LOCALAPPDATA%</c> 가 아니라 <c>%APPDATA%</c> 다</b> (2026-08-07에 옮겼다).
+    /// Velopack 이 <c>%LOCALAPPDATA%\flex-dir</c> 에 설치하는데 그것이 예전 상태 폴더와
+    /// <b>정확히 같은 경로</b>였다 — 첫 설치에서 <c>usage.log</c> 가 <c>current\</c>·
+    /// <c>packages\</c>·<c>Update.exe</c> 와 한 폴더에 섞여 있는 것을 보고 알았다.
+    /// </para>
+    /// <para>
+    /// 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. <c>usage.log</c> 는 도그푸딩
+    /// 게이트(ADR-007)의 입력이고, 갱신·제거가 그것을 건드리면 <b>게이트가 기억을 잃는다</b>.
+    /// </para>
     /// </summary>
     public static string DefaultStateDirectory { get; } = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "flex-dir");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "flex-dir");
 
     public WorkspaceViewModel Workspace { get; }
 
@@ -123,7 +141,11 @@ public sealed class AppComposition : IAsyncDisposable
             contextMenus,
             driveSpace: driveSpace);
 
-        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates);
+        // 새 버전 알림. 확인·받기는 여기서 시작하지 않는다 — 조립은 화면 없이 서야 하고
+        // (위 §요약) 네트워크에 닿는 것은 Program 이 시작 뒤에 건다.
+        var update = new UpdateViewModel(new VelopackUpdateSource(UpdateFeed), dispatcher);
+
+        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update);
 
         return new AppComposition(
             workspace,

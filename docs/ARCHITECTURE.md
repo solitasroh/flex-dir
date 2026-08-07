@@ -92,7 +92,12 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 **진실원천은 파일시스템이다.** 위 항목 중 목록·썸네일은 캐시이며, 어긋나면
 파일시스템을 믿는다.
 
-저장 위치: `%LOCALAPPDATA%\flex-dir\`
+저장 위치: `%APPDATA%\flex-dir\`
+
+> **`%LOCALAPPDATA%` 가 아니다** (2026-08-07에 옮겼다). 인스톨러(Velopack)가
+> `%LOCALAPPDATA%\flex-dir\` 에 **설치**하는데 그것이 예전 저장 위치와 같은 경로였고,
+> 첫 설치가 여기 있던 `usage.log` 를 실제로 지웠다 — 그것은 도그푸딩 게이트(ADR-007)의
+> 입력이다. **사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다** (docs/PRD-v2.md §9).
 
 ## 5. 리스트 가상화 — 깨뜨리면 안 되는 것
 

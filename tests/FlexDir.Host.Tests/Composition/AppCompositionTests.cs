@@ -175,14 +175,29 @@ public class AppCompositionTests : IDisposable
     }
 
     [Fact]
-    public void DefaultStateDirectory_IsUnderLocalAppData()
+    public void DefaultStateDirectory_IsUnderRoamingAppData()
     {
         // docs/ARCHITECTURE.md §4. 만들지는 않는다 — 이 속성을 읽는 것만으로 디렉터리가
         // 생기면 테스트가 실제 저장 위치를 건드린다.
         var expected = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "flex-dir");
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "flex-dir");
 
         Assert.Equal(expected, AppComposition.DefaultStateDirectory);
+    }
+
+    [Fact]
+    public void DefaultStateDirectory_IsNotTheInstallDirectory()
+    {
+        // Velopack 은 %LOCALAPPDATA%\<packId> 에 설치한다 — packId 가 'flex-dir' 이므로
+        // 예전 상태 폴더와 <b>정확히 같은 경로</b>였다 (2026-08-07 실물에서 usage.log 가
+        // current\·packages\·Update.exe 와 한 폴더에 섞여 있었다).
+        //
+        // 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. usage.log 는 도그푸딩
+        // 게이트(ADR-007)의 입력이라, 갱신·제거가 그것을 건드리면 게이트가 기억을 잃는다.
+        var install = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "flex-dir");
+
+        Assert.NotEqual(install, AppComposition.DefaultStateDirectory);
     }
 
     [Fact]
