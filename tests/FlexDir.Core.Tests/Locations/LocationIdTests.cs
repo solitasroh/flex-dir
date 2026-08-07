@@ -176,6 +176,28 @@ public class LocationIdTests
         Assert.Equal(expected, Parse(input).IsNetworkServer);
     }
 
+    // 자격증명 충돌(1219)은 공유가 아니라 <b>서버</b> 단위다 — 안내 문구가 끊으라고
+    // 말할 대상이 이것이다 (docs/PRD-v2.md §5 N-4). 경로 표기를 아는 곳은 여기뿐이므로
+    // 문구를 만드는 쪽이 문자열을 자르지 않게 한다.
+    [Theory]
+    [InlineData(@"\\server", @"\\server")]
+    [InlineData(@"\\10.10.10.23", @"\\10.10.10.23")]
+    [InlineData(@"\\10.10.10.23\home", @"\\10.10.10.23")]
+    [InlineData(@"\\server\share\a\b", @"\\server")]
+    public void Server_IsTheServerPartOfAUncPath(string input, string expected)
+    {
+        Assert.Equal(expected, Parse(input).Server);
+    }
+
+    [Theory]
+    [InlineData(@"C:\")]
+    [InlineData(@"C:\Temp\a.txt")]
+    public void Server_IsNullForALocalPath(string input)
+    {
+        // 로컬 경로에는 끊을 연결이 없다. 빈 문자열로 내면 문구가 `net use  /delete` 가 된다.
+        Assert.Null(Parse(input).Server);
+    }
+
     [Fact]
     public void Unc_WithAnInvalidCharacter_IsRejectedLikeALocalPath()
     {
@@ -331,6 +353,61 @@ public class LocationIdTests
         var location = Parse(@"C:\Temp");
 
         Assert.Throws<ArgumentException>(() => location.Combine(childName));
+    }
+
+    // ── TryCombine — 이름이 거부된 사유 ────────────────────────────
+    //
+    // Combine 은 던진다. 사용자가 친 이름에 그것을 쓰면 예외가 커맨드 밖으로 새어
+    // <b>프로세스가 죽는다</b> — 실물에서 그렇게 죽었다 (2026-08-07, 이름에 '\' 가 든 경우).
+    // 사유를 값으로 받아야 화면에 무엇이 잘못됐는지 말할 수 있다. TryParse 와 같은 짝이다.
+
+    [Theory]
+    [InlineData("b.txt")]
+    [InlineData("보고서 2026.xlsx")]
+    [InlineData("a b")]
+    public void TryCombine_AcceptsAUsableName(string name)
+    {
+        Assert.True(Parse(@"C:\Temp").TryCombine(name, out var child, out var error));
+        Assert.Equal(ChildNameError.None, error);
+        Assert.Equal($@"C:\Temp\{name}", child!.DisplayPath);
+    }
+
+    [Theory]
+    [InlineData("", ChildNameError.Empty)]
+    [InlineData("   ", ChildNameError.Empty)]
+    [InlineData(null, ChildNameError.Empty)]
+    [InlineData(@"a\b.txt", ChildNameError.Separator)]
+    [InlineData("a/b.txt", ChildNameError.Separator)]
+    [InlineData(".", ChildNameError.RelativeElement)]
+    [InlineData("..", ChildNameError.RelativeElement)]
+    [InlineData("회의록 10:30.txt", ChildNameError.InvalidCharacter)]
+    [InlineData("무엇?.txt", ChildNameError.InvalidCharacter)]
+    [InlineData("a|b.txt", ChildNameError.InvalidCharacter)]
+    public void TryCombine_RejectsWithAReason(string? name, ChildNameError expected)
+    {
+        Assert.False(Parse(@"C:\Temp").TryCombine(name!, out var child, out var error));
+        Assert.Equal(expected, error);
+        Assert.Null(child);
+    }
+
+    [Fact]
+    public void TryCombine_AndCombine_AgreeOnWhatIsAllowed()
+    {
+        // 규칙이 두 벌이 되면 한쪽만 고쳐지고 조용히 갈라진다. Combine 이 TryCombine 을 쓴다.
+        foreach (var name in new[] { "b.txt", "", " ", @"a\b", "a/b", ".", "..", "a:b", "a*b" })
+        {
+            var folder = Parse(@"C:\Temp");
+            var accepted = folder.TryCombine(name, out _, out _);
+
+            if (accepted)
+            {
+                Assert.Equal(folder.Combine(name).DisplayPath, $@"C:\Temp\{name}");
+            }
+            else
+            {
+                Assert.Throws<ArgumentException>(() => folder.Combine(name));
+            }
+        }
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────

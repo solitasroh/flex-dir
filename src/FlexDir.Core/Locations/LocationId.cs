@@ -44,6 +44,31 @@ public enum LocationParseError
 }
 
 /// <summary>
+/// 하위 이름이 거부된 사유 (<see cref="LocationId.TryCombine"/>).
+/// <para>
+/// <see cref="LocationParseError"/> 를 재사용하지 않는다 — 그쪽은 <b>경로</b>의 사유이고
+/// 이것은 <b>이름</b>의 사유다. 문구가 달라야 한다: 이름 칸에 "경로에 쓸 수 없는 문자가
+/// 있습니다" 라고 하면 사용자는 자기가 경로를 쳤다고 오해한다.
+/// </para>
+/// </summary>
+public enum ChildNameError
+{
+    None,
+
+    /// <summary>비었거나 공백뿐.</summary>
+    Empty,
+
+    /// <summary><c>\</c> 또는 <c>/</c> 가 있다. 이름이 아니라 경로를 친 것이다.</summary>
+    Separator,
+
+    /// <summary><c>.</c> 또는 <c>..</c> — 이름이 아니라 자기 자신이거나 상위다.</summary>
+    RelativeElement,
+
+    /// <summary>파일시스템이 허용하지 않는 문자가 있다 (<c>: * ? " &lt; &gt; |</c>).</summary>
+    InvalidCharacter,
+}
+
+/// <summary>
 /// 포트가 주고받는 위치 식별자. 순수 값 타입이며 파일시스템에 접근하지 않는다 —
 /// 존재 여부 판정은 열거 계층의 일이다.
 /// </summary>
@@ -80,6 +105,30 @@ public sealed class LocationId : IEquatable<LocationId>
     /// (docs/PRD-v2.md §5 N-3 · docs/SHELL_NOTES.md §네트워크). 라우팅이 이것을 본다.
     /// </summary>
     public bool IsNetworkServer => IsNetwork && !Value[UncPrefix.Length..].Contains('\\');
+
+    /// <summary>
+    /// 이 경로가 있는 서버 (<c>\\server</c>). 로컬이면 <see langword="null"/> 이다.
+    /// <para>
+    /// SMB 세션은 <b>서버 단위로 하나</b>이므로 자격증명 충돌(1219)을 끊는 대상도 공유가
+    /// 아니라 이것이다 (docs/PRD-v2.md §5 N-4). 경로 표기를 아는 곳은 이 클래스뿐이라
+    /// 문구를 만드는 쪽이 문자열을 자르지 않게 여기서 낸다.
+    /// </para>
+    /// </summary>
+    public string? Server
+    {
+        get
+        {
+            if (!IsNetwork)
+            {
+                return null;
+            }
+
+            var rest = Value[UncPrefix.Length..];
+            var cut = rest.IndexOf('\\');
+
+            return @"\\" + (cut < 0 ? rest : rest[..cut]);
+        }
+    }
 
     /// <summary>
     /// 사용자에게 보여줄 형태. 로컬은 <c>C:\…</c>, UNC 는 <c>\\server\share\…</c> 다 —
@@ -297,34 +346,81 @@ public sealed class LocationId : IEquatable<LocationId>
     }
 
     /// <summary>
-    /// 하위 이름을 붙인다. 구분자·상대경로 요소·파일시스템이 거부하는 문자가 섞이면
-    /// <see cref="ArgumentException"/>. 그대로 붙이면 <see cref="TryParse"/> 가 되돌려
-    /// 읽을 수 없는 <see cref="Value"/> 가 만들어진다.
+    /// 하위 이름을 붙인다. 쓸 수 없는 이름이면 <see cref="ArgumentException"/>.
+    /// <para>
+    /// <b>사용자가 친 이름에는 이것을 쓰지 않는다</b> — <see cref="TryCombine"/> 을 쓴다.
+    /// 여기서 던진 예외가 커맨드 밖으로 새면 잡을 사람이 없어 프로세스가 죽는다
+    /// (2026-08-07 실물). 이 오버로드는 <b>이미 파일시스템에 있는 이름</b>을 붙일 때만이다 —
+    /// 그때 실패하는 것은 버그이므로 예외가 맞다.
+    /// </para>
     /// </summary>
     public LocationId Combine(string childName)
     {
-        if (string.IsNullOrWhiteSpace(childName))
+        if (TryCombine(childName, out var child, out var error))
         {
-            throw new ArgumentException("하위 이름이 비어 있다.", nameof(childName));
+            return child;
         }
 
+        throw new ArgumentException(
+            error switch
+            {
+                ChildNameError.Empty => "하위 이름이 비어 있다.",
+                ChildNameError.Separator => $"하위 이름에 경로 구분자가 있다: '{childName}'",
+                ChildNameError.RelativeElement => $"하위 이름이 상대경로 요소다: '{childName}'",
+                _ => $"하위 이름에 쓸 수 없는 문자가 있다: '{childName}'",
+            },
+            nameof(childName));
+    }
+
+    /// <summary>
+    /// 하위 이름을 붙이되 <b>거부 사유를 값으로</b> 낸다. 규칙의 정본은 여기다 —
+    /// <see cref="Combine"/> 이 이것을 쓴다.
+    /// <para>
+    /// <see cref="TryParse"/> 와 같은 짝이고 이유도 같다: 사용자가 친 것을 받는 자리는
+    /// 실패가 정상 상황이라 <b>무엇이 잘못됐는지 말할 수 있어야 한다.</b> 이름변경이
+    /// 그 자리다 — 파일 이름에 <c>:</c> 를 쓰는 것(<c>회의록 10:30</c>)은 오타가 아니라
+    /// 흔한 입력이다.
+    /// </para>
+    /// </summary>
+    public bool TryCombine(
+        string childName,
+        [NotNullWhen(true)] out LocationId? child,
+        out ChildNameError error)
+    {
+        child = null;
+
+        if (string.IsNullOrWhiteSpace(childName))
+        {
+            error = ChildNameError.Empty;
+            return false;
+        }
+
+        // 구분자를 '쓸 수 없는 문자' 와 나눈다 — 사용자가 고칠 것이 다르다. 이름에 구분자가
+        // 섞이면 shell 은 이름 변경이 아니라 다른 폴더로의 이동을 한다.
         if (childName.Contains('\\') || childName.Contains('/'))
         {
-            throw new ArgumentException($"하위 이름에 경로 구분자가 있다: '{childName}'", nameof(childName));
+            error = ChildNameError.Separator;
+            return false;
         }
 
         if (childName is "." or "..")
         {
-            throw new ArgumentException($"하위 이름이 상대경로 요소다: '{childName}'", nameof(childName));
+            error = ChildNameError.RelativeElement;
+            return false;
         }
 
         if (ClassifyChars(childName) != LocationParseError.None)
         {
-            throw new ArgumentException($"하위 이름에 쓸 수 없는 문자가 있다: '{childName}'", nameof(childName));
+            error = ChildNameError.InvalidCharacter;
+            return false;
         }
 
         var separator = Value.EndsWith('\\') ? string.Empty : "\\";
-        return new LocationId(Kind, Value + separator + childName);
+
+        child = new LocationId(Kind, Value + separator + childName);
+        error = ChildNameError.None;
+
+        return true;
     }
 
     // 규칙 7: Windows 파일시스템은 대소문자를 구분하지 않으므로
