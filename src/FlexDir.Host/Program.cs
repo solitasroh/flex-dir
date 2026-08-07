@@ -13,6 +13,8 @@ using FlexDir.Host.Diagnostics;
 using FlexDir.Host.SingleInstance;
 using FlexDir.Host.Startup;
 
+using Velopack;
+
 namespace FlexDir.Host;
 
 // 명시적 Main 이다. App.xaml(ApplicationDefinition)로 가지 않은 이유는 둘이다.
@@ -30,6 +32,11 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // 무엇보다 먼저다. 설치·갱신·제거 때 Windows 가 이 exe 를 특별한 인자로 부르는데,
+        // 그 호출은 창을 띄우지 않고 끝나야 한다 — 뒤로 밀면 설치 중에 앱이 뜨고 뮤텍스가
+        // 잡힌다. 설치되지 않은 실행에서는 아무 일도 하지 않고 지난다 (docs/PRD-v2.md §9).
+        VelopackApp.Build().Run();
+
         using var gate = SingleInstanceGate.Acquire(SingleInstanceGate.DefaultName);
 
         // 두 번째 실행은 인자를 넘기고 끝난다 (ADR-003 · ARCHITECTURE §6).
@@ -98,6 +105,14 @@ internal static class Program
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             lifetime.Token);
         _ = router.RunAsync(gate.ActivationsAsync(lifetime.Token), lifetime.Token);
+
+        // 새 버전 확인. 기다리지 않는다 — 네트워크에 닿으므로 시작을 붙잡으면 cold start 가
+        // 피드 왕복만큼 늘어난다 (ADR-003 이 상주를 고른 바로 그 비용이다). 실패는 조용하고
+        // (UpdateViewModel) 설치되지 않은 실행에서는 아무 일도 일어나지 않는다.
+        if (composition.Workspace.Update is { } update)
+        {
+            _ = update.CheckAsync(lifetime.Token);
+        }
 
         // 상주 중임이 보이는 곳이자 유일한 완전 종료 조작이다 (TrayMenu · 사용자 결정).
         // WinForms 타입은 전체 이름으로 쓴다 — using 을 더하면 WPF Application 과 부딪힌다.

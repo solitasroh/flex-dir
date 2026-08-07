@@ -3,6 +3,9 @@
 .vs/
 *.user
 
+# 배포 산출물 (scripts/pack.ps1). self-contained 라 수십 MB 이고, 정본은 릴리스다.
+artifacts/
+
 # 실행기 진행 로그. 매 step 커밋에 로그 변경이 섞이는 것을 막는다.
 .harness/*.log
 

@@ -5,4 +5,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <!--
+    배포 버전. 자동 업데이트는 "설치된 버전과 피드의 최신 버전을 견준다" 로 서 있으므로
+    이 값이 정본이다 — 올리지 않고 릴리스하면 아무도 갱신되지 않는다.
+
+    semver 다. vpk 가 이 값을 패키지 이름과 피드 항목에 그대로 쓴다 (scripts/pack.ps1).
+  -->
+  <PropertyGroup>
+    <Version>0.1.1</Version>
+  </PropertyGroup>
+
 </Project>
