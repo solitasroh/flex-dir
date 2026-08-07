@@ -108,8 +108,14 @@ public sealed partial class UpdateViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 나중에. <b>거절이 아니라 미루기다</b> — 적용하지 않고 알림만 접는다.
-    /// 다음 실행의 확인이 같은 버전을 다시 찾는다.
+    /// 나중에. <b>거절이 아니라 미루기다</b> — 지금 적용하지 않고 알림만 접는다.
+    /// <para>
+    /// <b>미루는 대상은 재시작이지 설치가 아니다</b> (실측 2026-08-07). 받아 둔 패키지는
+    /// 다음 실행의 <c>VelopackApp.Build().Run()</c> 이 시작 지점에서 적용하므로 그 실행은
+    /// 이미 새 버전이고, 알림은 다시 뜨지 않는다. 이 결정이 지키려던 것은 "상주 앱을
+    /// 마음대로 재시작하지 않는다" 였고 (docs/PRD-v2.md §9) 그것은 지켜진다 — 사용자가
+    /// 스스로 끄고 켤 때 갱신된다.
+    /// </para>
     /// </summary>
     [RelayCommand]
     private void Dismiss()
