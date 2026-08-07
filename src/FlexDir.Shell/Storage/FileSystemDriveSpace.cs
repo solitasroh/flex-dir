@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 using FlexDir.Core.Locations;
 using FlexDir.Core.Storage;
 
@@ -25,7 +27,7 @@ namespace FlexDir.Shell.Storage;
 /// 곁다리 값이라 그 정도로 충분하고, 그 이상은 스레드를 죽이는 이야기가 된다.
 /// </para>
 /// </summary>
-public sealed class FileSystemDriveSpace : IDriveSpace
+public sealed partial class FileSystemDriveSpace : IDriveSpace
 {
     public async ValueTask<DriveSpace?> MeasureAsync(LocationId location, CancellationToken ct)
     {
@@ -43,6 +45,14 @@ public sealed class FileSystemDriveSpace : IDriveSpace
 
     private static DriveSpace? Measure(string root)
     {
+        // DriveInfo 는 드라이브 문자만 받는다 — UNC 루트를 주면 ArgumentException 이고,
+        // 그것이 아래 catch 로 접히면 "모른다" 가 되어 상태표시줄의 여유 용량이 조용히
+        // 사라진다 (실물에서 그랬다). GetDiskFreeSpaceEx 는 UNC 를 그대로 받는다.
+        if (root.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return MeasureShare(root);
+        }
+
         try
         {
             var drive = new DriveInfo(root);
@@ -60,4 +70,29 @@ public sealed class FileSystemDriveSpace : IDriveSpace
             return null;
         }
     }
+
+    /// <summary>
+    /// 공유의 용량. 후행 구분자를 붙여 부른다 — <c>GetDiskFreeSpaceEx</c> 는 디렉터리
+    /// 이름을 받으므로 <c>\\server\share</c> 처럼 끝나면 공유 자체를 가리키지 못한다.
+    /// <para>
+    /// 실패는 던지지 않고 <c>null</c> 이다. 서버가 죽었거나 자격증명이 없을 때 여유 용량
+    /// 하나 때문에 폴더를 못 여는 일은 없어야 한다 (<see cref="IDriveSpace"/> 계약).
+    /// </para>
+    /// </summary>
+    private static DriveSpace? MeasureShare(string root)
+    {
+        var directory = root.EndsWith('\\') ? root : root + '\\';
+
+        return GetDiskFreeSpaceEx(directory, out var available, out var total, out _)
+            ? new DriveSpace((long)available, (long)total)
+            : null;
+    }
+
+    [LibraryImport("kernel32.dll", EntryPoint = "GetDiskFreeSpaceExW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool GetDiskFreeSpaceEx(
+        string directoryName,
+        out ulong freeBytesAvailableToCaller,
+        out ulong totalBytes,
+        out ulong totalFreeBytes);
 }
