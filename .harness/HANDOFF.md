@@ -111,6 +111,33 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 **마감이 끝났다.** 남은 것은 도그푸딩이다.
 
+### v2 네트워크 — N-1·N-2·N-3 이 들어왔다 (2026-08-07)
+
+**UNC 가 된다.** `\\10.10.10.23\공유` 로 열거·아이콘·breadcrumb·여유 용량이 돌고,
+`\\10.10.10.23` 은 **공유 목록 30개**를 낸다. 정본은 `docs/PRD-v2.md` §5.
+
+| 표면 | 하는 일 |
+|---|---|
+| `Core/Locations/LocationId.cs` | UNC 를 담는다. 내부 `\\?\UNC\server\share`, 표시 `\\server\share`. `IsNetwork`·`IsNetworkServer` |
+| `Shell/Enumeration/NetworkShareSource.cs` | `WNetOpenEnum`+`WNetEnumResource`. **`NetShareEnum` 을 쓰면 이 NAS 가 막는다** |
+| `Shell/Enumeration/RoutingFolderSource.cs` | `IsNetworkServer` 로 공유/폴더를 가른다. 페인은 여전히 포트 하나만 안다 |
+| `Shell/Storage/FileSystemDriveSpace.cs` | UNC 는 `GetDiskFreeSpaceEx` 로. `DriveInfo` 는 드라이브 문자만 받는다 |
+| `Core/Formatting/TimestampFormatter.cs` | 모르는 시각(`default`)은 **빈 칸**이다 — 공유에는 수정 시각이 없다 |
+
+**값을 치르고 배운 것**
+
+1. **진입 조건이 교착이었다.** v2 를 "게이트 PASS 후" 로 잡았는데 **게이트가 막는 그것이
+   게이트를 통과하는 데 필요했다.** 사용자가 "매일 쓰려면 네트워크가 필요하다" 고 말해
+   드러났다. → 게이트의 입력을 막는 기능은 게이트 뒤에 둘 수 없다.
+2. **거부하던 것을 받아들이면 그 거부에 기대던 자리가 전부 조용히 틀린다.** UNC 를 담자
+   `FileSystemDriveSpace`(여유 용량이 사라짐)·`ShellClipboardBridge`(UNC 경로를 버림)가
+   함께 틀렸다. **테스트 셋이 UNC 를 "나쁜 입력" 의 예로 쓰고 있어서** 그것이 깨져 알았다.
+3. **매핑 드라이브는 v1 때부터 됐다.** 파서가 막은 것은 `\\` 표기뿐이고 `Z:` 는 그냥
+   지났다 — 사용자에게는 둘 다 "네트워크가 안 된다" 로 보였다.
+
+**남은 것**: N-4(자격증명 안내 — 코드 8종 분류는 붙었고 1219 의 `net use /delete` 문구가
+남았다) · **SMB 에서의 감시**(미확인, manual-plan §v2 네트워크).
+
 ### v2 계획은 승인됐다 — `docs/PRD-v2.md`
 
 **사용자 승인 2026-08-06.** 요점 넷만 옮긴다. 정본은 그 문서다.

@@ -290,7 +290,22 @@ WPF 창을 소유자로 삼고, `SetForegroundWindow` + 뒤이은 `PostMessage`(
 
 ## 네트워크 (v2)
 
-v1 범위 밖이지만, **가장 값비싼 삽질이 여기 있었다.**
+**v2 착수됨 (2026-08-07).** UNC 경로는 `LocationId` 가 담는다 — 내부 표현은 확장 UNC
+형식 `\\?\UNC\server\share`, 표시형은 `\\server\share` 다 (docs/PRD-v2.md §5 N-1).
+
+### 공유의 여유 용량은 `DriveInfo` 로 못 잰다
+
+**사실**: `DriveInfo` 는 드라이브 문자만 받는다. `new DriveInfo(@"\\server\share")` 는
+`ArgumentException` 이다. `GetDiskFreeSpaceEx` 를 직접 부른다 — 그쪽은 UNC 를 받는다.
+
+**함정**: 디렉터리 이름을 받으므로 **후행 구분자를 붙여야** 공유 자체를 가리킨다
+(`\\server\share\`). 그리고 실패를 예외로 만들면 안 된다 — 서버가 죽었거나 자격증명이
+없을 때 여유 용량 하나 때문에 폴더를 못 여는 일이 생긴다.
+
+> 실물에서 이 자리를 밟았다. UNC 를 열면 상태표시줄의 여유 용량만 **조용히 사라졌다** —
+> 예외가 계약대로 "모른다"(null)로 접혀서 원인이 화면에 안 나온다.
+
+아래는 전작에서 건진 것으로, **가장 값비싼 삽질이 여기 있었다.**
 
 ### NAS 에서 공유 목록이 안 나오는 문제
 
@@ -303,6 +318,11 @@ v1 범위 밖이지만, **가장 값비싼 삽질이 여기 있었다.**
 `net view \\server` 와 같은 경로를 탄다.
 
 > 실제로 사용자 NAS(`10.10.10.23`)에서 정확히 이 격차에 걸렸다.
+>
+> **2026-08-07 재확인.** 같은 NAS 에서 `net view \\10.10.10.23` 은 공유 목록을 내고
+> `Win32_Share`(NetShareEnum 계열)는 실패한다. `WNetOpenEnum`+`WNetEnumResource` 로
+> 구현했고 실물에서 **공유 30개**가 나온다 (`Shell/Enumeration/NetworkShareSource.cs`).
+> 버퍼는 `ERROR_MORE_DATA` 로 되돌아오면 늘려 다시 묻는다.
 
 **부수 사실**: `$` 로 끝나는 관리 공유는 숨긴다 (탐색기와 동일).
 `WNetEnumResource` 는 `ERROR_NO_MORE_ITEMS` 까지 루프한다.
