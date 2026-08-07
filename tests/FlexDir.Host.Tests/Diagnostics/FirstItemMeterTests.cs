@@ -110,6 +110,25 @@ public class FirstItemMeterTests : IDisposable
         Assert.Equal(2, Lines().Length);
     }
 
+    // Recording 은 "진행 중인 기록" 이다 — 마지막 하나가 아니라 전부여야 한다.
+    // 덮어쓰면 앞선 기록이 아직 파일을 쥔 채로 이 자리를 지나고, 종료 경로에서는
+    // 그 줄이 잘린다. 간헐 실패로 나타나던 자리다.
+    [Fact]
+    public async Task Recording_CoversEveryMeasurementNotJustTheLast()
+    {
+        var pane = CreatePane();
+        using var meter = new FirstItemMeter(pane, new PerformanceLog(root), clock);
+
+        for (var index = 0; index < 8; index++)
+        {
+            await pane.NavigateAsync(Folder($@"C:\F{index}", "a.txt"));
+        }
+
+        await meter.Recording;
+
+        Assert.Equal(8, Lines().Length);
+    }
+
     [Fact]
     public async Task AfterDispose_RecordsNothing()
     {

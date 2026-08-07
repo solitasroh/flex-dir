@@ -492,15 +492,26 @@ breadcrumb 상호작용 · 여유 용량)을 **사용자가 손으로 확인했�
       틀리면 스크롤만으로 수 GB 를 내려받는다. 동기 중인 OneDrive 가 있는 기계가 필요하다.
 - [ ] **대화상자가 뜨는 실패 경로** — 활성화(연결 프로그램 없음·취소)와 파일 조작 실패는
       자동 실행으로 확인할 수 없다(블로킹). `manual-plan.md` 사람 확인 항목에 있다.
-- [ ] **Host 테스트가 한 번 간헐 실패했다 — 원인 미확정.** 전체 솔루션 실행 1회에서
-      `FlexDir.Host.Tests` 40개 중 1개가 실패했으나 **이름을 잡지 못했다**(출력 필터가
-      `[FAIL]` 줄을 걸러냈다). 그 실행에 있던
-      `DisposeAsync_DisposesEveryShellImplementationThatHoldsAnStaThread` 는 정리 여부를
-      **활성화·파일 조작·클립보드 호출로** 물어보고 있었다 — 정리가 안 된 경우에 프로그램이
-      뜨고 휴지통에 항목이 남고 사용자의 클립보드가 덮이는, §규칙 5 위반이다. 그래서
-      조회 둘(`ShellThumbnailSource`·`ShellTypeNameProvider`) + 소유 타입 집합 단정으로
-      바꿨다. 그 뒤 전체 실행 **14회가 전부 초록**이지만 재현되지 않았으므로 **그것이
-      원인이었다고 적지 않는다.** 다시 나오면 `--logger trx` 로 이름부터 잡는다.
+- [x] **Host 테스트의 간헐 실패 — 원인이 잡혔고 고쳤다** (2026-08-07).
+      이름은 `FirstItemMeterTests.EveryFolderChange_IsMeasured`,
+      증상은 `perf.log` 읽기의 `IOException`(공유 위반)이었다.
+      **테스트 결함이 아니라 제품 결함이다.**
+
+      `FirstItemMeter` 가 측정할 때마다 `recording` 을 **덮어썼다** — 이어 붙이지 않았다.
+      그래서 `Recording` 은 마지막 하나만 가리키고, 앞선 기록은 아직 파일을 쥔 채로 남는다.
+      `PerformanceLog.RecordAsync` 는 실패를 삼키므로(계측 때문에 앱이 죽으면 안 된다)
+      **두 기록이 겹치면 줄이 조용히 사라진다** — §규칙 9 가 경고한 그 패턴이고, 나중에
+      수치를 보는 사람은 "그때 안 쟀나 보다" 로 읽는다. 종료 경로도 `Recording` 을
+      기다리므로 앞선 기록이 잘린다.
+
+      고친 것 둘: **파일의 주인이 자기 쓰기를 직렬화한다**
+      (`PerformanceLog.writeGate` — `JsonViewStateStore` 와 같은 수), 그리고
+      **`FirstItemMeter` 가 기록을 이어 붙인다**(`RecordAfterAsync` — 걸린 시간과 시각은
+      이벤트 시점의 값을 넘긴다, 앞선 기록을 기다린 뒤 재면 대기 시간이 수치에 섞인다).
+      Host 테스트 **12회 연속 초록**으로 확인했다.
+
+      > 앞선 세션이 이 자리를 `DisposeAsync_…StaThread` 로 의심했던 것은 **틀린 짐작이었다.**
+      > 그때 "재현되지 않았으므로 원인이라 적지 않는다" 고 유보해 둔 것이 맞았다.
 
 ## 순서
 

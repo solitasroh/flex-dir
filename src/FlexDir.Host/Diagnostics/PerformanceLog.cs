@@ -37,6 +37,16 @@ public sealed class PerformanceLog
 
     private const string TimeFormat = "yyyy-MM-ddTHH:mm:sszzz";
 
+    /// <summary>
+    /// 덧붙이기를 직렬화한다. 겹쳐 부르면 같은 파일을 두 곳에서 열어 공유 위반이 나는데,
+    /// 아래 <c>catch</c> 가 그것을 삼키므로 <b>줄이 조용히 사라진다</b> — 나중에 수치를
+    /// 보는 사람은 "그때 안 쟀나 보다" 로 읽는다.
+    /// <para>
+    /// <c>JsonViewStateStore</c> 의 <c>writeGate</c> 와 같은 이유·같은 수다.
+    /// </para>
+    /// </summary>
+    private readonly SemaphoreSlim writeGate = new(1, 1);
+
     private readonly string directory;
     private readonly string path;
 
@@ -87,6 +97,8 @@ public sealed class PerformanceLog
             ((long)budget.TotalMilliseconds).ToString(CultureInfo.InvariantCulture),
             elapsed <= budget ? "ok" : "over");
 
+        await writeGate.WaitAsync(ct).ConfigureAwait(false);
+
         try
         {
             Directory.CreateDirectory(directory);
@@ -98,6 +110,10 @@ public sealed class PerformanceLog
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // 삼킨다. 위 문단의 이유다.
+        }
+        finally
+        {
+            writeGate.Release();
         }
     }
 }

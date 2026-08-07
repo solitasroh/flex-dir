@@ -86,6 +86,20 @@ public class PerformanceLogTests : IDisposable
         Assert.Equal(2, Lines().Length);
     }
 
+    // 겹쳐 부르면 같은 파일을 두 곳에서 연다. 공유 위반은 예외인데 RecordAsync 는 실패를
+    // 삼키므로(계측 때문에 앱이 죽으면 안 되니까) 줄이 조용히 사라진다 — 나중에 수치를
+    // 보는 사람은 그것을 "그때 안 쟀나 보다" 로 읽는다.
+    [Fact]
+    public async Task RecordAsync_CalledConcurrently_LosesNothing()
+    {
+        var log = new PerformanceLog(root);
+
+        await Task.WhenAll(Enumerable.Range(0, 20).Select(index =>
+            log.RecordAsync(MeasurementPoint.FirstItem, TimeSpan.FromMilliseconds(index), At, default).AsTask()));
+
+        Assert.Equal(20, Lines().Length);
+    }
+
     [Fact]
     public async Task RecordAsync_WhenTheDirectoryCannotBeMade_DoesNotThrow()
     {

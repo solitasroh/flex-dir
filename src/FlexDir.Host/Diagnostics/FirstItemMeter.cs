@@ -93,8 +93,22 @@ public sealed class FirstItemMeter : IDisposable
             return;
         }
 
-        recording = log
-            .RecordAsync(MeasurementPoint.FirstItem, clock.GetElapsedTime(startedAt), clock.GetLocalNow(), CancellationToken.None)
-            .AsTask();
+        // 앞선 기록에 이어 붙인다. 덮어쓰면 Recording 이 마지막 하나만 가리키고, 앞선
+        // 기록은 아직 파일을 쥔 채 남는다 — 종료 경로에서는 그 줄이 잘리고, 파일을 읽는
+        // 쪽에서는 공유 위반이 된다. 간헐 실패로 나타나던 자리다.
+        recording = RecordAfterAsync(recording, clock.GetElapsedTime(startedAt), clock.GetLocalNow());
+    }
+
+    /// <summary>
+    /// 걸린 시간과 시각은 <b>이벤트 시점</b>의 값이다 — 앞선 기록을 기다린 뒤에 재면
+    /// 그 대기 시간이 수치에 섞인다.
+    /// </summary>
+    private async Task RecordAfterAsync(Task previous, TimeSpan elapsed, DateTimeOffset at)
+    {
+        await previous.ConfigureAwait(false);
+
+        await log
+            .RecordAsync(MeasurementPoint.FirstItem, elapsed, at, CancellationToken.None)
+            .ConfigureAwait(false);
     }
 }
