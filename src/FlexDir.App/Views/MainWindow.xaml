@@ -94,6 +94,9 @@
         <v:ViewSourceConverter x:Key="ViewSource" />
         <v:ThumbnailImageConverter x:Key="ThumbnailImage" />
 
+        <!-- WPF 내장이다. 업데이트 알림 바 하나 때문에 변환기를 새로 만들지 않는다. -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
         <!-- 툴바 버튼 32×28 · 아이콘 16 (docs/DESIGN.md §1·§7) -->
         <Style x:Key="ToolButton" TargetType="Button">
             <Setter Property="Width" Value="32" />
@@ -973,6 +976,8 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />
             <RowDefinition Height="*" />
+            <!-- 업데이트 알림. 받아 둔 것이 없으면 접혀서 자리를 차지하지 않는다. -->
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="24" />
         </Grid.RowDefinitions>
 
@@ -1029,8 +1034,32 @@
                             v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Right}}" />
         </Grid>
 
+        <!-- 새 버전 알림 (docs/PRD-v2.md §9 · 사용자 결정 2026-08-07: 뜨고 사용자가 고른다).
+             상태표시줄 바로 위다 — 목록을 밀어내지만 가리지는 않는다. 받아 둔 뒤에만 뜨므로
+             '지금 설치' 는 곧바로 적용된다. -->
+        <Border Grid.Row="2" Background="{StaticResource SelBrush}"
+                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0"
+                Padding="12,6"
+                Visibility="{Binding Update.IsAvailable, Converter={StaticResource BoolToVisibility}}">
+            <DockPanel LastChildFill="False">
+                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextBrush}">
+                    <Run Text="새 버전" />
+                    <Run Text="{Binding Update.Version, Mode=OneWay}" FontWeight="SemiBold" />
+                    <Run Text="이 준비됐습니다." />
+                </TextBlock>
+
+                <!-- '나중에' 가 오른쪽 끝이다. 파괴적이지 않은 쪽을 바깥에 두어 실수로
+                     재시작되는 것을 막는다 — 트레이 메뉴의 구분선과 같은 판단이다. -->
+                <Button DockPanel.Dock="Right" Style="{StaticResource CrumbButton}"
+                        Content="나중에" Command="{Binding Update.DismissCommand}" />
+                <Button DockPanel.Dock="Right" Style="{StaticResource CrumbButton}"
+                        Content="지금 설치" Command="{Binding Update.InstallCommand}" />
+            </DockPanel>
+        </Border>
+
         <!-- 상태표시줄 24 — 활성 페인의 문구 (docs/DESIGN.md §1·§6) -->
-        <Border Grid.Row="2" Background="{StaticResource WinBgBrush}"
+        <Border Grid.Row="3" Background="{StaticResource WinBgBrush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
           <Grid>
             <!-- 여유 용량은 오른쪽 끝이다 (목업 .free 의 margin-left:auto). 활성 페인의

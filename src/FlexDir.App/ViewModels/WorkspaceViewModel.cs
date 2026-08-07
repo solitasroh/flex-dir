@@ -42,7 +42,16 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private double splitterRatio = GlobalViewState.Default.SplitterRatio;
     private WindowPlacement? windowPlacement;
 
-    public WorkspaceViewModel(PaneViewModel left, PaneViewModel right, IViewStateStore viewStateStore)
+    /// <param name="update">
+    /// 새 버전 알림 (docs/PRD-v2.md §9). <b>선택이다</b> — 없으면 알림 바가 영영 접혀 있고
+    /// 나머지는 그대로 돈다. 창은 업데이트 없이도 서야 한다: 조립이 그 자리에서 막히면
+    /// 업데이트와 무관한 앱 전체가 못 뜬다.
+    /// </param>
+    public WorkspaceViewModel(
+        PaneViewModel left,
+        PaneViewModel right,
+        IViewStateStore viewStateStore,
+        UpdateViewModel? update = null)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -50,6 +59,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
         Left = left;
         Right = right;
+        Update = update;
         viewStates = viewStateStore;
 
         // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작). View 가
@@ -61,6 +71,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     public PaneViewModel Left { get; }
 
     public PaneViewModel Right { get; }
+
+    /// <summary>
+    /// 새 버전 알림. 폴더와 무관한 전역 상태라 여기 산다 — 페인이 둘인데 알림은 하나다.
+    /// 배선되지 않았으면 <see langword="null"/> 이고 알림 바는 접혀 있다.
+    /// </summary>
+    public UpdateViewModel? Update { get; }
 
     /// <summary>활성 페인은 항상 정확히 하나다. 어느 쪽인지를 이 값 하나로 정한다.</summary>
     public PaneSide ActiveSide
