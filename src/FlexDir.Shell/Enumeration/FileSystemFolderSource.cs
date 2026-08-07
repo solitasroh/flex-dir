@@ -108,6 +108,34 @@ public sealed class FileSystemFolderSource : IFolderSource
         await producer.ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 열거를 시작하지도 못한 실패를 한 번 더 물어볼 것인가.
+    ///
+    /// <para>
+    /// <b>SMB 는 삭제 중인 디렉터리를 <c>ACCESS_DENIED</c> 로 낸다.</b> 서버가 삭제를
+    /// 접수하고 아직 끝내지 않은 동안(delete-pending) 새로 여는 요청이 전부 그렇게 튕긴다.
+    /// 실측 (2026-08-07 · <c>\\10.10.10.23</c>): 삭제 후 <b>367ms 에 5</b>,
+    /// <b>414ms 에 3</b> — 창이 50ms 남짓이다. 감시 알림에 곧장 재열거하는 우리가 정확히
+    /// 그 창에 들어갔다. 로컬 NTFS 에는 그 중간 상태가 없어 곧장 3 이 온다.
+    /// </para>
+    /// <para>
+    /// 결과는 <b>거짓말</b>이었다 — 사라진 폴더에 "액세스가 거부되었습니다" 가 뜨고,
+    /// <see cref="LocationErrorKind.NotFound"/> 가 아니므로 상위로 올라가지도 않아
+    /// (docs/PRD.md §4) 빈 목록과 틀린 사유 앞에 갇혔다.
+    /// </para>
+    /// <para>
+    /// 그래서 <b>네트워크 경로의 권한 실패만</b> 한 번 더 묻는다. 진짜 권한 오류는 다시
+    /// 물어도 같은 답이라 정확도를 잃지 않고, 값은 실패 경로의 지연 하나다. 다른 실패는
+    /// 이미 답이 나온 것이라 다시 묻지 않는다 — 없는 서버는 <b>한 번이 42초</b>다
+    /// (실측, CLAUDE.md §3).
+    /// </para>
+    /// </summary>
+    internal static bool ShouldRetryOpen(Exception error, LocationId folder)
+        => folder.IsNetwork && error is UnauthorizedAccessException;
+
+    /// <summary>delete-pending 이 걷히기를 기다리는 시간. 실측 창(약 50ms)의 다섯 배다.</summary>
+    private static readonly TimeSpan DeletePendingDelay = TimeSpan.FromMilliseconds(250);
+
     private static async Task ProduceAsync(
         ChannelWriter<FileItem> writer,
         LocationId folder,
@@ -117,7 +145,18 @@ public sealed class FileSystemFolderSource : IFolderSource
 
         try
         {
-            enumerator = new ItemEnumerator(folder, Options);
+            try
+            {
+                enumerator = new ItemEnumerator(folder, Options);
+            }
+            catch (Exception error) when (ShouldRetryOpen(error, folder))
+            {
+                // 아직 한 항목도 내지 않았을 때만 여기 온다 — 열거 도중에 다시 열면 앞의
+                // 항목이 두 번 나간다. 열거자 생성자가 여는 자리라 그 조건이 저절로 선다.
+                await Task.Delay(DeletePendingDelay, ct).ConfigureAwait(false);
+
+                enumerator = new ItemEnumerator(folder, Options);
+            }
 
             while (enumerator.MoveNext())
             {

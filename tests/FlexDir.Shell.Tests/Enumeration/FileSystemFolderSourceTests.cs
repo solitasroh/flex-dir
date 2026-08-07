@@ -200,6 +200,47 @@ public sealed class FileSystemFolderSourceTests : FolderSourceContract, IDisposa
         Assert.Null(item);
     }
 
+    // ── SMB 의 delete-pending (docs/PRD-v2.md §5 N-2) ────────────────
+    //
+    // 감시 중인 폴더가 서버에서 삭제되면 SMB 는 짧은 동안 ACCESS_DENIED 를 낸다. 실측
+    // (2026-08-07 · \\10.10.10.23): 삭제 후 367ms 에 UnauthorizedAccessException(5),
+    // 414ms 에 DirectoryNotFoundException(3). 로컬 NTFS 에는 그 중간 상태가 없다.
+    //
+    // 그 창에 들어가면 "액세스가 거부되었습니다" 라는 <b>거짓말</b>이 뜨고, NotFound 가
+    // 아니므로 상위로 올라가지도 않는다 (docs/PRD.md §4) — 실물에서 그렇게 갇혔다.
+    //
+    // 재시도가 실제로 도는 것은 실물로 본다 (CLAUDE.md §5). 여기서 고정하는 것은
+    // <b>언제 재시도하는가</b> 다 — 틀리면 로컬의 진짜 권한 오류까지 느려진다.
+
+    [Fact]
+    public void ShouldRetryOpen_OnANetworkPath_ForAccessDenied()
+    {
+        Assert.True(FileSystemFolderSource.ShouldRetryOpen(
+            new UnauthorizedAccessException(), Folder(@"\\10.10.10.23\home\gone")));
+    }
+
+    [Fact]
+    public void ShouldRetryOpen_OnALocalPath_IsFalse()
+    {
+        // 로컬에는 delete-pending 이 없다. 여기서 재시도하면 진짜 권한 오류의 사유가
+        // 늦게 나올 뿐이고, 그만큼 얻는 것이 없다.
+        Assert.False(FileSystemFolderSource.ShouldRetryOpen(
+            new UnauthorizedAccessException(), Folder(@"C:\Windows\System32\config")));
+    }
+
+    [Theory]
+    [InlineData(typeof(DirectoryNotFoundException))]
+    [InlineData(typeof(FileNotFoundException))]
+    [InlineData(typeof(IOException))]
+    public void ShouldRetryOpen_ForOtherFailures_IsFalse(Type errorType)
+    {
+        // 이미 답이 나온 실패다. 없는 서버(53)는 한 번에 42초가 걸린다 — 두 번 물으면
+        // 84초다 (CLAUDE.md §3).
+        var error = (Exception)Activator.CreateInstance(errorType)!;
+
+        Assert.False(FileSystemFolderSource.ShouldRetryOpen(error, Folder(@"\\10.10.10.23\home\gone")));
+    }
+
     private async Task<FileItem> SingleAsync(string name)
     {
         await foreach (var item in new FileSystemFolderSource().EnumerateAsync(SourceFolder, CancellationToken.None))
