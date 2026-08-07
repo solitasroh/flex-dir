@@ -1,4 +1,7 @@
+using System.Runtime.ExceptionServices;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 
 using FlexDir.App.Views;
 
@@ -36,6 +39,102 @@ public class SplitterSyncTests
     {
         // 레이아웃 전(0)이나 깨진 값에서 비율을 만들면 그 값이 VM 을 거쳐 저장 파일까지 간다.
         Assert.Equal(0.5, SplitterSync.RatioOf(left, right));
+    }
+
+    // ── 어떤 드래그가 스플리터의 것인가 (2026-08-07 재현) ─────────
+    //
+    // Thumb.DragCompleted 는 버블링이라 페인 안의 스크롤바 썸이 올린 것도 Grid 의 핸들러에
+    // 닿는다 (ScrollBar 는 그 이벤트를 삼키지 않는다 — 실물로 확인). 그것을 스플리터 드래그로
+    // 읽으면 열의 MinWidth 에 잘린 폭이 사용자가 고른 비율을 덮어쓴다. 좁은 창에서 목록을
+    // 한 번 스크롤하는 것으로 충분하고, 그 값은 저장 파일까지 간다.
+
+    [Fact]
+    public void DragCompleted_FromAnotherThumb_LeavesTheRatioAlone()
+    {
+        OnSta(() =>
+        {
+            var grid = MeasuredGrid();
+            SplitterSync.SetRatio(grid, 0.3);
+            SplitterSync.SetEnabled(grid, true);
+
+            var scrollThumb = new Thumb();
+            grid.Children.Add(scrollThumb);
+
+            RaiseDragCompleted(scrollThumb);
+
+            // 실측 폭은 반반이지만 (MeasuredGrid) 사용자가 고른 것은 0.3 이다.
+            Assert.Equal(0.3, SplitterSync.GetRatio(grid));
+        });
+    }
+
+    [Fact]
+    public void DragCompleted_FromTheSplitter_FoldsTheMeasuredWidthsIn()
+    {
+        OnSta(() =>
+        {
+            var grid = MeasuredGrid();
+            SplitterSync.SetRatio(grid, 0.3);
+            SplitterSync.SetEnabled(grid, true);
+
+            RaiseDragCompleted(grid.Children.OfType<GridSplitter>().Single());
+
+            Assert.Equal(0.5, SplitterSync.GetRatio(grid), precision: 2);
+        });
+    }
+
+    /// <summary>
+    /// 반반으로 <b>실측된</b> 페인 그리드. 열 셋(좌·스플리터 6·우)은 MainWindow.xaml 과 같다 —
+    /// 실측 폭이 있어야 되쓰기가 무엇을 쓰는지 보인다.
+    /// </summary>
+    private static Grid MeasuredGrid()
+    {
+        var grid = new Grid();
+
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var splitter = new GridSplitter();
+        Grid.SetColumn(splitter, 1);
+        grid.Children.Add(splitter);
+
+        grid.Measure(new Size(1000, 100));
+        grid.Arrange(new Rect(0, 0, 1000, 100));
+
+        return grid;
+    }
+
+    private static void RaiseDragCompleted(UIElement source)
+        => source.RaiseEvent(
+            new DragCompletedEventArgs(0, 0, canceled: false) { RoutedEvent = Thumb.DragCompletedEvent });
+
+    /// <summary>WPF 요소는 STA 에서만 만들어진다 — xunit 은 스레드풀(MTA)에서 돈다.</summary>
+    private static void OnSta(Action test)
+    {
+        ExceptionDispatchInfo? failure = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                test();
+            }
+            catch (Exception error)
+            {
+                failure = ExceptionDispatchInfo.Capture(error);
+            }
+        })
+        {
+            IsBackground = true,
+            Name = "flex-dir test sta",
+        };
+
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "STA 스레드가 끝나지 않았다.");
+
+        failure?.Throw();
     }
 
     // ── 비율 → 열 너비 변환 ───────────────────────────────────────

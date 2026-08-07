@@ -54,6 +54,19 @@ public static class SplitterSync
         return double.IsFinite(ratio) ? ratio : 0.5;
     }
 
+    /// <summary>
+    /// 이 드래그가 스플리터의 것인가. <c>Thumb.DragCompleted</c> 는 버블링이라 <b>페인 안의
+    /// 스크롤바 썸</b>이 올린 것도 같은 핸들러에 닿는다 (실측 2026-08-07 · ScrollBar 는 그
+    /// 이벤트를 삼키지 않는다).
+    /// <para>
+    /// 그것을 비율 변경으로 읽으면 안 되는 이유: 열에는 <c>MinWidth</c> 가 걸려 있어서 실측
+    /// 폭이 <b>사용자가 고른 비율이 아니라 벽에 막힌 폭</b>일 수 있다. 좁은 창에서 목록을 한 번
+    /// 스크롤하는 것만으로 그 값이 정본이 되고 저장 파일까지 간다 — 넓은 창으로 돌아와도
+    /// 원래 자리로 오지 않는다.
+    /// </para>
+    /// </summary>
+    internal static bool IsSplitterDrag(object? source) => source is GridSplitter;
+
     /// <summary>비율을 좌·우 열의 star 너비로 편다. star 끼리라 합이 1 이 아니어도 좋다.</summary>
     internal static (GridLength Left, GridLength Right) WidthsFor(double ratio)
         => (new GridLength(ratio, GridUnitType.Star), new GridLength(1 - ratio, GridUnitType.Star));
@@ -68,9 +81,9 @@ public static class SplitterSync
         // 켜는 것은 XAML 에서 한 번뿐이다 — 끄는 경로가 없으므로 해제 코드도 없다.
         grid.AddHandler(
             Thumb.DragCompletedEvent,
-            new DragCompletedEventHandler((sender, _) =>
+            new DragCompletedEventHandler((sender, e) =>
             {
-                if (sender is Grid g)
+                if (sender is Grid g && IsSplitterDrag(e.OriginalSource))
                 {
                     // 실측(ActualWidth)을 쓴다. Width 는 드래그 결과의 단위가 구현 소관이라
                     // star 값인지 픽셀인지 약속이 없다.
