@@ -7,7 +7,7 @@ namespace FlexDir.Core.Tests.Errors;
 /// <summary>
 /// Win32 오류 코드 → 분류. 경로 문제와 권한 문제를 구분하는 것이 목적이다
 /// (docs/SHELL_NOTES.md §오류 코드 매핑).
-/// v1 은 로컬 파일시스템만 다루므로 (docs/PRD.md §3) 네트워크 코드는 매핑하지 않는다.
+/// 네트워크 코드는 <b>실물에서 본 것만</b> 매핑한다 (docs/PRD-v2.md §5 N-4).
 /// </summary>
 public class Win32ErrorMappingTests
 {
@@ -37,15 +37,28 @@ public class Win32ErrorMappingTests
         Assert.Equal(LocationErrorKind.Unknown, Win32ErrorMapping.Classify(win32Error));
     }
 
+    // ── 네트워크 코드 (docs/PRD-v2.md §5 N-4) ───────────────────────
+    // v1 은 전부 Unknown 으로 남겨 뒀다 — "실물 검증 없이 옳다고 믿게 된다" 는 이유였다.
+    // 아래 셋은 그 검증을 마쳤다 (2026-08-07 · \\10.10.10.23).
+
     [Theory]
-    [InlineData(53)]     // ERROR_BAD_NETPATH
-    [InlineData(67)]     // ERROR_BAD_NET_NAME
-    [InlineData(1326)]   // ERROR_LOGON_FAILURE
-    [InlineData(1219)]   // ERROR_SESSION_CREDENTIAL_CONFLICT
-    public void Classify_NetworkCodesAreUnknownInV1(int win32Error)
+    [InlineData(53, LocationErrorKind.NotFound)]                  // ERROR_BAD_NETPATH — 없는 서버
+    [InlineData(67, LocationErrorKind.NotFound)]                  // ERROR_BAD_NET_NAME — 없는 공유
+    [InlineData(1219, LocationErrorKind.CredentialConflict)]      // ERROR_SESSION_CREDENTIAL_CONFLICT
+    public void Classify_MapsTheNetworkCodesThatWereMeasured(int win32Error, LocationErrorKind expected)
     {
-        // v1 은 로컬만 다루므로 네트워크 코드에 특별 취급이 없음을 고정한다.
-        // 지금 분류를 넣으면 실행되지 않는 분기가 남고, v2 에서 실물 검증 없이 옳다고 믿게 된다.
+        Assert.Equal(expected, Win32ErrorMapping.Classify(win32Error));
+    }
+
+    [Theory]
+    [InlineData(1326)]   // ERROR_LOGON_FAILURE
+    [InlineData(1311)]   // ERROR_NO_LOGON_SERVERS
+    [InlineData(1231)]   // ERROR_NETWORK_UNREACHABLE
+    [InlineData(1232)]   // ERROR_HOST_UNREACHABLE
+    public void Classify_UnmeasuredNetworkCodesStayUnknown(int win32Error)
+    {
+        // 이 경로(FindFirstFileExW)에서 이 코드들이 실제로 오는 것을 아직 못 봤다.
+        // 짐작으로 넣으면 틀려도 드러나지 않는다 — 공유 열거(WNet)의 표와 다른 이유가 이것이다.
         Assert.Equal(LocationErrorKind.Unknown, Win32ErrorMapping.Classify(win32Error));
     }
 

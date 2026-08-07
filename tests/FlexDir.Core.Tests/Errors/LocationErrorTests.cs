@@ -59,6 +59,49 @@ public class LocationErrorTests
             LocationErrorMessages.Describe(LocationErrorKind.Unknown, Parse(@"C:\Temp")));
     }
 
+    // ── 자격증명 충돌 (docs/PRD-v2.md §5 N-4) ───────────────────────
+    // 1219 는 비밀번호나 주소를 고쳐도 안 되는 종류다. 무엇을 해야 하는지 말하지 않으면
+    // 사용자가 손쓸 방법이 없다 — 그래서 이 분류만 문구에 명령을 담는다.
+
+    [Fact]
+    public void Describe_CredentialConflict_NamesTheCommandThatFixesIt()
+    {
+        Assert.Equal(
+            @"다른 자격 증명으로 이미 연결돼 있습니다 — net use \\10.10.10.23 /delete 후 다시 여세요",
+            LocationErrorMessages.Describe(LocationErrorKind.CredentialConflict, Parse(@"\\10.10.10.23")));
+    }
+
+    [Fact]
+    public void Describe_CredentialConflict_TargetsTheServerNotTheShare()
+    {
+        // 세션은 서버 단위로 하나다. `net use \\server\share\sub /delete` 는 실패한다 —
+        // 붙여 넣어서 안 되는 명령을 안내하면 없느니만 못하다.
+        Assert.Equal(
+            @"다른 자격 증명으로 이미 연결돼 있습니다 — net use \\10.10.10.23 /delete 후 다시 여세요",
+            LocationErrorMessages.Describe(LocationErrorKind.CredentialConflict, Parse(@"\\10.10.10.23\home\sub")));
+    }
+
+    [Fact]
+    public void Describe_CredentialConflict_OnALocalPath_FallsBackToThePlainShape()
+    {
+        // 로컬 경로에는 끊을 세션이 없다. 여기까지 오는 것은 호출자 버그이지만, 그때
+        // `net use  /delete` 라고 말하는 것보다 사유만 말하는 편이 낫다.
+        Assert.Equal(
+            @"다른 자격 증명으로 이미 연결돼 있습니다 — C:\Temp",
+            LocationErrorMessages.Describe(LocationErrorKind.CredentialConflict, Parse(@"C:\Temp")));
+    }
+
+    [Fact]
+    public void Describe_CredentialConflict_IsNotTheAccessDeniedWording()
+    {
+        // AccessDenied 로 접으면 "비밀번호를 고치면 되겠지" 로 읽힌다. 1219 는 그래도 안 된다.
+        var location = Parse(@"\\10.10.10.23");
+
+        Assert.NotEqual(
+            LocationErrorMessages.Describe(LocationErrorKind.AccessDenied, location),
+            LocationErrorMessages.Describe(LocationErrorKind.CredentialConflict, location));
+    }
+
     // ── 경로 표기 ───────────────────────────────────────────────────
 
     [Fact]
@@ -73,6 +116,7 @@ public class LocationErrorTests
                      LocationErrorKind.NotFound,
                      LocationErrorKind.DeviceNotReady,
                      LocationErrorKind.Sharing,
+                     LocationErrorKind.CredentialConflict,
                      LocationErrorKind.Unknown,
                  })
         {
@@ -81,6 +125,17 @@ public class LocationErrorTests
             Assert.DoesNotContain(@"\\?\", message);
             Assert.Contains(location.DisplayPath, message);
         }
+    }
+
+    [Fact]
+    public void Describe_CredentialConflict_UsesTheDisplayFormOfTheServer()
+    {
+        // 명령에 들어가는 것도 사용자가 그대로 치는 문자열이다. 내부 표현이 새면 못 친다.
+        var message = LocationErrorMessages.Describe(
+            LocationErrorKind.CredentialConflict, Parse(@"\\10.10.10.23\home"));
+
+        Assert.DoesNotContain(@"\\?\", message);
+        Assert.Contains(@"\\10.10.10.23", message);
     }
 
     [Fact]
@@ -130,6 +185,7 @@ public class LocationErrorTests
             LocationErrorKind.NotFound,
             LocationErrorKind.DeviceNotReady,
             LocationErrorKind.Sharing,
+            LocationErrorKind.CredentialConflict,
             LocationErrorKind.Unknown,
         }.Select(kind => LocationErrorMessages.Describe(kind, location)).ToArray();
 
@@ -148,6 +204,7 @@ public class LocationErrorTests
                      LocationErrorKind.NotFound,
                      LocationErrorKind.DeviceNotReady,
                      LocationErrorKind.Sharing,
+                     LocationErrorKind.CredentialConflict,
                      LocationErrorKind.Unknown,
                  })
         {
@@ -156,5 +213,21 @@ public class LocationErrorTests
 
             Assert.False(wording.Any(char.IsAsciiLetter), wording);
         }
+    }
+
+    [Fact]
+    public void Describe_TheOnlyEnglishIsACommandToType()
+    {
+        // 위 규칙의 유일한 예외다. 명령은 산문이 아니라 <b>사용자가 그대로 치는 원문</b>이라
+        // 경로와 같은 취급이다 — 번역하면 붙여 넣어서 안 되는 명령이 된다.
+        // 예외가 이 하나뿐임을 여기서 고정한다: 그것을 빼면 한국어만 남아야 한다.
+        var message = LocationErrorMessages.Describe(
+            LocationErrorKind.CredentialConflict, Parse(@"\\10.10.10.23"));
+
+        Assert.Contains(@"net use \\10.10.10.23 /delete", message);
+
+        var withoutTheCommand = message.Replace(@"net use \\10.10.10.23 /delete", string.Empty);
+
+        Assert.False(withoutTheCommand.Any(char.IsAsciiLetter), withoutTheCommand);
     }
 }

@@ -8,10 +8,16 @@ namespace FlexDir.Core.Errors;
 /// 여기서 부르지 않는다.
 /// </para>
 /// <para>
-/// v1 이 실제로 다루는 코드만 넣는다. 네트워크 코드(53·67·1326·1219 등)는 v1 이 로컬
-/// 파일시스템만 다루므로 (docs/PRD.md §3) <see cref="LocationErrorKind.Unknown"/> 으로 남긴다 —
-/// 지금 넣으면 실행되지 않는 분기가 남고, v2 에서 실물 검증 없이 옳다고 믿게 된다.
-/// 표는 docs/SHELL_NOTES.md §오류 코드 매핑 에 이미 있으니 그때 쓴다.
+/// <b>실물에서 본 코드만 넣는다.</b> v1 은 네트워크 코드를 전부
+/// <see cref="LocationErrorKind.Unknown"/> 으로 남겨 뒀다 — "지금 넣으면 실행되지 않는
+/// 분기가 남고, v2 에서 실물 검증 없이 옳다고 믿게 된다" 는 이유였다. v2 가 그 기준을
+/// 그대로 이어받아, 아래 셋만 <c>\\10.10.10.23</c> 에서 재현해 보고 넣었다
+/// (2026-08-07 · docs/PRD-v2.md §5 N-4). 나머지는 여전히 <c>Unknown</c> 이다.
+/// </para>
+/// <para>
+/// <c>NetworkShareSource</c> 는 코드 8종을 따로 갖는다. 같은 표를 두 벌 두는 것이 아니라
+/// <b>다른 호출 경로</b>다 — 그쪽은 <c>WNetOpenEnum</c>(mpr.dll), 여기로 오는 것은
+/// <c>FindFirstFileExW</c> 다. 어느 코드가 실제로 오는지가 경로마다 다르다.
 /// </para>
 /// </summary>
 public static class Win32ErrorMapping
@@ -24,6 +30,9 @@ public static class Win32ErrorMapping
     private const int ErrorWriteProtect = 19;
     private const int ErrorNotReady = 21;
     private const int ErrorSharingViolation = 32;
+    private const int ErrorBadNetPath = 53;
+    private const int ErrorBadNetName = 67;
+    private const int ErrorSessionCredentialConflict = 1219;
     private const int ErrorPrivilegeNotHeld = 1314;
 
     public static LocationErrorKind Classify(int win32Error) => win32Error switch
@@ -43,6 +52,14 @@ public static class Win32ErrorMapping
 
         ErrorNotReady => LocationErrorKind.DeviceNotReady,
         ErrorSharingViolation => LocationErrorKind.Sharing,
+
+        // 없는 서버(53)와 없는 공유(67)는 둘 다 경로 문제다 — 오타이거나 꺼진 서버다.
+        // 실측: 없는 공유는 즉시, 없는 서버는 42초 걸려 돌아온다 (CLAUDE.md §3).
+        ErrorBadNetPath => LocationErrorKind.NotFound,
+        ErrorBadNetName => LocationErrorKind.NotFound,
+
+        // AccessDenied 로 접지 않는다 — 비밀번호를 고쳐도 안 되는 종류다.
+        ErrorSessionCredentialConflict => LocationErrorKind.CredentialConflict,
 
         _ => LocationErrorKind.Unknown,
     };

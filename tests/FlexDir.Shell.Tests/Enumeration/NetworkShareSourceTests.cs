@@ -80,6 +80,37 @@ public class NetworkShareSourceTests
         Assert.NotEqual(0, error.Win32Error);
     }
 
+    // ── 오류 분류 (docs/PRD-v2.md §5 N-4) ─────────────────────────
+    // 뭉뚱그리면 비밀번호를 고쳐야 하는지 주소를 고쳐야 하는지 알 수 없다.
+
+    [Theory]
+    [InlineData(5, LocationErrorKind.AccessDenied)]               // ERROR_ACCESS_DENIED
+    [InlineData(1326, LocationErrorKind.AccessDenied)]            // ERROR_LOGON_FAILURE — 자격증명 거부
+    [InlineData(53, LocationErrorKind.NotFound)]                  // ERROR_BAD_NETPATH
+    [InlineData(67, LocationErrorKind.NotFound)]                  // ERROR_BAD_NET_NAME
+    [InlineData(1219, LocationErrorKind.CredentialConflict)]      // ERROR_SESSION_CREDENTIAL_CONFLICT
+    public void Translate_ClassifiesTheNetworkCodes(int win32, LocationErrorKind expected)
+    {
+        var error = NetworkShareSource.Translate(win32, Folder(@"\\10.10.10.23"));
+
+        Assert.Equal(expected, error.Kind);
+        Assert.Equal(win32, error.Win32Error);
+    }
+
+    [Fact]
+    public void Translate_1219_IsNotAccessDenied()
+    {
+        // 1219 는 비밀번호를 고쳐도, 주소를 고쳐도 안 된다. AccessDenied 로 접으면
+        // 사용자가 손쓸 방법이 없다 — 기존 세션을 끊으라고 말해야 한다.
+        var server = Folder(@"\\10.10.10.23");
+
+        Assert.NotEqual(
+            NetworkShareSource.Translate(5, server).Message,
+            NetworkShareSource.Translate(1219, server).Message);
+
+        Assert.Contains(@"net use \\10.10.10.23 /delete", NetworkShareSource.Translate(1219, server).Message);
+    }
+
     // ── 항목의 모양 ───────────────────────────────────────────────
 
     [Fact]

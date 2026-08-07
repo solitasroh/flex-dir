@@ -224,13 +224,16 @@ public sealed partial class NetworkShareSource : IFolderSource
     /// <b>경로 문제와 인증 문제를 구분해야 사용자가 손쓸 방법이 생긴다</b> — 뭉뚱그리면
     /// 비밀번호를 고쳐야 하는지 주소를 고쳐야 하는지 알 수 없다.
     /// </summary>
-    private static LocationAccessException Translate(int win32, LocationId server) => new(
+    internal static LocationAccessException Translate(int win32, LocationId server) => new(
         win32 switch
         {
             5 => LocationErrorKind.AccessDenied,          // ERROR_ACCESS_DENIED
             1326 => LocationErrorKind.AccessDenied,       // ERROR_LOGON_FAILURE — 자격증명 거부
             1311 => LocationErrorKind.AccessDenied,       // ERROR_NO_LOGON_SERVERS
-            1219 => LocationErrorKind.AccessDenied,       // ERROR_SESSION_CREDENTIAL_CONFLICT
+
+            // 1219 만 AccessDenied 에서 갈라져 나온다. 비밀번호도 주소도 고칠 수 없고
+            // 기존 세션을 끊어야 한다 — 문구가 그 명령을 말한다 (LocationErrorMessages).
+            1219 => LocationErrorKind.CredentialConflict, // ERROR_SESSION_CREDENTIAL_CONFLICT
             52 => LocationErrorKind.NotFound,             // ERROR_DUP_NAME
             53 => LocationErrorKind.NotFound,             // ERROR_BAD_NETPATH
             64 => LocationErrorKind.NotFound,             // ERROR_NETNAME_DELETED
