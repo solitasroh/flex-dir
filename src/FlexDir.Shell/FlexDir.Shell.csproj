@@ -14,6 +14,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- 설치와 자동 업데이트. Core 는 순수 .NET 이라 이것을 모르고(CLAUDE.md §1)
+         Host 는 이 프로젝트를 참조하므로 전이로 얻는다 — Program 의 부트스트랩 한 줄이
+         그것을 쓴다. Windows 설치 기제이므로 Windows 구현체가 사는 이 어셈블리가 자리다. -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- 감시의 Error 경로(버퍼 오버플로)는 실물로 결정적으로 재현할 수 없다.
          FileSystemWatcher 를 만드는 자리를 테스트가 바꿔 끼울 수 있게 열어준다. -->
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleTo">
