@@ -442,6 +442,66 @@ public class FileOperationCommandsTests
         Assert.Null(pane.RenamingName);
     }
 
+    // ── 쓸 수 없는 이름 (2026-08-07 실물 크래시) ────────────────────
+    //
+    // 이름에 '\' 가 들어가자 LocationId.Combine 의 ArgumentException 이 커맨드 밖으로 새어
+    // <b>프로세스가 죽었다</b>. 파일 이름에 ':' 를 쓰는 것(회의록 10:30)만으로 같은 일이 난다.
+
+    [Theory]
+    [InlineData(@"a\b.txt")]
+    [InlineData("a/b.txt")]
+    [InlineData("회의록 10:30.txt")]
+    [InlineData("무엇?.txt")]
+    [InlineData("..")]
+    public async Task CommitRename_WithAnUnusableName_ShowsTheReasonAndDoesNotRename(string newName)
+    {
+        var folder = Folder(@"C:\Temp", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("a.txt");
+        pane.BeginRenameCommand.Execute(null);
+
+        // 던지지 않는 것이 첫 번째 계약이다 — 던지면 실물에서 프로세스가 죽는다.
+        await pane.CommitRenameCommand.ExecuteAsync(newName);
+
+        Assert.Empty(operations.Renames);
+        Assert.Null(pane.RenamingName);
+
+        // 조용히 접으면 사용자는 이름이 바뀐 줄 안다.
+        Assert.Contains(newName, pane.StatusText);
+        Assert.NotEqual(PaneStatus.Error, pane.Status);
+    }
+
+    [Fact]
+    public async Task CommitRename_WithAnUnusableName_SaysWhatIsWrong()
+    {
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        pane.Selection.SelectSingle("a.txt");
+        pane.BeginRenameCommand.Execute(null);
+
+        await pane.CommitRenameCommand.ExecuteAsync("회의록 10:30.txt");
+
+        // 구분자와 금지 문자는 사용자가 고칠 것이 다르다. 뭉뚱그리면 무엇을 지울지 모른다.
+        Assert.Contains("문자", pane.StatusText);
+    }
+
+    [Fact]
+    public async Task Operations_ThatFailUnexpectedly_DoNotEscapeTheCommand()
+    {
+        // 조작 경로의 안전망이다. 열거 경로는 이미 예외 종류로 가르지 않는다 — 계약을 어긴
+        // 예외가 커맨드에서 새면 잡을 사람이 없고 프로세스가 죽는다.
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        pane.Selection.SelectSingle("a.txt");
+
+        operations.Failure = new InvalidOperationException("계약을 어긴 예외");
+
+        await pane.DeleteSelectionCommand.ExecuteAsync(null);
+
+        Assert.False(string.IsNullOrWhiteSpace(pane.StatusText));
+    }
+
     // ── 새 폴더 ───────────────────────────────────────────────────
 
     [Fact]

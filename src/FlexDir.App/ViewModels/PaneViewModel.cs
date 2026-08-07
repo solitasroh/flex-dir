@@ -1490,6 +1490,16 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             return Task.CompletedTask;
         }
 
+        // 사용자가 친 이름이다. Combine 으로 검사하면 예외가 이 커맨드 밖으로 새어
+        // 프로세스가 죽는다 (2026-08-07 실물 — 이름에 '\' 가 든 경우). 사유를 값으로 받는다.
+        if (!folder.TryCombine(newName, out _, out var nameError))
+        {
+            StatusText = DescribeChildNameError(nameError, newName);
+
+            // Status 는 건드리지 않는다. 이름을 잘못 친 것과 폴더를 열 수 없는 것은 다르다.
+            return Task.CompletedTask;
+        }
+
         // 위치는 폴더와 이름으로 만든다 — 새로 만든 폴더는 아직 목록에 없다.
         return RunAsync(token => fileOperations.RenameAsync(folder.Combine(original), newName, token), ct);
     }
@@ -2314,6 +2324,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         {
             await ShowReasonAsync(error).ConfigureAwait(false);
         }
+        // 예외 <b>종류</b>로 가르지 않는다 — 열거 경로(FillAsync)가 이미 배운 것이고, 이 자리에는
+        // 적용돼 있지 않았다. 계약은 LocationAccessException 이지만 구현체는 COM 과 P/Invoke
+        // 위에 서고, 계약을 어긴 예외가 커맨드에서 새면 <b>잡을 사람이 없어 프로세스가 죽는다</b>
+        // (2026-08-07 실물 — LocationId.Combine 의 ArgumentException). 취소만 통과시킨다.
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // 사유를 만들지 못하는 실패다. 조용히 삼키면 아무 일도 없었던 것처럼 보이고,
+            // 되돌릴 수 없는 조작(이동·삭제)에서 그것은 "됐다" 로 읽힌다.
+            await dispatcher.InvokeAsync(() => StatusText = $"작업을 마치지 못했습니다 — {error.Message}")
+                .ConfigureAwait(false);
+        }
     }
 
     private Task ShowReasonAsync(LocationAccessException error)
@@ -2371,6 +2392,27 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         };
 
         return string.IsNullOrWhiteSpace(address) ? wording : $"{wording} — {address.Trim()}";
+    }
+
+    /// <summary>
+    /// 이름변경 입력이 거부된 사유. <see cref="DescribeParseError"/> 와 나란히 두는 이유가
+    /// 같다 — 사용자가 친 문자열을 받는 것은 ViewModel 뿐이다.
+    /// <para>
+    /// 구분자와 금지 문자를 나눠 말한다. 뭉뚱그리면 무엇을 지워야 하는지 알 수 없다.
+    /// </para>
+    /// </summary>
+    private static string DescribeChildNameError(ChildNameError error, string? name)
+    {
+        var wording = error switch
+        {
+            ChildNameError.Empty => "이름을 입력하세요",
+            ChildNameError.Separator => @"이름에 '\' 나 '/' 를 쓸 수 없습니다",
+            ChildNameError.RelativeElement => "이름으로 쓸 수 없습니다",
+            ChildNameError.InvalidCharacter => @"이름에 쓸 수 없는 문자가 있습니다: \ / : * ? "" < > |",
+            _ => throw new ArgumentOutOfRangeException(nameof(error), error, "알 수 없는 분류다."),
+        };
+
+        return string.IsNullOrWhiteSpace(name) ? wording : $"{wording} — {name}";
     }
 
     /// <summary>

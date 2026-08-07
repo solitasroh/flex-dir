@@ -31,8 +31,14 @@ public sealed class FakeFileOperations : IFileOperations
     /// <summary>
     /// 모든 조작이 던질 예외. null 이면 성공한다. 같은 인스턴스를 매 호출에 다시 던지므로
     /// 호출한 조작에 맞는 위치로 테스트가 만들어 넣는다.
+    /// <para>
+    /// <see cref="LocationAccessException"/> 이 아니라 <see cref="Exception"/> 이다 — 계약을
+    /// <b>어긴</b> 예외를 넣을 수 있어야 한다. 실물에서 그런 예외가 커맨드 밖으로 새어
+    /// 프로세스가 죽었다 (2026-08-07). 좁혀 두면 그 상황을 테스트가 만들 수 없다
+    /// (<c>FakeTypeNameProvider.Failure</c> 와 같은 이유).
+    /// </para>
     /// </summary>
-    public LocationAccessException? Failure { get; set; }
+    public Exception? Failure { get; set; }
 
     /// <summary>
     /// <see cref="CreateFolderAsync"/> 가 실제로 만든 이름. null 이면 요청한 이름을 그대로 쓴다.
