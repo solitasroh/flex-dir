@@ -26,7 +26,7 @@
 | `IFileOperations`      | `IFileOperation` + `**FOFX_RECYCLEONDELETE**`                          | §파일 조작        |
 | `IClipboardBridge`     | 탐색기 호환 클립보드 포맷                                                         | §클립보드         |
 | `IFolderWatcher`       | `FileSystemWatcher` + `InternalBufferSize` 확대 + `Error` 처리             | §폴더 감시        |
-| `IViewStateStore`      | `%LOCALAPPDATA%\flex-dir\` 파일                                          | —             |
+| `IViewStateStore`      | `%APPDATA%\flex-dir\` 파일 (2026-08-07에 옮겼다 — ARCHITECTURE §4)         | —             |
 | `IItemActivator`       | `ShellExecuteEx`                                                       | —             |
 | `IContextMenuProvider` | `IContextMenu` + `IContextMenu2/3` 메시지 펌핑                              | §컨텍스트 메뉴      |
 
@@ -540,7 +540,8 @@ B-1(ViewModel 확장)과 B-2 골격이 끝났다. 창이 뜨고 Details 로 탐�
   죽으면 이름이 사라져 다음 실행이 새 상주 프로세스가 된다).
   활성화는 `ActivationRouter` 가 받아 **사용을 기록하고 인자의 폴더를 활성 페인에서 연다** —
   왼쪽에 못박지 않는다.
-- [x] **계측 = `Diagnostics/PerformanceLog.cs` → `%LOCALAPPDATA%\flex-dir\perf.log`.**
+- [x] **계측 = `Diagnostics/PerformanceLog.cs` → `%APPDATA%\flex-dir\perf.log`.**
+      (2026-08-07에 `%LOCALAPPDATA%` 에서 옮겼다 — ARCHITECTURE §4)
 
   지점 셋과 예산(`docs/PRD.md` §5)이 코드 안에 있고 줄마다 예산을 함께 적는다 —
   나중에 보는 사람이 문서를 찾지 않아도 판정이 서야 하고, 수치가 전부 잠정이라 예산이
@@ -655,6 +656,31 @@ phases/ 자율 실행 (Core + ViewModel)          ✅
 - 스플리터 비율과 창 크기가 **조작 중에 저절로 바뀌는 것을 여러 번 봤다** (좌 페인이
   330px→595px→890px). 재현 조건을 못 잡았고 이번 변경과 무관해 보인다 (오류 분류만
   건드렸다). `SplitterSync`·`ResidentWindow` 근처를 볼 것.
+
+## 배포 — 사람 확인 항목
+
+정본은 `docs/PRD-v2.md` §9. 여기는 **사람이 봐야 하는 것**만이다.
+
+**확인됨** (2026-08-07)
+
+- [x] **설치 → 실행.** `flex-dir-win-Setup.exe` 가 `%LOCALAPPDATA%\flex-dir\` 에 설치하고
+      앱이 뜬다. 시작 메뉴·바탕화면 바로가기가 생긴다. 관리자 권한을 묻지 않는다.
+- [x] **자동 업데이트 전체 흐름.** 0.1.0 설치 → 0.1.1 릴리스 → 알림 바
+      (`새 버전 0.1.1 이 준비됐습니다.`) → `지금 설치` → 패키지 교체 후 재시작.
+- [x] **상태가 설치를 견딘다.** 상태를 `%APPDATA%` 로 옮긴 뒤 재설치해도
+      `usage.log`·`perf.log` 가 남는다. **옮기기 전에는 첫 설치가 그것을 지웠다.**
+- [x] **설치본을 켠 채 게이트 4종 통과.** 저장소 산출물을 잠그지 않는다.
+
+**아직 사람이 봐야 하는 것**
+
+- [ ] **SmartScreen 경고.** 코드 서명이 없어 처음 받는 기계에서 "Windows의 PC 보호" 가
+      뜬다. 이 기계에서는 이미 실행했으므로 **다른 기계에서만 볼 수 있다.**
+- [ ] **제거.** 설정 → 앱에서 제거했을 때 깨끗이 지워지는지, 그리고 **`%APPDATA%` 의
+      상태가 남는지** (남는 것이 의도다 — 재설치 시 이어져야 한다).
+- [ ] **`나중에` 를 누른 뒤의 동작.** 알림이 접히고 다음 실행에서 다시 뜨는지.
+      코드로는 그렇게 돼 있고(`UpdateViewModel.Dismiss`) 테스트도 있지만 실물은 미확인.
+- [ ] **피드에 못 닿을 때.** 사내망 밖·서버 꺼짐에서 조용히 지나가는지. 실패를 삼키는
+      경로라 **틀려도 화면에 아무것도 안 나온다** — 그래서 사람이 봐야 한다.
 
 ## v1.1 — 사람 확인 항목
 

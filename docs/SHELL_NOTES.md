@@ -340,10 +340,19 @@ WPF 창을 소유자로 삼고, `SetForegroundWindow` + 뒤이은 `PostMessage`(
 | 1231 / 1232 | 네트워크·호스트 도달 불가 | 경로 없음 |
 | 1326 `ERROR_LOGON_FAILURE` | 자격증명 거부 | **권한** |
 | 1311 `ERROR_NO_LOGON_SERVERS` | 로그온 서버 없음 | **권한** |
-| 1219 `ERROR_SESSION_CREDENTIAL_CONFLICT` | 같은 서버에 다른 자격증명 세션 | **권한** |
+| 1219 `ERROR_SESSION_CREDENTIAL_CONFLICT` | 같은 서버에 다른 자격증명 세션 | **자격증명 충돌** (권한과 별개) |
 
 **함정**: 1219 는 흔하고 헷갈린다. 이미 다른 계정으로 그 서버에 연결돼 있다는 뜻이라
 경로나 비밀번호를 고쳐도 안 된다. `net use /delete` 가 필요하다는 걸 알려줘야 한다.
+
+> **구현됐다** (2026-08-07 · `docs/PRD-v2.md` §5 N-4 가 정본이다). 위 표가 "권한" 으로
+> 뭉뚱그렸던 1219 를 `LocationErrorKind.CredentialConflict` 로 **떼어냈다** — `AccessDenied`
+> 로 두면 "비밀번호를 고치면 되겠지" 로 읽히는데 그 코드는 고쳐도 안 되기 때문이다.
+> 문구가 끊을 명령을 그대로 낸다: `net use \\서버 /delete 후 다시 여세요`.
+>
+> **`Win32ErrorMapping` 에는 위 표를 그대로 옮기지 않았다.** 실물에서 본 셋(53·67·1219)만
+> 넣었다 — 나머지는 이 경로(`FindFirstFileExW`)에서 오는 것을 아직 못 봤다. 공유 열거
+> (`WNet`)의 표와 다른 것은 실수가 아니라 **다른 호출 경로**이기 때문이다.
 
 ### 알려진 미해결
 

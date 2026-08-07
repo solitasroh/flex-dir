@@ -95,7 +95,7 @@ Program.Main  (명시적 Main. App.xaml 로 가지 않았다 — manual-plan §C
       ├ 두 번째 실행 → SendAsync 하고 exit 0
       └ 상주 프로세스 →
           Application { ShutdownMode = OnExplicitShutdown }
-          AppComposition.Create(WpfUiDispatcher, %LOCALAPPDATA%\flex-dir)
+          AppComposition.Create(WpfUiDispatcher, %APPDATA%\flex-dir)
           ActivationRouter  ← 실행 + 활성화마다 IUsageLog 기록 · 인자의 폴더를 활성 페인에서
           PerformanceLog    ← ColdStart 를 perf.log 에
           application.Run() … 창 없이 상주
@@ -483,7 +483,7 @@ breadcrumb 상호작용 · 여유 용량)을 **사용자가 손으로 확인했�
    실행 지점을 `internal` 생성자로 바꿔 끼우고 실물은 프로브로 본다. 부작용도 같은 기준이다:
    프로세스를 띄우거나 휴지통에 넣거나 클립보드를 덮어쓰는 것은 게이트가 돌 때마다 일어나면 안 된다.
    **파일을 쓰는 테스트는 `Path.GetTempPath()` 아래에서만 쓴다** — 실제
-   `%LOCALAPPDATA%\flex-dir\` 를 건드리면 도그푸딩 게이트가 자기 테스트 실행을 사용으로 센다.
+   `%APPDATA%\flex-dir\` 를 건드리면 도그푸딩 게이트가 자기 테스트 실행을 사용으로 센다.
 6. **`ARCHITECTURE.md` §7 이 금지하는 것은 재는 벤치마크 CLI 다.** 포트 구현체를 실물에 물려
    보는 확인용 프로브는 다르다 — ADR-015 가 선을 긋고 `.harness/probe/` 를 sln 밖에 둔다.
    계측은 앱 안(`Host/Diagnostics/PerformanceLog.cs`)에 있고 결과는 `perf.log` 로 나온다.
