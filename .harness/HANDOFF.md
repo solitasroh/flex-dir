@@ -20,9 +20,9 @@ breadcrumb · 여유 용량 · 페인 테두리)에서 **앞의 셋을 채웠다
 ## 현재 상태
 
 ```
-브랜치   main  ·  origin/main 과 동기 (2026-08-06 푸시 — v1 전체가 원격에 있다)
-         v1.1 그룹화는 아직 커밋 전이다 (워킹트리)
-테스트   1259 통과   Core 419 · App 549 · Shell 220 · Host 71
+브랜치   main  ·  origin/main 보다 1 앞 (f379e78 계측 수정이 미푸시)
+         워킹트리에 미커밋 변경이 있다 — N-4 · delete-pending 수정 · 이름변경 크래시 수정 + 문서
+테스트   1357 통과   Core 482 · App 560 · Shell 242 · Host 73
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅
 phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
@@ -56,7 +56,7 @@ dotnet build -c Release --nologo -warnaserror
 |---|---|---|
 | `IViewStateStore` | `Shell/ViewState/JsonViewStateStore.cs` | 계약 12 + 고유 10 |
 | `IFolderWatcher` | `Shell/Watching/FileSystemFolderWatcher.cs` | 계약 4 + 실물 5 |
-| `IFolderSource` | `Shell/Enumeration/FileSystemFolderSource.cs` | 계약 6 + 실물 10 |
+| `IFolderSource` | `Shell/Enumeration/RoutingFolderSource.cs` → `FileSystemFolderSource` · `NetworkShareSource` | 계약 6 + 실물 10 + 라우팅 5 + 공유 5 |
 | `ITypeNameProvider` | `Shell/Presentation/ShellTypeNameProvider.cs` | 13 |
 | `IThumbnailSource` | `Shell/Presentation/ShellThumbnailSource.cs` | 23 |
 | `IItemActivator` | `Shell/Activation/ShellItemActivator.cs` | 16 |
@@ -109,7 +109,48 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 ## 다음 작업 — 매일 쓰기
 
-**마감이 끝났다.** 남은 것은 도그푸딩이다.
+**v2 네트워크 N-1~N-4 가 전부 들어왔다** (2026-08-07). 축의 범위는 닫혔고 남은 것은
+사람 손이 필요한 확인 둘(연결 끊김 · 느린 서버에서의 조작감)과 **매일 쓰기**다.
+도그푸딩 게이트는 3/7 이지만 **네트워크 작업을 막는 데 쓰지 않았다** — `docs/PRD-v2.md` §5.
+
+### v2 네트워크 마무리 (2026-08-07) — N-4 와 실물 확인이 결함 둘을 냈다
+
+`docs/PRD-v2.md` §5 가 정본이다. 여기서는 **다음 세션이 걸릴 것**만 옮긴다.
+
+**N-4 — 1219 를 `AccessDenied` 에서 떼어냈다.** `LocationErrorKind.CredentialConflict` 가
+늘었고 그 분류만 경로 대신 명령을 낸다:
+`다른 자격 증명으로 이미 연결돼 있습니다 — net use \\10.10.10.23 /delete 후 다시 여세요`.
+끊을 대상이 공유가 아니라 서버라 `LocationId.Server` 가 생겼다.
+`Win32ErrorMapping` 에는 **실측한 셋만**(53·67·1219) 넣었다 — v1 이 걸어 둔 유보를 그대로
+이어받았다. **1219 는 앱 안에서 재현하지 못했다** (열거는 기존 세션을 재사용한다) —
+문구는 테스트로만 서 있다.
+
+**결함 1 — SMB 는 삭제 중인 폴더를 `ACCESS_DENIED` 로 낸다.** 실측: 삭제 후 367ms 에 5,
+414ms 에 3. 감시 알림에 곧장 재열거하는 우리가 그 50ms 창에 들어가 **사라진 폴더에
+"액세스가 거부되었습니다" 를 띄우고 상위로 올라가지도 않았다.** 로컬은 같은 상황에서
+곧장 3 을 받아 정상 동작한다 — **네트워크에서만 달랐다.**
+고친 것: `FileSystemFolderSource.ShouldRetryOpen` — **네트워크 경로의 권한 실패만** 250ms
+뒤 한 번 더 연다. 다른 실패는 다시 묻지 않는다(없는 서버는 한 번이 42초다).
+
+> **일반화**: 로컬과 네트워크가 같은 코드를 지나도 오류 코드의 **시간적 모양**이 다르다.
+> "무엇이 오는가" 뿐 아니라 **"언제 오는가"** 가 분류를 바꾼다.
+
+**결함 2 — 이름에 `:` 를 쓰면 앱이 죽었다** (네트워크와 무관한 v1 결함).
+`LocationId.Combine` 의 `ArgumentException` 이 `AsyncRelayCommand` 밖으로 새어
+**프로세스가 종료됐다**. `회의록 10:30.txt` 로 이름을 바꾸는 것만으로 난다.
+고친 것 둘:
+
+1. `LocationId.TryCombine(name, out child, out ChildNameError)` — `TryParse` 와 같은 짝이다.
+   **사용자가 친 이름에는 `Combine` 을 쓰지 않는다.** `PaneViewModel` 이 사유를 문구로 낸다
+   (`이름에 쓸 수 없는 문자가 있습니다: \ / : * ? " < > |`).
+2. `PaneViewModel.RunAsync` 가 **취소 외 모든 예외를 잡는다.** 그 메서드의 주석은 원래부터
+   *"예외를 밖으로 던지지 않는다"* 라고 적고 있었는데 실제로는 `LocationAccessException`
+   만 잡았다 — **열거 경로(`FillAsync`)가 이미 배운 교훈이 조작 경로에는 안 와 있었다.**
+
+**실물로 확인한 것** (`\\10.10.10.23\home\` · 사용자가 지정한 자리):
+감시(생성 반영 · robocopy 300개 10.3초 부어도 목록 일치) · 조작 넷(이름변경·복사·이동·삭제) ·
+대화상자 둘(이름 충돌 · **영구 삭제 확인** — 네트워크엔 휴지통이 없다)이 flex-dir 을 부모로
+뜬다. 전문은 `manual-plan.md` §v2 네트워크.
 
 ### v2 네트워크 — N-1·N-2·N-3 이 들어왔다 (2026-08-07)
 
@@ -135,8 +176,7 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 3. **매핑 드라이브는 v1 때부터 됐다.** 파서가 막은 것은 `\\` 표기뿐이고 `Z:` 는 그냥
    지났다 — 사용자에게는 둘 다 "네트워크가 안 된다" 로 보였다.
 
-**남은 것**: N-4(자격증명 안내 — 코드 8종 분류는 붙었고 1219 의 `net use /delete` 문구가
-남았다) · **SMB 에서의 감시**(미확인, manual-plan §v2 네트워크).
+**남은 것은 없다** — N-4 와 감시 확인은 위 §v2 네트워크 마무리 에서 끝났다.
 
 ### v2 계획은 승인됐다 — `docs/PRD-v2.md`
 
@@ -415,7 +455,25 @@ breadcrumb 상호작용 · 여유 용량)을 **사용자가 손으로 확인했�
    동시 호출이 그대로 남고 `SHGetFileInfo` 경로는 거기서 조용히 무너진다.
    전문은 `SHELL_NOTES.md` §COM 아파트먼트 함정 2 · §아이콘 함정 4 에 올렸다.
    **새 shell API 를 붙일 때 "STA 인가" 와 "동시에 불려도 되는가" 를 따로 묻는다.**
-9. **실패를 캐시하는 정책은 조용한 버그를 영구화한다.** `ThumbnailRequestScheduler` 는
+9. **네트워크는 오류 코드의 "언제" 를 바꾼다** (2026-08-07). 로컬과 같은 코드를 지나도
+   SMB 는 삭제 중인 디렉터리를 짧게 `ACCESS_DENIED` 로 내고(실측 367ms→414ms 에 3 으로 바뀜)
+   로컬 NTFS 에는 그 중간 상태가 없다. **분류가 옳은지는 "무엇이 오는가" 만으로 정해지지
+   않는다.** `FileSystemFolderSource.ShouldRetryOpen` 이 그 창을 넘긴다.
+10. **커맨드 안에서 던지는 것은 전부 프로세스를 죽인다** (2026-08-07 실물).
+   `AsyncRelayCommand` 밖으로 나간 예외는 잡을 사람이 없다. 열거 경로(`FillAsync`)는
+   "예외 종류로 가르지 않는다" 를 이미 지키고 있었지만 **조작 경로(`RunAsync`)는 주석만
+   그렇게 적고 `LocationAccessException` 만 잡고 있었다.** 같은 교훈이 두 자리에 필요하면
+   한 자리에만 적용돼 있을 수 있다 — **주석이 약속한 것을 코드가 지키는지 본다.**
+11. **사용자가 친 문자열을 던지는 API 에 그대로 넣지 않는다.** `LocationId.Combine` 은
+   던지고 `TryCombine` 은 사유를 낸다. 입력을 받는 자리는 실패가 **정상 상황**이라
+   무엇이 잘못됐는지 말할 수 있어야 한다 (`TryParse` 와 같은 이유).
+12. **합성 입력 전에 포그라운드를 확인한다** (2026-08-07). `SetForegroundWindow` 는
+   다른 앱이 포그라운드면 **조용히 false 를 낸다.** 확인하지 않으면 클릭과 키가 남의
+   창으로 가고(이 세션에서 Slack 으로 갔다) 화면 캡처는 `PrintWindow` 라 여전히 flex-dir
+   을 보여줘서 **아무것도 안 되는 것처럼 보인다.** `AttachThreadInput` 으로 잡고,
+   못 잡으면 **입력을 보내지 않는다.**
+
+13. **실패를 캐시하는 정책은 조용한 버그를 영구화한다.** `ThumbnailRequestScheduler` 는
    실패도 시도로 세어 재요청을 막는다 (PRD §4, 옳다). 그래서 §8 의 경합에 한 번 지면
    그 페인의 아이콘이 **끝까지** 비어 있었다. 캐시하는 실패는 원인을 반드시 그 자리에서
    봐야 한다 — 화면만 보면 "아이콘 기능이 없다" 로 보인다.
@@ -490,8 +548,14 @@ breadcrumb 상호작용 · 여유 용량)을 **사용자가 손으로 확인했�
 - [ ] **클라우드 자리표시자 확인 불가** — 이 기계에 `OFFLINE`·`RECALL_ON_DATA_ACCESS`·
       `RECALL_ON_OPEN` 속성을 가진 항목이 0개다. `SHELL_NOTES.md` §열거 함정 3 의 핵심이고
       틀리면 스크롤만으로 수 GB 를 내려받는다. 동기 중인 OneDrive 가 있는 기계가 필요하다.
-- [ ] **대화상자가 뜨는 실패 경로** — 활성화(연결 프로그램 없음·취소)와 파일 조작 실패는
-      자동 실행으로 확인할 수 없다(블로킹). `manual-plan.md` 사람 확인 항목에 있다.
+- [ ] **대화상자가 뜨는 실패 경로 — 조작 쪽은 밟았다** (2026-08-07). UNC 에서 이름 충돌
+      ("파일 바꾸기 또는 건너뛰기")과 영구 삭제 확인이 **flex-dir 을 부모로** 뜨는 것을
+      실물로 봤다. 남은 것은 **활성화 실패**(연결 프로그램 없음·취소)다.
+      주의: 이런 대화상자는 별도 최상위 창이라 프로세스의 `MainWindowHandle` 이 그쪽으로
+      옮겨간다. 캡처·입력은 `EnumWindows` 로 찾아 핸들을 직접 잡는다.
+- [ ] **스플리터 비율·창 크기가 저절로 바뀐다** (2026-08-07 관찰). 조작 중에 좌 페인이
+      330px→595px→890px 로 여러 번 변했고 재현 조건을 못 잡았다. 이번 변경과는 무관해
+      보인다. `SplitterSync`·`ResidentWindow` 근처.
 - [x] **Host 테스트의 간헐 실패 — 원인이 잡혔고 고쳤다** (2026-08-07).
       이름은 `FirstItemMeterTests.EveryFolderChange_IsMeasured`,
       증상은 `perf.log` 읽기의 `IOException`(공유 위반)이었다.
@@ -520,8 +584,11 @@ A. Shell interop   포트 11/11 ✅
 C. Host 뼈대        ✅  진입점 + DI + single instance + IUsageLog + 계측, 화면 없이 조립까지
 B. View            ✅  B-1·B-2·B-3·B-4 완료 — v1 기능이 전부 들어왔다
 마감               ✅  제품 아이콘 · 커스텀 타이틀바 · breadcrumb · 여유 용량 · 게이트 스크립트
-→ 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007)
-→ v1.1 (결함 · 그룹화 후보) · 게이트 PASS 후 v2 (네트워크) — docs/PRD-v2.md
+→ 매일 쓰기 → 도그푸딩 게이트 ON (ADR-007)          현재 3/7 (BLOCK · 보고만 한다)
+v1.1               ✅  Details 그룹화 (ADR-017)
+v2 네트워크         ✅  N-1 UNC · N-2 열거/감시/조작 · N-3 공유 목록 · N-4 자격증명 안내
+                      **진입 조건을 게이트 PASS 로 잡았던 것은 폐기됐다** (docs/PRD-v2.md §5)
+                      사람 손이 필요한 확인 둘만 남았다 (manual-plan §v2 네트워크)
 ```
 
 ### 마감이 만든 표면
