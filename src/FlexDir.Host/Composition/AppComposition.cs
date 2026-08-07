@@ -77,8 +77,8 @@ public sealed class AppComposition : IAsyncDisposable
     /// <c>packages\</c>·<c>Update.exe</c> 와 한 폴더에 섞여 있는 것을 보고 알았다.
     /// </para>
     /// <para>
-    /// 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. <c>usage.log</c> 는 도그푸딩
-    /// 게이트(ADR-007)의 입력이고, 갱신·제거가 그것을 건드리면 <b>게이트가 기억을 잃는다</b>.
+    /// 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. 갱신·제거가 그것을 건드리면
+    /// <b>쓴 날의 기록도 폴더별 뷰 설정도 통째로 사라진다</b>.
     /// </para>
     /// </summary>
     public static string DefaultStateDirectory { get; } = Path.Combine(

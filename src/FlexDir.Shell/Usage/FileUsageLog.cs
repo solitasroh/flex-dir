@@ -5,16 +5,17 @@ using FlexDir.Core.Usage;
 namespace FlexDir.Shell.Usage;
 
 /// <summary>
-/// 사용 기록을 <c>%LOCALAPPDATA%\flex-dir\usage.log</c> 에 한 줄씩 덧붙이는 구현체.
+/// 사용 기록을 <c>%APPDATA%\flex-dir\usage.log</c> 에 한 줄씩 덧붙이는 구현체.
 /// <para>
-/// <b>파일의 모양이 계약이다.</b> 이것을 읽는 것은 우리 코드가 아니라 도그푸딩 게이트의
-/// 스크립트다 (ADR-007) — 한 줄에 하루, 앞 10자가 <c>yyyy-MM-dd</c>. JSON 이 아닌 이유가
-/// 그것이다: <c>Get-Content | Select-String</c> 한 줄로 세는 것이 게이트의 존재 이유에
-/// 맞는다.
+/// <b>파일의 모양이 계약이다.</b> 읽는 것이 우리 코드가 아니라서 그렇게 정했다 — 한 줄에
+/// 하루, 앞 10자가 <c>yyyy-MM-dd</c>. JSON 이 아닌 이유가 그것이다:
+/// <c>Get-Content | Select-String</c> 한 줄로 셀 수 있다.
+/// 그 계약을 요구하던 게이트 스크립트는 폐기됐지만 (ADR-007 §폐기) 모양은 그대로 둔다 —
+/// 이제 읽는 것이 사람이다.
 /// </para>
 /// <para>
 /// <b>하루에 한 줄만 남긴다.</b> 활성화마다 남기면 파일이 사용량이 아니라 실행 횟수를 담고
-/// 무한히 자란다. 게이트가 세는 것은 날짜다 (<see cref="IUsageLog"/>).
+/// 무한히 자란다. 세는 것은 날짜다 (<see cref="IUsageLog"/>).
 /// </para>
 /// </summary>
 public sealed class FileUsageLog : IUsageLog

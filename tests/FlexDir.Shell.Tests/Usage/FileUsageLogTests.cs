@@ -8,11 +8,12 @@ using Xunit;
 namespace FlexDir.Shell.Tests.Usage;
 
 /// <summary>
-/// 사용 기록 파일. 도그푸딩 게이트(ADR-007)가 스크립트로 읽을 대상이므로
-/// <b>파일의 모양 자체가 계약</b>이다 — 한 줄에 한 날, 앞 10자가 <c>yyyy-MM-dd</c>.
+/// 사용 기록 파일. 읽는 것이 우리 코드가 아니라서 <b>파일의 모양 자체가 계약</b>이다 —
+/// 한 줄에 한 날, 앞 10자가 <c>yyyy-MM-dd</c>. 그렇게 정하게 한 게이트 스크립트는
+/// 폐기됐지만 (ADR-007 §폐기) 모양은 그대로다 — 이제 읽는 것이 사람이다.
 /// <para>
-/// 전부 <see cref="Path.GetTempPath"/> 아래에서 돈다. 실제
-/// <c>%LOCALAPPDATA%\flex-dir\</c> 를 건드리면 게이트가 자기 테스트 실행을 사용으로 센다.
+/// 전부 <see cref="Path.GetTempPath"/> 아래에서 돈다. 실제 상태 폴더를 건드리면
+/// 사용자의 사용 기록이 테스트 실행으로 덮인다.
 /// </para>
 /// </summary>
 public class FileUsageLogTests : IDisposable

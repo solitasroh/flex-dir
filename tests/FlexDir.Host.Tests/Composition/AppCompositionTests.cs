@@ -25,9 +25,8 @@ namespace FlexDir.Host.Tests.Composition;
 /// 열어 본다 — 조립이 서기만 하고 아무것도 못 하는 상태를 통과시키지 않으려는 것이다.
 /// </para>
 /// <para>
-/// 저장 위치는 전부 <see cref="Path.GetTempPath"/> 아래다. 실제
-/// <c>%LOCALAPPDATA%\flex-dir\</c> 를 건드리면 도그푸딩 게이트가 자기 테스트 실행을
-/// 사용으로 센다.
+/// 저장 위치는 전부 <see cref="Path.GetTempPath"/> 아래다. 실제 상태 폴더를 건드리면
+/// 게이트가 돌 때마다 사용자의 사용 기록과 폴더별 뷰 설정이 테스트 실행으로 덮인다.
 /// </para>
 /// </summary>
 public class AppCompositionTests : IDisposable
@@ -192,8 +191,8 @@ public class AppCompositionTests : IDisposable
         // 예전 상태 폴더와 <b>정확히 같은 경로</b>였다 (2026-08-07 실물에서 usage.log 가
         // current\·packages\·Update.exe 와 한 폴더에 섞여 있었다).
         //
-        // 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. usage.log 는 도그푸딩
-        // 게이트(ADR-007)의 입력이라, 갱신·제거가 그것을 건드리면 게이트가 기억을 잃는다.
+        // 사용자 데이터를 설치기가 관리하는 폴더에 두지 않는다. 갱신·제거가 그것을
+        // 건드리면 쓴 날의 기록도 폴더별 뷰 설정도 통째로 사라진다.
         var install = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "flex-dir");
 
