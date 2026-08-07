@@ -83,7 +83,10 @@ public sealed class AppComposition : IAsyncDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(stateDirectory);
         ArgumentNullException.ThrowIfNull(ownerWindow);
 
-        var folderSource = new FileSystemFolderSource();
+        // 서버(\\server)는 폴더가 아니라 공유 목록이고 열거 기제가 완전히 다르다
+        // (WNetEnumResource vs FileSystemEnumerator — docs/PRD-v2.md §5 N-3).
+        // 한 몸에 섞지 않고 라우팅으로 가른다. 페인은 여전히 IFolderSource 하나만 안다.
+        var folderSource = new RoutingFolderSource(new FileSystemFolderSource(), new NetworkShareSource());
         var folderWatcher = new FileSystemFolderWatcher();
         var viewStates = new JsonViewStateStore(stateDirectory);
 

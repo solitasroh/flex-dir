@@ -25,6 +25,14 @@ public static class TimestampFormatter
         // null 이면 DateTimeFormatInfo.GetInstance 가 CurrentInfo 로 넘어간다.
         ArgumentNullException.ThrowIfNull(culture);
 
+        // 네트워크 공유에는 수정 시각이 없다 (docs/PRD-v2.md §5 N-3). 0001-01-01 을 그리면
+        // 그것이 사실인 것처럼 보인다 — 모른다는 것은 빈 칸으로 말한다.
+        // 시간대를 적용하면 MinValue 를 넘어가 예외가 나는 자리이기도 하다.
+        if (utc == default)
+        {
+            return string.Empty;
+        }
+
         var local = TimeZoneInfo.ConvertTime(utc, zone);
         var format = DateTimeFormatInfo.GetInstance(culture);
 

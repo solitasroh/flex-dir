@@ -17,6 +17,25 @@ public class TimestampFormatterTests
     /// <summary>초(47)가 결과에 남는지 확인할 수 있게 다른 자리와 겹치지 않는 값을 골랐다.</summary>
     private static readonly DateTimeOffset Utc = new(2026, 8, 3, 15, 30, 47, TimeSpan.Zero);
 
+    // ── 모르는 시각은 빈 칸이다 (docs/PRD-v2.md §5 N-3) ─────────────
+    // 네트워크 공유에는 수정 시각이 없다. 0001-01-01 을 그리면 그것이 사실인 것처럼
+    // 보인다 — 모른다는 것을 빈 칸으로 말한다 (SizeFormatter 가 폴더에 하는 것과 같다).
+
+    [Fact]
+    public void Format_UnknownTime_IsEmpty()
+    {
+        Assert.Equal(string.Empty, TimestampFormatter.Format(default, TimeZoneInfo.Utc, CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void Format_UnknownTime_IsEmptyWhateverTheZone()
+    {
+        // 시간대를 적용하면 MinValue 를 넘어가 예외가 나는 자리이기도 하다.
+        var seoul = TimeZoneInfo.CreateCustomTimeZone("KST", TimeSpan.FromHours(9), "KST", "KST");
+
+        Assert.Equal(string.Empty, TimestampFormatter.Format(default, seoul, CultureInfo.InvariantCulture));
+    }
+
     // ── 시간대를 인자로 받는다 ──────────────────────────────────────
 
     [Fact]
