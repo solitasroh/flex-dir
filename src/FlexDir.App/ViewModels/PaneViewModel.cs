@@ -2366,7 +2366,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             LocationParseError.RelativePath => "전체 경로를 입력하세요",
             LocationParseError.AlternateDataStream => "경로에 ':' 를 쓸 수 없습니다",
             LocationParseError.InvalidCharacter => "경로에 쓸 수 없는 문자가 있습니다",
-            LocationParseError.NetworkPathNotSupported => "네트워크 경로는 아직 지원하지 않습니다",
+            LocationParseError.NetworkPathIncomplete => @"서버 이름이 없습니다 — \\서버\공유 형태로 입력하세요",
             _ => throw new ArgumentOutOfRangeException(nameof(error), error, "알 수 없는 분류다."),
         };
 

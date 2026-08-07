@@ -15,7 +15,7 @@ public class LocationIdTests
     [Fact]
     public void TryParse_ForwardSlashUnc_IsNetworkNotRelativePath()
     {
-        Assert.Equal(LocationParseError.NetworkPathNotSupported, ParseError("//server/share"));
+        Assert.Equal(@"\\?\UNC\server\share", Parse("//server/share").Value);
     }
 
     // ── 함정 2: 본문의 ':' 는 대체 데이터 스트림, 드라이브의 ':' 는 합법 ──
@@ -47,16 +47,139 @@ public class LocationIdTests
     [Fact]
     public void TryParse_ExtendedPrefixedUnc_IsNetwork()
     {
-        Assert.Equal(LocationParseError.NetworkPathNotSupported, ParseError(@"\\?\UNC\server\share"));
+        var location = Parse(@"\\?\UNC\server\share");
+
+        Assert.Equal(@"\\?\UNC\server\share", location.Value);
+        Assert.Equal(@"\\server\share", location.DisplayPath);
     }
 
     // ── 함정 4: \\server (공유 없는 서버) 도 유효한 탐색 대상 ───────
-    // v1 은 거부하지만 InvalidCharacter·RelativePath 로 뭉개면 v2 가 이 분기를 못 쓴다.
+    // 공유 목록을 여는 자리다 (docs/PRD-v2.md §5 N-3). InvalidCharacter·RelativePath 로
+    // 뭉개면 그 분기를 만들 수 없다.
 
     [Fact]
     public void TryParse_ServerOnlyUnc_IsNetworkNotInvalid()
     {
-        Assert.Equal(LocationParseError.NetworkPathNotSupported, ParseError(@"\\server"));
+        var location = Parse(@"\\server");
+
+        Assert.Equal(@"\\?\UNC\server", location.Value);
+        Assert.Equal(@"\\server", location.DisplayPath);
+    }
+
+    // ── UNC (docs/PRD-v2.md §5 N-1) ───────────────────────────────
+    // 내부 표현은 Win32 확장 UNC 형식 \\?\UNC\server\share 다. 보이는 형태는 \\server\share.
+    // 드라이브 경로와 같은 타입에 담는다 (ADR-010) — 포트가 둘로 갈리지 않는다.
+
+    [Fact]
+    public void Unc_IsFileSystemKind()
+    {
+        // SMB 리다이렉터를 지나는 파일시스템 경로다. 셸 네임스페이스가 아니다.
+        Assert.Equal(LocationKind.FileSystem, Parse(@"\\10.10.10.23\공유").Kind);
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\a\b", @"\\?\UNC\server\share\a\b")]
+    [InlineData(@"\\server\share\", @"\\?\UNC\server\share")]
+    [InlineData(@"\\server\share\a\..\b", @"\\?\UNC\server\share\b")]
+    [InlineData(@"\\server\share\.\a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\server\\share", @"\\?\UNC\server\share")]
+    [InlineData(@"//server/share/a", @"\\?\UNC\server\share\a")]
+    [InlineData(@"\\wsl$\Ubuntu\home", @"\\?\UNC\wsl$\Ubuntu\home")]
+    public void Unc_IsNormalizedLikeALocalPath(string input, string expected)
+    {
+        Assert.Equal(expected, Parse(input).Value);
+    }
+
+    // 루트를 넘어가는 '..' 는 서버에서 멈춘다 — 드라이브 루트와 같은 규칙이다.
+    [Fact]
+    public void Unc_DotDot_StopsAtTheServer()
+    {
+        Assert.Equal(@"\\?\UNC\server", Parse(@"\\server\share\..\..\..").Value);
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\a", "a")]
+    [InlineData(@"\\server\share", "share")]
+    [InlineData(@"\\server", @"\\server")]      // 루트는 자기 표시형이 이름이다 (C:\ 와 같다)
+    public void Unc_NameIsTheLastComponent(string input, string expected)
+    {
+        Assert.Equal(expected, Parse(input).Name);
+    }
+
+    [Theory]
+    [InlineData(@"\\server\share\a\b", @"\\server\share\a")]
+    [InlineData(@"\\server\share\a", @"\\server\share")]
+    [InlineData(@"\\server\share", @"\\server")]
+    public void Unc_ParentGoesUpOneLevel(string input, string expected)
+    {
+        Assert.True(Parse(input).TryGetParent(out var parent));
+        Assert.Equal(expected, parent.DisplayPath);
+    }
+
+    // 서버가 루트다. 여기서 더 올라가면 "네트워크" 노드인데 그것은 셸 네임스페이스라
+    // v2 범위 밖이다 (ADR-014 — PIDL 경로는 따로 세운다).
+    [Fact]
+    public void Unc_ServerHasNoParent()
+    {
+        Assert.False(Parse(@"\\server").TryGetParent(out _));
+    }
+
+    [Fact]
+    public void Unc_CombineAppendsUnderTheShare()
+    {
+        Assert.Equal(@"\\?\UNC\server\share\a", Parse(@"\\server\share").Combine("a").Value);
+    }
+
+    [Fact]
+    public void Unc_CombineOnTheServerMakesAShare()
+    {
+        Assert.Equal(@"\\?\UNC\server\share", Parse(@"\\server").Combine("share").Value);
+    }
+
+    // 규칙 7 은 UNC 에도 그대로다 — 서버·공유 이름도 대소문자를 구분하지 않는다.
+    [Fact]
+    public void Unc_ComparesCaseInsensitively()
+    {
+        Assert.Equal(Parse(@"\\Server\Share\A"), Parse(@"\\server\share\a"));
+    }
+
+    [Fact]
+    public void Unc_AndLocalPath_AreNeverEqual()
+    {
+        Assert.NotEqual(Parse(@"\\server\share"), Parse(@"C:\server\share"));
+    }
+
+    // 서버 이름이 없으면 갈 곳이 없다. RelativePath 로 뭉개면 사용자가 무엇을 고쳐야
+    // 하는지 알 수 없다 — 오타인지 미지원인지가 갈린다.
+    [Theory]
+    [InlineData(@"\\")]
+    [InlineData(@"\\\")]
+    [InlineData(@"//")]
+    [InlineData(@"\\?\UNC")]
+    [InlineData(@"\\?\UNC\")]
+    public void Unc_WithoutAServerName_IsIncomplete(string input)
+    {
+        Assert.Equal(LocationParseError.NetworkPathIncomplete, ParseError(input));
+    }
+
+    // 공유 목록을 열 자리인지 판정한다 (docs/PRD-v2.md §5 N-3). 열거 방식이 완전히
+    // 다르므로(WNetEnumResource vs FileSystemEnumerator) 라우팅이 이것을 본다.
+    [Theory]
+    [InlineData(@"\\server", true)]
+    [InlineData(@"\\10.10.10.23", true)]
+    [InlineData(@"\\server\share", false)]
+    [InlineData(@"\\server\share\a", false)]
+    [InlineData(@"C:\", false)]
+    [InlineData(@"C:\Temp", false)]
+    public void IsNetworkServer_IsTrueOnlyForAServerRoot(string input, bool expected)
+    {
+        Assert.Equal(expected, Parse(input).IsNetworkServer);
+    }
+
+    [Fact]
+    public void Unc_WithAnInvalidCharacter_IsRejectedLikeALocalPath()
+    {
+        Assert.Equal(LocationParseError.InvalidCharacter, ParseError(@"\\server\sh|are"));
     }
 
     // ── 거부 분류 ─────────────────────────────────────────────────

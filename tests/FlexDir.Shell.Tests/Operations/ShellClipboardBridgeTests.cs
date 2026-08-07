@@ -222,8 +222,10 @@ public sealed class ShellClipboardBridgeTests
     [Fact]
     public void TryGetPaste_SkipsPathsItCannotRead()
     {
+        // UNC 는 더 이상 예가 아니다 — 이제 읽는다 (docs/PRD-v2.md §5 N-1).
+        // 대체 데이터 스트림 표기는 여전히 위치가 아니다.
         using var clipboard = Holding(
-            Hdrop(@"\\server\share\a.txt", @"C:\Temp\flex-dir\b.txt"),
+            Hdrop(@"C:\Temp\a.txt:stream", @"C:\Temp\flex-dir\b.txt"),
             DropEffectCopy);
 
         Assert.True(clipboard.TryGetPaste(out var items, out _));
@@ -233,10 +235,21 @@ public sealed class ShellClipboardBridgeTests
     [Fact]
     public void TryGetPaste_WithOnlyUnreadablePaths_IsFalse()
     {
-        using var clipboard = Holding(Hdrop(@"\\server\share\a.txt"), DropEffectCopy);
+        using var clipboard = Holding(Hdrop(@"C:\Temp\a.txt:stream"), DropEffectCopy);
 
         Assert.False(clipboard.TryGetPaste(out var items, out _));
         Assert.Empty(items);
+    }
+
+    // 탐색기에서 네트워크 경로를 복사해 붙여넣는 자리다. v1 은 이것을 버렸다 —
+    // 사용자에게는 "붙여넣기가 안 된다" 로 보인다 (docs/PRD-v2.md §5 N-1).
+    [Fact]
+    public void TryGetPaste_ReadsUncPaths()
+    {
+        using var clipboard = Holding(Hdrop(@"\\10.10.10.23\공유\a.txt"), DropEffectCopy);
+
+        Assert.True(clipboard.TryGetPaste(out var items, out _));
+        Assert.Equal(@"\\10.10.10.23\공유\a.txt", Assert.Single(items).DisplayPath);
     }
 
     // 아무 앱이나 클립보드에 아무 바이트나 실을 수 있다. 헤더보다 짧으면 읽지 않는다.

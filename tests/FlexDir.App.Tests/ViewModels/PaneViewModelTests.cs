@@ -480,7 +480,7 @@ public class PaneViewModelTests
     [InlineData("docs")]
     [InlineData(@"C:\Temp\a<b")]
     [InlineData(@"C:\Temp\a:b")]
-    [InlineData(@"\\server\share")]
+    [InlineData(@"\\")]           // 서버 이름이 없다 — UNC 자체는 이제 유효하다 (PRD-v2 §5 N-1)
     public async Task NavigateAsync_BadAddress_ReportsErrorWithoutThrowing(string address)
     {
         var pane = CreatePane();
