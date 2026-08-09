@@ -1100,8 +1100,13 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>
     /// 문자 키로 점프한다 (docs/DESIGN.md §9 — type-ahead). 시한 안의 연속 입력은 접두어로
-    /// 쌓이고, 시한을 넘기면 새 검색이다. 새 검색은 포커스 다음부터 돌며 찾으므로 같은
-    /// 문자를 반복하면 그 문자로 시작하는 항목을 차례로 돈다 (탐색기와 같다).
+    /// 쌓이고, 시한을 넘기면 새 검색이다.
+    /// <para>
+    /// 같은 문자를 이어 누르는 것은 두 가지로 읽힌다 — 접두어를 넓히는 것("dd" 라는 이름)
+    /// 이기도 하고 그 문자로 시작하는 항목을 차례로 도는 것이기도 하다. 넓힌 쪽을 먼저
+    /// 시도하고, 그런 이름이 없으면 한 글자로 돌린다. 연타를 접두어로만 읽으면 "dd" 가 없는
+    /// 폴더에서 첫 항목에 붙박이가 된다 — 사람은 1초를 세고 다시 누르지 않는다.
+    /// </para>
     /// </summary>
     public void TypeAhead(char character)
     {
@@ -1113,28 +1118,50 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         var now = timeProvider.GetUtcNow();
         var startsOver = now - typeAheadLast > TypeAheadReset;
 
+        // 리셋 뒤의 첫 문자는 반복이 아니다 — 그쪽은 애초에 포커스 다음부터 도는 새 검색이다.
+        var repeats = !startsOver
+            && typeAheadPrefix.Length > 0
+            && char.ToUpperInvariant(typeAheadPrefix[^1]) == char.ToUpperInvariant(character);
+
         typeAheadLast = now;
         typeAheadPrefix = startsOver ? char.ToString(character) : typeAheadPrefix + character;
 
         var current = focusedName is { } name ? IndexOfRow(name, 0) : -1;
 
         // 접두어를 쌓는 중에는 지금 항목이 그대로 일치할 수 있다 — 제자리에서 넓힌다.
-        var start = startsOver ? current + 1 : Math.Max(current, 0);
+        var widened = FindByPrefix(typeAheadPrefix, startsOver ? current + 1 : Math.Max(current, 0));
 
-        for (var offset = 0; offset < Items.Count; offset++)
+        if (widened < 0 && repeats)
         {
-            var row = Items[(start + offset) % Items.Count];
+            // 넓힌 접두어에 이름이 없다 — 연타는 순환이었다. 접두어도 한 글자로 되돌린다.
+            // 그래야 이어지는 다른 문자가 "bba" 가 아니라 "ba" 를 만든다.
+            typeAheadPrefix = char.ToString(character);
+            widened = FindByPrefix(typeAheadPrefix, current + 1);
+        }
 
-            if (row.Name.StartsWith(typeAheadPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                FocusedName = row.Name;
-                Selection.SelectSingle(row.Name);
-
-                return;
-            }
+        if (widened >= 0)
+        {
+            FocusedName = Items[widened].Name;
+            Selection.SelectSingle(Items[widened].Name);
         }
 
         // 일치가 없으면 움직이지 않는다. 접두어는 남는다 — 다음 문자가 더 좁힐 수도 있다.
+    }
+
+    /// <summary><paramref name="start"/> 부터 목록을 한 바퀴 돌며 접두어가 맞는 첫 항목을 찾는다.</summary>
+    private int FindByPrefix(string prefix, int start)
+    {
+        for (var offset = 0; offset < Items.Count; offset++)
+        {
+            var index = (start + offset) % Items.Count;
+
+            if (Items[index].Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return index;
+            }
+        }
+
+        return -1;
     }
 
     /// <summary>

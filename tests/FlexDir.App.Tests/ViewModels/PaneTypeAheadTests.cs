@@ -109,6 +109,60 @@ public class PaneTypeAheadTests
     }
 
     [Fact]
+    public async Task TypeAhead_RepeatingTheSameCharacterQuickly_AlsoCycles()
+    {
+        var pane = await OpenAsync();
+
+        // 사람은 1초를 세고 다시 누르지 않는다 — 연타가 기본이다.
+        pane.TypeAhead('b');
+        Assert.Equal("banana.txt", pane.FocusedName);
+
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('b');
+        Assert.Equal("beta.txt", pane.FocusedName);
+
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('b');
+        Assert.Equal("bravo.txt", pane.FocusedName);
+
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('b');
+        Assert.Equal("banana.txt", pane.FocusedName);
+    }
+
+    [Fact]
+    public async Task TypeAhead_RepeatingTheSameCharacter_PrefersARealPrefixMatch()
+    {
+        var pane = await OpenWithAsync("alpha.txt", "banana.txt", "bb.txt");
+
+        pane.TypeAhead('b');
+        Assert.Equal("banana.txt", pane.FocusedName);
+
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('b');
+
+        // "bb" 가 실제로 있으면 순환보다 접두어가 이긴다.
+        Assert.Equal("bb.txt", pane.FocusedName);
+    }
+
+    [Fact]
+    public async Task TypeAhead_AfterCyclingOnARepeat_TakesTheNextCharacterAsTheSecondLetter()
+    {
+        var pane = await OpenWithAsync("alpha.txt", "banana.txt", "beta.txt");
+
+        pane.TypeAhead('b');
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('b');
+        Assert.Equal("beta.txt", pane.FocusedName);
+
+        clock.Advance(TimeSpan.FromSeconds(0.2));
+        pane.TypeAhead('a');
+
+        // 순환한 뒤의 접두어는 "bb" 가 아니라 "b" 다 — 이어지는 문자는 "ba" 를 만든다.
+        Assert.Equal("banana.txt", pane.FocusedName);
+    }
+
+    [Fact]
     public async Task TypeAhead_IsCaseInsensitive()
     {
         var pane = await OpenAsync();
@@ -145,11 +199,14 @@ public class PaneTypeAheadTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private async Task<PaneViewModel> OpenAsync()
+    private Task<PaneViewModel> OpenAsync()
+        => OpenWithAsync("alpha.txt", "banana.txt", "beta.txt", "bravo.txt", "cherry.txt");
+
+    private async Task<PaneViewModel> OpenWithAsync(params string[] names)
     {
         Assert.True(LocationId.TryParse(@"C:\Temp", out var folder, out var error), $"파싱 실패: {error}");
 
-        source.Folders[folder] = [.. new[] { "alpha.txt", "banana.txt", "beta.txt", "bravo.txt", "cherry.txt" }
+        source.Folders[folder] = [.. names
             .Select(name => new FileItem(
                 name,
                 folder.Combine(name),
