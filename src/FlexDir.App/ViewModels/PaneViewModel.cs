@@ -1761,6 +1761,13 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 열거를 시작하기 전에 읽는다. 첫 배치부터 그 폴더의 정렬로 붙어야 한다.
         var view = await LoadViewStateAsync(location, ct).ConfigureAwait(false);
 
+        // 아래 블록이 채운다. Stale 로 빠지면 초기값이 남지만 그때는 이 값을 쓰지 않는다.
+        var movedAway = true;
+
+        // 같은 폴더를 다시 읽을 때 재사용할 줄. UI 스레드에서 한 번 찍고 그 뒤로는 읽기만
+        // 한다 — 열거는 UI 밖에서 돌기 때문이다.
+        Dictionary<string, FileItemViewModel>? reuse = null;
+
         await dispatcher.InvokeAsync(() =>
         {
             // 저장소가 느리면 그 사이에 다른 폴더로 옮겨갔을 수 있다. 낡은 폴더의 뷰 상태와
@@ -1770,7 +1777,20 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 return;
             }
 
-            var movedAway = !location.Equals(currentLocation);
+            movedAway = !location.Equals(currentLocation);
+
+            if (!movedAway)
+            {
+                // 사전으로 찍는다. ToDictionary 를 쓰지 않는 이유: 대소문자만 다른 두 이름이
+                // 공존할 수 있고(9P·SMB 는 구분한다) 그러면 중복 키로 던진다. 그때 어느
+                // 줄을 재사용하든 다음 새로고침이 바로잡는다.
+                reuse = new Dictionary<string, FileItemViewModel>(Items.Count, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var row in Items)
+                {
+                    reuse[row.Name] = row;
+                }
+            }
 
             // 폴더가 바뀔 때만 끊는다. 이전 폴더의 진행 중 요청이 남으면 새 폴더의 행에 옛
             // 그림이 붙는다. LoadAsync 본문이 아니라 이 블록 안에서 부르는 이유: 스케줄러는
@@ -1818,11 +1838,20 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         var shown = 0;
         var batches = 0;
 
+        // 같은 폴더를 다시 읽는 것(새로 고침 · 감시 오버플로 폴백)은 배치를 그때그때
+        // 반영하지 않고 모아 두었다가 끝에 <b>병합</b>한다 — ReplaceAll 의 Reset 알림이
+        // 목록 컨테이너를 통째로 다시 만들어 스크롤과 선택 표시를 날리기 때문이다
+        // (ADR-011 이 감시 갱신 경로에서 배운 것과 같다).
+        //
+        // 폴더를 옮길 때는 그대로 교체한다: 거기서는 이전 폴더의 내용을 지우는 것이
+        // 목적이고, 병합하면 두 폴더의 항목이 잠깐 섞인다.
+        var merging = movedAway ? null : new List<FileItemViewModel>();
+
         try
         {
             await foreach (var batch in run.BatchesAsync(ct).ConfigureAwait(false))
             {
-                var rows = await BuildRowsAsync(batch, ct).ConfigureAwait(false);
+                var rows = await BuildRowsAsync(batch, ct, reuse).ConfigureAwait(false);
 
                 if (run.IsStale)
                 {
@@ -1834,6 +1863,21 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
                 var replaceExisting = batches == 1;
                 var soFar = shown;
+
+                if (merging is not null)
+                {
+                    merging.AddRange(rows);
+
+                    await dispatcher.InvokeAsync(() =>
+                    {
+                        if (!run.IsStale)
+                        {
+                            StatusText = StatusSummary.ForEnumerating(soFar, culture);
+                        }
+                    }).ConfigureAwait(false);
+
+                    continue;
+                }
 
                 await dispatcher.InvokeAsync(() =>
                 {
@@ -1856,6 +1900,21 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                     }
 
                     StatusText = StatusSummary.ForEnumerating(soFar, culture);
+                }).ConfigureAwait(false);
+            }
+
+            if (merging is not null)
+            {
+                // 배치 안에서만 정렬돼 있으므로 전체를 다시 정렬한다 — 배치 경계에서
+                // 순서가 어긋나면 MergeItems 가 줄을 끝없이 옮긴다.
+                merging.Sort((left, right) => comparer.Compare(left.Item, right.Item));
+
+                await dispatcher.InvokeAsync(() =>
+                {
+                    if (!run.IsStale)
+                    {
+                        MergeItems(merging);
+                    }
                 }).ConfigureAwait(false);
             }
         }
@@ -1902,15 +1961,21 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 return;
             }
 
-            // 배치는 각자 정렬돼 붙었을 뿐이다. 완전한 정렬은 열거 종료 시 한 번 보장한다.
-            if (batches > 1)
+            // 병합 경로는 위에서 전체를 정렬해 MergeItems 로 넣었다. 여기서 다시 손대면
+            // ReplaceAll 의 Reset 이 나가 방금 피한 깜박임이 그대로 돌아온다 — 빈 결과도
+            // MergeItems([]) 가 개별 제거로 처리한다.
+            if (merging is null)
             {
-                SortItems();
-            }
+                // 배치는 각자 정렬돼 붙었을 뿐이다. 완전한 정렬은 열거 종료 시 한 번 보장한다.
+                if (batches > 1)
+                {
+                    SortItems();
+                }
 
-            if (shown == 0)
-            {
-                Items.ReplaceAll([]);
+                if (shown == 0)
+                {
+                    Items.ReplaceAll([]);
+                }
             }
 
             if (Selection.Count > 0)
@@ -1983,9 +2048,15 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         });
     }
 
+    /// <param name="reuse">
+    /// 같은 폴더를 다시 읽을 때 그대로 쓸 줄들 (이름 → 줄). <b>바뀌지 않은 줄은 인스턴스를
+    /// 유지해야 한다</b> — 새로 만들면 <c>ThumbnailAttempted</c> 가 함께 초기화돼 그 폴더의
+    /// 아이콘을 전부 다시 묻고, 9P 경로에서는 그것이 항목당 250ms 다.
+    /// </param>
     private async Task<List<FileItemViewModel>> BuildRowsAsync(
         IReadOnlyList<FileItem> batch,
-        CancellationToken ct)
+        CancellationToken ct,
+        IReadOnlyDictionary<string, FileItemViewModel>? reuse = null)
     {
         // 숨김·시스템은 여기서 걸러진다 — 열거는 있는 것을 다 낸다 (ItemVisibility).
         // 정렬 앞에서 거른다: 뒤에서 거르면 걸러질 것까지 비교하게 된다.
@@ -2006,7 +2077,11 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         foreach (var item in items)
         {
-            rows.Add(await RowAsync(item, ct).ConfigureAwait(false));
+            // 내용까지 같을 때만 재사용한다 (FileItem 은 record 라 값 비교다) — 표시 문자열이
+            // 생성 시점에 굳으므로 크기·시각이 바뀐 줄은 다시 만들어야 한다.
+            rows.Add(reuse is not null && reuse.TryGetValue(item.Name, out var kept) && kept.Item == item
+                ? kept
+                : await RowAsync(item, ct).ConfigureAwait(false));
         }
 
         return rows;
