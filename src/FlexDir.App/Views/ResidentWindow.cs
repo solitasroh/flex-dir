@@ -46,7 +46,7 @@ public static class ResidentWindow
 
         window.Closing += (_, e) =>
         {
-            // 배치는 닫는 순간의 것이 정본이다 — 완전 종료가 저장하는 값이 이것이다.
+            // 배치는 닫는 순간의 것이 정본이다.
             if (Capture(window.RestoreBounds, window.WindowState) is { } placement)
             {
                 workspace.WindowPlacement = placement;
@@ -54,6 +54,15 @@ public static class ResidentWindow
 
             e.Cancel = true;
             window.Hide();
+
+            // 여기서도 남긴다 (2026-08-10). 한동안 완전 종료만 저장했는데, 상주
+            // 프로세스에서 그것은 사실상 일어나지 않는 사건이라 마지막 폴더·창 배치가
+            // 영영 갱신되지 않았다 — 실물에서 저장 파일이 사흘째 같은 값이었고 매 실행이
+            // 폴백 폴더로 열렸다.
+            //
+            // 기다리지 않는다. 닫기는 즉시 끝나야 하고, PersistAsync 는 실패를 스스로
+            // 삼킨다 (저장 실패가 창을 닫는 길을 막으면 안 된다).
+            _ = workspace.PersistAsync();
         };
     }
 
