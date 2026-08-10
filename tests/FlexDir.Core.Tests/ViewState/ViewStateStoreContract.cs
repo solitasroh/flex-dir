@@ -59,6 +59,37 @@ public abstract class ViewStateStoreContract
         Assert.Equal(state, await store.LoadGlobalAsync(CancellationToken.None));
     }
 
+    // Details 컬럼 폭은 폴더가 아니라 전역이되 **페인마다 따로** 다 (사용자 지적
+    // 2026-08-10) — 한쪽에서 끌 때 반대편이 함께 움직이면 안 된다.
+    [Fact]
+    public async Task SavedGlobalState_KeepsEachPaneColumnWidths()
+    {
+        var store = CreateStore();
+        var state = GlobalViewState.Default with
+        {
+            LeftColumns = new PaneColumns(400, 70, 200, 180),
+            RightColumns = new PaneColumns(200, 60, 90, 100),
+        };
+
+        await store.SaveGlobalAsync(state, CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(new PaneColumns(400, 70, 200, 180), loaded.LeftColumns);
+        Assert.Equal(new PaneColumns(200, 60, 90, 100), loaded.RightColumns);
+    }
+
+    [Fact]
+    public async Task SavedGlobalState_WithoutColumns_LoadsThemAsNull()
+    {
+        // 컬럼이 들어오기 전 파일이다. 없으면 페인이 기본값을 쓴다.
+        var store = CreateStore();
+
+        await store.SaveGlobalAsync(GlobalViewState.Default, CancellationToken.None);
+
+        Assert.Null((await store.LoadGlobalAsync(CancellationToken.None)).LeftColumns);
+    }
+
     // 트리를 접어 둔 것과 폭도 전역 상태다 (docs/PRD-v2.md §10). 왕복하지 않으면 좁은
     // 화면에서 되찾은 가로 공간을 실행할 때마다 다시 되찾아야 한다.
     [Fact]

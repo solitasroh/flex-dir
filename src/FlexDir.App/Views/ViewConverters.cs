@@ -82,6 +82,26 @@ public sealed class EnumEqualityConverter : IValueConverter
 }
 
 /// <summary>
+/// 컬럼 폭(픽셀)을 <see cref="GridLength"/> 로 편다. <b>행이 헤더를 따라오게 하는 값이다</b>
+/// (docs/DESIGN.md §2) — 끌 수 있는 것은 헤더뿐이고 (<c>Views/ColumnSync.cs</c>) 행은
+/// 같은 값에 단방향으로 묶인다.
+/// <para>
+/// 쓸 수 없는 값(레이아웃 전의 0, NaN)은 <c>Auto</c> 로 접는다. 0 을 그대로 펴면 그 열의
+/// 글자가 통째로 사라진다.
+/// </para>
+/// </summary>
+public sealed class ColumnWidthConverter : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => value is double width && double.IsFinite(width) && width > 0
+            ? new GridLength(width)
+            : GridLength.Auto;
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("행은 헤더를 따라올 뿐이다 — 끄는 것은 헤더에서 한다.");
+}
+
+/// <summary>
 /// 뷰 모드가 목록의 소스를 고른다 — <c>[ViewMode, Items, Rows, DetailRows]</c> 를 받는다
 /// (ADR-016 · docs/PRD-v2.md §6-1).
 /// <para>

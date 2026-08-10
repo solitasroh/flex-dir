@@ -164,6 +164,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         SplitterRatio = state.SplitterRatio;
         WindowPlacement = state.Window;
 
+        // 컬럼 폭은 페인마다 따로다 (사용자 지적 2026-08-10) — 한쪽에서 끌 때 반대편이
+        // 함께 움직이면 안 된다.
+        Left.Columns = state.LeftColumns ?? PaneColumns.Default;
+        Right.Columns = state.RightColumns ?? PaneColumns.Default;
+
         var opens = new List<Task>(3);
 
         if (Tree is { } tree)
@@ -205,7 +210,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                         Left.CurrentLocation,
                         Right.CurrentLocation,
                         Tree?.IsVisible ?? true,
-                        Tree?.Width ?? GlobalViewState.DefaultTreeWidth),
+                        Tree?.Width ?? GlobalViewState.DefaultTreeWidth,
+                        Left.Columns,
+                        Right.Columns),
                     ct)
                 .ConfigureAwait(false);
         }
@@ -321,4 +328,5 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         => value is >= MinSplitterRatio and <= MaxSplitterRatio
             ? value
             : value > MaxSplitterRatio ? MaxSplitterRatio : MinSplitterRatio;
+
 }

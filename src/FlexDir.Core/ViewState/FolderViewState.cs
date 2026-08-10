@@ -114,6 +114,24 @@ public sealed record FolderViewState(
 }
 
 /// <summary>
+/// Details 컬럼의 폭 (docs/DESIGN.md §2). <b>넷 다 픽셀이다</b> — 탐색기와 같이 경계를 끌면
+/// 그 컬럼만 변하고 나머지는 폭을 지킨 채 밀린다. 남는 자리는 맨 뒤의 빈 열이 먹는다
+/// (사용자 지적 2026-08-10: 이름을 <c>*</c> 로 두었더니 한 열을 늘릴 때 다른 열이 줄어드는
+/// 시소가 됐다).
+/// <para>
+/// <b>페인마다 따로다</b> (사용자 지적 2026-08-10). 두 페인이 한 값을 나눠 쓰면 한쪽에서
+/// 끌 때 반대편이 함께 움직인다 — 페인은 독립이라는 전제(docs/PRD.md §4)가 여기서도 같다.
+/// </para>
+/// <para>
+/// 검증하지 않는다. 손상된 값은 쓰는 쪽(<c>PaneViewModel</c>)이 자른다.
+/// </para>
+/// </summary>
+public sealed record PaneColumns(double Name, double Size, double Type, double Modified)
+{
+    public static PaneColumns Default { get; } = new(320, 90, 120, 140);
+}
+
+/// <summary>
 /// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율, 트리의 모양 (docs/ARCHITECTURE.md §4).
 /// </summary>
 /// <param name="TreeVisible">
@@ -131,10 +149,13 @@ public sealed record GlobalViewState(
     Locations.LocationId? LeftFolder = null,
     Locations.LocationId? RightFolder = null,
     bool TreeVisible = true,
-    double TreeWidth = GlobalViewState.DefaultTreeWidth)
+    double TreeWidth = GlobalViewState.DefaultTreeWidth,
+    PaneColumns? LeftColumns = null,
+    PaneColumns? RightColumns = null)
 {
     /// <summary>기억된 것이 없을 때의 트리 폭. 목록의 긴 폴더 이름이 대체로 들어간다.</summary>
     public const double DefaultTreeWidth = 220;
+
 
     private readonly double splitterRatio = Validate(SplitterRatio);
 

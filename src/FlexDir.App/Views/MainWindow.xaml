@@ -96,6 +96,7 @@
 
         <!-- WPF 내장이다. 업데이트 알림 바 하나 때문에 변환기를 새로 만들지 않는다. -->
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+        <v:ColumnWidthConverter x:Key="ColumnWidth" />
 
         <!-- 툴바 버튼 32×28 · 아이콘 16 (docs/DESIGN.md §1·§7) -->
         <Style x:Key="ToolButton" TargetType="Button">
@@ -332,6 +333,40 @@
         </Style>
 
         <!-- 정렬 방향 표시 ▲/▼ (Segoe Fluent E70E/E70D · docs/DESIGN.md §6) -->
+        <!-- 컬럼 경계를 끄는 자리 (사용자 요청 2026-08-10 — 긴 이름이 안 보였다).
+             GridSplitter 가 아니라 Thumb 이다: 그것은 인접한 두 열을 함께 조절해서
+             한 열을 늘리면 옆 열이 줄어드는 시소가 된다 (Views/ColumnSync.cs).
+             자기 열의 오른쪽 끝에 붙고, 어느 열인지는 Tag 가 말한다. -->
+        <Style x:Key="ColumnGrip" TargetType="Thumb">
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="Width" Value="6" />
+            <Setter Property="Margin" Value="0,0,-3,0" />
+            <Setter Property="Cursor" Value="SizeWE" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <!-- 배경이 있어야 마우스가 잡힌다. 투명이면 히트 테스트가 지나간다. -->
+                        <Border x:Name="Grip" Background="Transparent">
+                            <Rectangle x:Name="Line" Width="1" HorizontalAlignment="Center"
+                                       Fill="{StaticResource StrokeBrush}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Width" Value="2" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Width" Value="2" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <Style x:Key="SortGlyph" TargetType="TextBlock">
             <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
             <Setter Property="FontSize" Value="8" />
@@ -478,12 +513,15 @@
         <DataTemplate x:Key="DetailsRow" DataType="{x:Type vm:FileItemViewModel}">
             <Border Style="{StaticResource ItemSelection}" Height="24">
                 <Border Style="{StaticResource ItemFocus}">
+                    <!-- 헤더를 따라온다. 끌 수 있는 것은 헤더뿐이고 (Views/ColumnSync.cs)
+                         행은 같은 값에 단방향으로 묶인다 — 정본이 둘이면 어긋난다. -->
                     <Grid Background="Transparent">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*" MinWidth="160" />
-                            <ColumnDefinition Width="90" />
-                            <ColumnDefinition Width="120" />
-                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="{Binding DataContext.NameColumnWidth, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource ColumnWidth}}" />
+                            <ColumnDefinition Width="{Binding DataContext.SizeColumnWidth, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource ColumnWidth}}" />
+                            <ColumnDefinition Width="{Binding DataContext.TypeColumnWidth, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource ColumnWidth}}" />
+                            <ColumnDefinition Width="{Binding DataContext.ModifiedColumnWidth, RelativeSource={RelativeSource AncestorType=ListBox}, Converter={StaticResource ColumnWidth}}" />
+                            <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid Margin="8,0">
                             <Grid.ColumnDefinitions>
@@ -855,17 +893,27 @@
                         <DockPanel Margin="8,0">
                             <!-- Details 헤더 24 — 클릭 = 정렬 (탐색기와 같다). 다른 뷰에는 컬럼이 없다 -->
                             <Grid DockPanel.Dock="Top" Height="24"
-                                  Visibility="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}">
+                                  Visibility="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}"
+                                  v:ColumnSync.Enabled="True"
+                                  v:ColumnSync.NameWidth="{Binding NameColumnWidth, Mode=TwoWay}"
+                                  v:ColumnSync.SizeWidth="{Binding SizeColumnWidth, Mode=TwoWay}"
+                                  v:ColumnSync.TypeWidth="{Binding TypeColumnWidth, Mode=TwoWay}"
+                                  v:ColumnSync.ModifiedWidth="{Binding ModifiedColumnWidth, Mode=TwoWay}">
                                 <!-- 분류 방법 — 탐색기와 같은 자리(헤더 우클릭). 컬럼 사이 빈 틈에서만
                                      여기가 잡히고, 버튼 위에서는 HeaderButton 스타일의 같은 메뉴가 뜬다 -->
                                 <Grid.ContextMenu>
                                     <StaticResource ResourceKey="GroupByMenu" />
                                 </Grid.ContextMenu>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" MinWidth="160" />
+                                    <!-- 폭은 ColumnSync 가 편다. 넷 다 픽셀이고 남는 자리는
+                                         맨 뒤 빈 열이 먹는다 — 탐색기와 같은 모양이다.
+                                         MinWidth 를 걸지 않는다: 손잡이가 하한을 이미 막고,
+                                         걸면 ColumnSync 가 정한 폭과 다투게 된다. -->
+                                    <ColumnDefinition Width="320" />
                                     <ColumnDefinition Width="90" />
                                     <ColumnDefinition Width="120" />
                                     <ColumnDefinition Width="140" />
+                                    <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Button Style="{StaticResource HeaderButton}"
                                         Command="{Binding ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Name}">
@@ -891,6 +939,14 @@
                                                    Visibility="{Binding DataContext.Sort[0].Key, RelativeSource={RelativeSource AncestorType=DockPanel}, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static sorting:SortKey.Type}}" />
                                     </StackPanel>
                                 </Button>
+                                <!-- 컬럼 경계. 각자 자기 열의 오른쪽 끝에 붙는다 — 끄는
+                                     만큼 그 열만 넓어지고 좁아진다. 버튼보다 뒤에 선언해야
+                                     위에 얹혀 마우스를 먼저 받는다. -->
+                                <Thumb Grid.Column="0" Tag="Name" Style="{StaticResource ColumnGrip}" />
+                                <Thumb Grid.Column="1" Tag="Size" Style="{StaticResource ColumnGrip}" />
+                                <Thumb Grid.Column="2" Tag="Type" Style="{StaticResource ColumnGrip}" />
+                                <Thumb Grid.Column="3" Tag="Modified" Style="{StaticResource ColumnGrip}" />
+
                                 <Button Grid.Column="3" Style="{StaticResource HeaderButton}"
                                         Command="{Binding ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Modified}">
                                     <StackPanel Orientation="Horizontal">

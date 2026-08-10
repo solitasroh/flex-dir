@@ -308,7 +308,15 @@ public class WorkspaceViewModelTests
         await workspace.PersistAsync();
 
         var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
-        Assert.Equal(new GlobalViewState(0.4, workspace.WindowPlacement), saved);
+
+        // 컬럼 폭은 페인이 들고 있으므로 손대지 않아도 기본값이 함께 실린다.
+        Assert.Equal(
+            new GlobalViewState(0.4, workspace.WindowPlacement)
+            {
+                LeftColumns = PaneColumns.Default,
+                RightColumns = PaneColumns.Default,
+            },
+            saved);
     }
 
     [Fact]
@@ -377,6 +385,62 @@ public class WorkspaceViewModelTests
 
         // 열거를 다시 하지도 않는다.
         Assert.Single(source.EnumerateCalls);
+    }
+
+    // ── Details 컬럼 폭 (사용자 요청 2026-08-10) ──────────────────
+
+    [Fact]
+    public async Task RestoreAsync_BringsBackEachPaneColumnWidths()
+    {
+        await viewStates.SaveGlobalAsync(
+            GlobalViewState.Default with
+            {
+                LeftColumns = new PaneColumns(400, 70, 200, 180),
+                RightColumns = new PaneColumns(200, 60, 90, 100),
+            },
+            CancellationToken.None);
+        var workspace = CreateWorkspace();
+
+        await workspace.RestoreAsync(null);
+
+        Assert.Equal(new PaneColumns(400, 70, 200, 180), workspace.Left.Columns);
+        Assert.Equal(new PaneColumns(200, 60, 90, 100), workspace.Right.Columns);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_WithoutColumns_UsesTheDefaults()
+    {
+        var workspace = CreateWorkspace();
+
+        await workspace.RestoreAsync(null);
+
+        Assert.Equal(PaneColumns.Default, workspace.Left.Columns);
+    }
+
+    [Fact]
+    public async Task PersistAsync_SavesEachPaneSeparately()
+    {
+        var workspace = CreateWorkspace();
+        workspace.Left.TypeColumnWidth = 200;
+
+        await workspace.PersistAsync();
+
+        var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(200, saved.LeftColumns?.Type);
+
+        // 반대편은 건드리지 않는다 — 한쪽에서 끌 때 다른 쪽이 따라 움직이면 안 된다.
+        Assert.Equal(PaneColumns.Default.Type, saved.RightColumns?.Type);
+    }
+
+    [Fact]
+    public void ColumnWidth_OnOnePane_LeavesTheOtherAlone()
+    {
+        var workspace = CreateWorkspace();
+
+        workspace.Left.NameColumnWidth = 500;
+
+        Assert.Equal(PaneColumns.Default.Name, workspace.Right.NameColumnWidth);
     }
 
     // ── 폴더 트리 (docs/PRD-v2.md §10 · 사용자 결정 2026-08-10) ────

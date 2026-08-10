@@ -121,7 +121,9 @@ public sealed class JsonViewStateStore : IViewStateStore
                     state.LeftFolder?.DisplayPath,
                     state.RightFolder?.DisplayPath,
                     state.TreeVisible,
-                    state.TreeWidth),
+                    state.TreeWidth,
+                    state.LeftColumns,
+                    state.RightColumns),
             },
             ct).ConfigureAwait(false);
     }
@@ -163,7 +165,9 @@ public sealed class JsonViewStateStore : IViewStateStore
                 ParseFolder(stored.LeftFolder),
                 ParseFolder(stored.RightFolder),
                 stored.TreeVisible ?? true,
-                stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth);
+                stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth,
+                stored.LeftColumns,
+                stored.RightColumns);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -248,7 +252,9 @@ public sealed class JsonViewStateStore : IViewStateStore
         string? LeftFolder = null,
         string? RightFolder = null,
         bool? TreeVisible = null,
-        double? TreeWidth = null);
+        double? TreeWidth = null,
+        PaneColumns? LeftColumns = null,
+        PaneColumns? RightColumns = null);
 
     /// <summary>
     /// <c>GroupBy</c>·<c>Collapsed</c> 는 선택적이다 — v1 이 쓴 파일에는 없고, 없으면

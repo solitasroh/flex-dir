@@ -942,6 +942,73 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     public event EventHandler? ActivationRequested;
 
     /// <summary>
+    /// 컬럼이 사라지지 않는 최소 폭. 헤더 글자가 보일 만큼은 남겨야 다시 넓힐 수 있다 —
+    /// 0 이 되면 끌 자리가 없어 되돌릴 수 없다.
+    /// </summary>
+    private const double MinColumnWidth = 48;
+
+    private const double MaxColumnWidth = 800;
+
+    private double nameColumn = PaneColumns.Default.Name;
+    private double sizeColumn = PaneColumns.Default.Size;
+    private double typeColumn = PaneColumns.Default.Type;
+    private double modifiedColumn = PaneColumns.Default.Modified;
+
+    /// <summary>
+    /// Details 컬럼 폭 (docs/DESIGN.md §2). <b>페인마다 따로다</b> (사용자 지적 2026-08-10) —
+    /// 한 값을 나눠 쓰면 한쪽에서 끌 때 반대편이 함께 움직인다. 페인은 독립이다
+    /// (docs/PRD.md §4).
+    /// <para>
+    /// 폴더가 바뀌어도 유지된다 (사용자 결정) — 긴 이름 때문에 넓혔는데 폴더를 옮길 때마다
+    /// 되돌아가면 그것이 더 거슬린다. 그래서 폴더별 뷰 상태가 아니라 전역에 실린다.
+    /// </para>
+    /// </summary>
+    public PaneColumns Columns
+    {
+        get => new(NameColumnWidth, SizeColumnWidth, TypeColumnWidth, ModifiedColumnWidth);
+
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            NameColumnWidth = value.Name;
+            SizeColumnWidth = value.Size;
+            TypeColumnWidth = value.Type;
+            ModifiedColumnWidth = value.Modified;
+        }
+    }
+
+    public double NameColumnWidth
+    {
+        get => nameColumn;
+        set => SetProperty(ref nameColumn, ClampColumn(value));
+    }
+
+    public double SizeColumnWidth
+    {
+        get => sizeColumn;
+        set => SetProperty(ref sizeColumn, ClampColumn(value));
+    }
+
+    public double TypeColumnWidth
+    {
+        get => typeColumn;
+        set => SetProperty(ref typeColumn, ClampColumn(value));
+    }
+
+    public double ModifiedColumnWidth
+    {
+        get => modifiedColumn;
+        set => SetProperty(ref modifiedColumn, ClampColumn(value));
+    }
+
+    /// <summary><c>Math.Clamp</c> 를 쓰지 않는 이유는 스플리터 비율과 같다 — NaN 이 그냥 지난다.</summary>
+    private static double ClampColumn(double value)
+        => value is >= MinColumnWidth and <= MaxColumnWidth
+            ? value
+            : value > MaxColumnWidth ? MaxColumnWidth : MinColumnWidth;
+
+    /// <summary>
     /// 컨텍스트 메뉴에서 '즐겨찾기에 추가' 를 골랐다 (docs/PRD-v2.md §10-2). 경로 문자열을
     /// 낸다 — 페인은 트리를 모르고, 무엇이 폴더인지 가리는 것도 받는 쪽의 몫이다.
     /// </summary>
