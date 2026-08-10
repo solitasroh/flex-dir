@@ -135,7 +135,8 @@ public sealed partial class FolderTreeViewModel : ObservableObject
 
         foreach (var drive in listed)
         {
-            roots.Add(NewNode(drive.Root, drive.Label));
+            // 매핑 드라이브는 경로만 보면 로컬이다 — 그 사실을 아는 곳이 여기뿐이다.
+            roots.Add(NewNode(drive.Root, drive.Label, isNetwork: drive.Server is not null));
         }
 
         // 같은 NAS 를 두 글자에 매핑하는 것은 흔하다. 서버가 두 번 서면 같은 것을 두 번
@@ -180,12 +181,17 @@ public sealed partial class FolderTreeViewModel : ObservableObject
             return;
         }
 
-        var children = await ReadFoldersAsync(node.Location, ct).ConfigureAwait(false);
+        // 네트워크라는 사실은 부모가 안다 — 매핑 드라이브 아래는 경로만으로 알 수 없어서,
+        // 물려받지 않으면 한 단계만 내려가도 로컬처럼 보인다.
+        var children = await ReadFoldersAsync(node.Location, node.IsNetwork, ct).ConfigureAwait(false);
 
         await dispatcher.InvokeAsync(() => node.Realize(children)).ConfigureAwait(false);
     }
 
-    private async Task<IReadOnlyList<TreeNodeViewModel>> ReadFoldersAsync(LocationId folder, CancellationToken ct)
+    private async Task<IReadOnlyList<TreeNodeViewModel>> ReadFoldersAsync(
+        LocationId folder,
+        bool isNetwork,
+        CancellationToken ct)
     {
         var names = new List<(string Name, LocationId Location)>();
 
@@ -214,7 +220,7 @@ public sealed partial class FolderTreeViewModel : ObservableObject
 
         names.Sort((left, right) => NaturalStringComparer.Instance.Compare(left.Name, right.Name));
 
-        return [.. names.Select(entry => NewNode(entry.Location, entry.Name))];
+        return [.. names.Select(entry => NewNode(entry.Location, entry.Name, isNetwork: isNetwork))];
     }
 
     // ── 즐겨찾기 (docs/PRD-v2.md §10-2) ──────────────────────────────
@@ -480,13 +486,18 @@ public sealed partial class FolderTreeViewModel : ObservableObject
     /// 노드를 만들며 트리로 돌아오는 두 통로를 물린다. 노드가 포트를 들지 않는 이유는
     /// <see cref="TreeNodeViewModel"/> 에 있다.
     /// </summary>
-    private TreeNodeViewModel NewNode(LocationId location, string label, bool isFavorite = false)
+    private TreeNodeViewModel NewNode(
+        LocationId location,
+        string label,
+        bool isFavorite = false,
+        bool isNetwork = false)
         => new(
             location,
             label,
             node => ExpandAsync(node),
             node => NavigationRequested?.Invoke(this, node.Location),
-            isFavorite);
+            isFavorite,
+            isNetwork);
 
     /// <summary>
     /// <c>Math.Clamp</c> 를 쓰지 않는 이유는 <see cref="WorkspaceViewModel"/> 과 같다 —

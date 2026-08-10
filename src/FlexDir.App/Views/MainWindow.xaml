@@ -1116,6 +1116,19 @@
                                 <Setter TargetName="Chevron" Property="Visibility" Value="Hidden" />
                             </DataTrigger>
 
+                            <!-- 네트워크는 눈으로 갈린다. 펼치는 값이 다르기 때문이다 —
+                                 로컬 폴더는 즉시 열리지만 이쪽은 서버가 죽어 있으면 수십
+                                 초다 (docs/PRD-v2.md §5 N-4). 무엇을 누르는지 알고 눌러야
+                                 한다. 아래 즐겨찾기 트리거보다 먼저 와야 별이 이긴다. -->
+                            <DataTrigger Binding="{Binding IsNetwork}" Value="True">
+                                <Setter TargetName="Glyph" Property="Text" Value="&#xE704;" />
+                            </DataTrigger>
+
+                            <!-- 서버는 그 아래가 폴더가 아니라 공유 목록이라 한 겹 더 다르다. -->
+                            <DataTrigger Binding="{Binding Location.IsNetworkServer}" Value="True">
+                                <Setter TargetName="Glyph" Property="Text" Value="&#xE968;" />
+                            </DataTrigger>
+
                             <DataTrigger Binding="{Binding IsFavorite}" Value="True">
                                 <Setter TargetName="Glyph" Property="Text" Value="&#xE735;" />
                                 <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource AccentBrush}" />

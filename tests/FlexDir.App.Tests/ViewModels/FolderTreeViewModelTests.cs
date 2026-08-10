@@ -101,6 +101,38 @@ public class FolderTreeViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_MarksMappedDrivesAsNetwork()
+    {
+        // 펼치는 값이 로컬과 다르다 — 서버가 죽어 있으면 수십 초다. 경로가 Z:\ 라
+        // 로컬처럼 보여도 눈으로 갈려야 한다.
+        drives.Drives.Add(new DriveEntry(Path(@"C:\"), "로컬 디스크 (C:)", null));
+        drives.Drives.Add(new DriveEntry(Path(@"Z:\"), "nas (Z:)", Path(@"\\10.10.10.23")));
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+
+        Assert.False(tree.Roots[0].IsNetwork);
+        Assert.True(tree.Roots[1].IsNetwork);
+        Assert.True(tree.Roots[2].IsNetwork, "서버 노드는 경로만으로도 네트워크다.");
+    }
+
+    [Fact]
+    public async Task ExpandAsync_UnderAMappedDrive_KeepsTheChildrenNetwork()
+    {
+        // Z:\work 도 SMB 를 지난다. 부모가 아는 것을 자식이 물려받지 않으면 한 단계만
+        // 내려가도 로컬처럼 보인다.
+        var root = Path(@"Z:\");
+        drives.Drives.Add(new DriveEntry(root, "nas (Z:)", Path(@"\\10.10.10.23")));
+        folders.Folders[root] = [Folder(root, "work")];
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+        await tree.ExpandAsync(tree.Roots[0], CancellationToken.None);
+
+        Assert.True(Assert.Single(tree.Roots[0].Children).IsNetwork);
+    }
+
+    [Fact]
     public async Task LoadAsync_WithNoDrivesAtAll_IsEmptyNotAThrow()
     {
         var tree = CreateTree();

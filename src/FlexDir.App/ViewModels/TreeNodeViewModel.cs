@@ -44,12 +44,17 @@ public sealed partial class TreeNodeViewModel : ObservableObject
     /// 사용자가 고정한 항목인가. 제거·이름 바꾸기·순서 바꾸기가 붙는 것은 이쪽뿐이라
     /// 메뉴가 이 값으로 갈린다 (docs/PRD-v2.md §10-2).
     /// </param>
+    /// <param name="isNetwork">
+    /// 경로만으로는 알 수 없는 네트워크인가 — <b>매핑 드라이브</b>가 그것이다
+    /// (<c>Z:\</c> 는 로컬처럼 보이지만 SMB 를 지난다). UNC 는 실어 주지 않아도 안다.
+    /// </param>
     public TreeNodeViewModel(
         LocationId location,
         string label,
         Func<TreeNodeViewModel, Task>? expand = null,
         Action<TreeNodeViewModel>? select = null,
-        bool isFavorite = false)
+        bool isFavorite = false,
+        bool isNetwork = false)
     {
         ArgumentNullException.ThrowIfNull(location);
 
@@ -58,6 +63,7 @@ public sealed partial class TreeNodeViewModel : ObservableObject
         this.expand = expand;
         this.select = select;
         IsFavorite = isFavorite;
+        IsNetwork = isNetwork || location.IsNetwork;
     }
 
     /// <summary>이 노드가 가리키는 폴더. 선택하면 활성 페인이 여기로 간다.</summary>
@@ -75,6 +81,13 @@ public sealed partial class TreeNodeViewModel : ObservableObject
 
     /// <summary>사용자가 고정한 항목인가. 트리 맨 위에 서고 메뉴가 다르다.</summary>
     public bool IsFavorite { get; }
+
+    /// <summary>
+    /// 네트워크 저장소인가. 아이콘을 가르는 값이다 — <b>펼치는 값이 로컬과 다르기</b>
+    /// 때문이다 (서버가 죽어 있으면 수십 초 · docs/PRD-v2.md §5 N-4). 무엇을 누르는지
+    /// 알고 눌러야 한다.
+    /// </summary>
+    public bool IsNetwork { get; }
 
     /// <summary>
     /// 이름을 고치는 중인가. View 가 이것으로 편집기를 연다 — 목록의 이름변경이

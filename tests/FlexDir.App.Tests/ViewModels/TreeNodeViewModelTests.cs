@@ -34,6 +34,21 @@ public class TreeNodeViewModelTests
     }
 
     [Fact]
+    public void IsNetwork_ForAUncPath_IsTrueWithoutBeingTold()
+    {
+        Assert.True(new TreeNodeViewModel(Path(@"\\10.10.10.23\home"), "home").IsNetwork);
+    }
+
+    [Fact]
+    public void IsNetwork_ForAMappedDrive_IsTrueOnlyWhenTold()
+    {
+        // Z:\ 는 경로만 보면 로컬이다. 매핑됐다는 것은 드라이브 목록만 안다
+        // (DriveEntry.Server) — 그래서 만드는 쪽이 실어 준다.
+        Assert.False(new TreeNodeViewModel(Path(@"Z:\"), "nas (Z:)").IsNetwork);
+        Assert.True(new TreeNodeViewModel(Path(@"Z:\"), "nas (Z:)", isNetwork: true).IsNetwork);
+    }
+
+    [Fact]
     public void IsExpanded_SetToTrue_AsksForChildren()
     {
         var asked = 0;
