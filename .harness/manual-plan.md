@@ -696,6 +696,28 @@ $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invok
 
 - **페인 폭(= 스플리터 위치)** 은 `ControlType.List` 의 `BoundingRectangle` 로 잰다.
   페인마다 List 가 **둘씩** 잡히므로 X 로 정렬해 양 끝을 쓴다.
+  둘의 정체는 **breadcrumb 과 항목 목록**이다 — `Height` 로 가른다(breadcrumb 은 20px).
+  breadcrumb 의 자식 이름은 `PathSegment { Name = ..., ... }` 로 나오므로 `Name = ([^,]+),`
+  를 뽑아야 폴더 이름이 된다. **어느 페인이 어느 폴더인지는 이것으로만 확정된다** —
+  X 위치로 넘겨짚으면 창이 움직였을 때 조용히 반대편을 잰다.
+
+**UIA 로 목록 선택은 만들 수 없다** (2026-08-11 · 여기서 없는 결함을 보고했다).
+선택은 `PaneSelection` 이 **이름 집합**으로 들고 행에는 `IsSelected` 가 없다
+(ADR-011 · `Views/ViewConverters.cs` 의 `MultiBinding`). 그래서
+`SelectionItemPattern.Select()` 는 `ListBoxItem` 자체 플래그만 세우고 **앱의 선택 모델에
+닿지 않으며**, 다음 갱신에 바인딩이 덮는다. 화면상으로는 "갱신이 선택을 날렸다" 로 보여
+**멀쩡한 코드를 결함으로 보고하게 된다.**
+→ 선택이 필요한 확인은 **사람이 클릭해서 본다.** 판정 신호는 상태표시줄인데 문구가
+`항목 N개` 와 `N개 선택` 두 갈래이므로, 정규식을 `^항목 \d` 로 좁히면 선택 중을 놓친다.
+
+**스크롤은 입력 없이 걸 수 있다** — `ScrollPattern.SetScrollPercent`. 선택을 건드리지 않고
+`VerticalScrollPercent` 로 되읽을 수 있어, 갱신이 스크롤을 튀게 하는지는 이것만으로 판정된다.
+
+**컨테이너 재생성(=깜박임)을 잴 때는 비율로 본다.** 실현된 항목의 `GetRuntimeId()` 집합을
+통째로 비교하면 30개 중 하나만 바뀌어도 "재생성" 으로 찍힌다 — `Reset` 이면 **전부** 바뀌고
+`MergeItems` 면 바뀐 줄만 바뀐다. 판정 폴더도 고른다: `C:\Users\SOOJANG` 이나
+`home\soojang` 은 진짜 변경이 섞여 들어오고, `/etc` 는 아무도 안 건드려 병합조차 0 이어야
+하므로 깨끗하다. 갱신주기가 30초이므로 **최소 3주기(100초 이상)** 를 봐야 의미가 있다.
 
 **트리에는 합성 우클릭이 닿는다** (2026-08-10). 목록에서 한 번도 닿지 않아 "우클릭은 사람에게
 맡긴다" 로 적어 두었는데, 트리 노드에서는 `SetCursorPos` + `mouse_event(RIGHTDOWN/UP)` 이
@@ -706,6 +728,14 @@ $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invok
 
 > 그러므로 "우클릭은 확인할 수 없다" 는 **목록에 대해서만** 참이다. 무엇이 다른지는
 > 밝히지 못했다 (트리는 우리 WPF 메뉴, 목록은 shell 의 `TrackPopupMenuEx` 다).
+
+**"포그라운드만 확보하면 된다" 로는 부족하다** (2026-08-11 에 좁혔다). `AttachThreadInput`
+recipe 로 포그라운드를 잡고 `GetForegroundWindow()` 까지 확인한 뒤 좌클릭을 보냈는데,
+**좌표를 재고 누르는 사이에 창이 491px 옆으로 움직여** 클릭이 목록이 아니라 폴더 트리로
+갔다 — 활성 페인이 엉뚱한 곳으로 튀었고, 그 사실은 몇 분 뒤에야 드러났다.
+→ **좌표는 `SetCursorPos` 직전에 다시 잰다.** 그리고 클릭 뒤 `GetWindowRect` 를 다시 재
+창이 움직였는지 본다. `LEFTDOWN` 뒤 마우스가 움직이면 타이틀바를 끌게 되는 것도 같은
+자리다. 사용자의 창을 흔드는 확인이므로 **안 써도 되면 안 쓴다.**
 
 **트리 노드는 `ControlType.TreeItem` 으로 잡힌다.** 다만 자식을 읽기 전에는
 `ExpandCollapseState` 가 `LeafNode` 라 `ExpandCollapsePattern.Expand()` 가 통하지 않는다

@@ -3,7 +3,7 @@
 > **이 파일은 `docs/` 아래 두지 않는다.** `docs/*.md` 중 셋은 harness `guardrails` 로 매 step
 > 프롬프트에 주입되므로, 세션 인수인계가 거기 들어가면 모든 구현 세션을 오염시킨다.
 >
-> 갱신: 2026-08-06. 함께 볼 것: [`manual-plan.md`](./manual-plan.md) — 수동 phase 계획과
+> 갱신: 2026-08-11. 함께 볼 것: [`manual-plan.md`](./manual-plan.md) — 수동 phase 계획과
 > 사람 확인 항목(프로브·실물 실측 결과가 거기 있다). 세션 커밋 이력은 `git log` 를 본다.
 
 ## 한 줄
@@ -82,7 +82,7 @@ phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
 `gh release list` 에 **v0.4.1 이 Latest**, 자산 여섯(`assets.win.json` ·
 `flex-dir-0.4.1-full.nupkg` 74MB · `flex-dir-win-Portable.zip` · `flex-dir-win-Setup.exe`
 78MB · `RELEASES` · `releases.win.json`). `vpk pack` 은 12초, 업로드까지 합쳐 몇 분이다 —
-**받는 쪽 15분과 헷갈리지 않는다.**
+**굽는 시간과 받는 시간을 헷갈리지 않는다** (받는 쪽은 §4 참조).
 
 푸시는 `CLAUDE.md` §7 대로 별도 지시가 있을 때만. 원격은 `origin`
 (`git@github.com:solitasroh/flex-dir.git`).
@@ -219,10 +219,12 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
   늦게 붙는다. 프로브로 실측한 값이고 손대지 않았다.
 - **`DispatcherUnhandledException` 핸들러가 없다.** UI 스레드 예외 하나가 상주 프로세스와
   트레이 아이콘까지 통째로 날린다. 2026-08-10 의 XAML 크래시가 정확히 그랬다.
-- **델타 패키지를 만들지 않는다.** 갱신마다 74MB 를 받고, 사내망에서 **약 15분** 걸렸다.
-  받는 동안 화면에 아무 표시가 없어 "알림이 안 뜬다" 로 보인다. `vpk pack` 전에 이전
-  릴리스 `.nupkg` 를 `artifacts/packages` 에 두면 켜지는데, 지금은 같은 버전 재패킹을
-  위해 그 폴더를 매번 비운다 (`scripts/pack.ps1` 주석).
+- **델타 패키지를 만들지 않는다.** 갱신마다 74MB 를 받는다. **걸리는 시간은 때에 따라
+  크게 다르다** — 한 번은 사내망에서 약 15분이었고(2026-08-07), 0.4.0→0.4.1 은 몇 분
+  안에 끝났다(2026-08-11). 그러므로 "15분" 을 상수로 쓰지 않는다. 변하지 않는 것은
+  **받는 동안 화면에 아무 표시가 없어 "알림이 안 뜬다" 로 보인다**는 쪽이다.
+  `vpk pack` 전에 이전 릴리스 `.nupkg` 를 `artifacts/packages` 에 두면 델타가 켜지는데,
+  지금은 같은 버전 재패킹을 위해 그 폴더를 매번 비운다 (`scripts/pack.ps1` 주석).
 
 **도그푸딩은 설치본으로 한다.** 시작 메뉴의 `flex-dir` 이 그것이고, 저장소 산출물을
 잠그지 않아 **켜 둔 채로 게이트가 통과한다.** 다만 **저장소 Debug 빌드로 띄우면 잠근다** —
