@@ -1,10 +1,12 @@
 using System.Collections.ObjectModel;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 using FlexDir.App.Threading;
 
 using FlexDir.Core.Enumeration;
+using FlexDir.Core.Favorites;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.Storage;
@@ -46,25 +48,36 @@ public sealed partial class FolderTreeViewModel : ObservableObject
 
     private readonly IDriveList drives;
     private readonly INetworkPlaceList places;
+    private readonly IFavoriteStore favoriteStore;
     private readonly IFolderSource folders;
     private readonly IUiDispatcher dispatcher;
 
+    /// <summary>
+    /// 즐겨찾기의 정본. <see cref="Roots"/> 앞쪽 <see cref="favorites"/>.Count 개가 이것을
+    /// 그린 것이다 — 그 대응이 조작마다 앞부분만 갈아 끼울 수 있게 한다.
+    /// </summary>
+    private readonly List<Favorite> favorites = [];
+
+    private TreeNodeViewModel? editing;
     private bool isVisible = true;
     private double width = DefaultWidth;
 
     public FolderTreeViewModel(
         IDriveList drives,
         INetworkPlaceList places,
+        IFavoriteStore favorites,
         IFolderSource folders,
         IUiDispatcher dispatcher)
     {
         ArgumentNullException.ThrowIfNull(drives);
         ArgumentNullException.ThrowIfNull(places);
+        ArgumentNullException.ThrowIfNull(favorites);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(dispatcher);
 
         this.drives = drives;
         this.places = places;
+        favoriteStore = favorites;
         this.folders = folders;
         this.dispatcher = dispatcher;
     }
@@ -102,12 +115,23 @@ public sealed partial class FolderTreeViewModel : ObservableObject
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
-        // 둘 다 저장소에 닿는다. 함께 기다린다 — 하나가 느려도 다른 쪽을 막지 않는다.
+        // 전부 저장소에 닿는다. 함께 기다린다 — 하나가 느려도 다른 쪽을 막지 않는다.
         var listing = drives.ListAsync(ct);
+        var pinned = await favoriteStore.LoadAsync(ct).ConfigureAwait(false);
         var registered = await places.ListAsync(ct).ConfigureAwait(false);
         var listed = await listing.ConfigureAwait(false);
 
-        var roots = new List<TreeNodeViewModel>(listed.Count + registered.Count);
+        var roots = new List<TreeNodeViewModel>(pinned.Count + listed.Count + registered.Count);
+
+        // 즐겨찾기가 맨 위다 (사용자 결정 2026-08-10) — 가장 자주 가는 곳이 눈과 마우스에
+        // 제일 가깝다. 드라이브가 많은 기계에서 아래에 두면 스크롤해야 보인다.
+        favorites.Clear();
+        favorites.AddRange(pinned);
+
+        foreach (var favorite in pinned)
+        {
+            roots.Add(NewNode(favorite.Path, favorite.Label, isFavorite: true));
+        }
 
         foreach (var drive in listed)
         {
@@ -193,16 +217,276 @@ public sealed partial class FolderTreeViewModel : ObservableObject
         return [.. names.Select(entry => NewNode(entry.Location, entry.Name))];
     }
 
+    // ── 즐겨찾기 (docs/PRD-v2.md §10-2) ──────────────────────────────
+
+    /// <summary>
+    /// 폴더를 트리 맨 위에 고정한다. 이미 있으면 아무 일도 하지 않는다 — 같은 곳이 두 번
+    /// 서면 어느 것을 지워야 할지 알 수 없다.
+    /// </summary>
+    public Task AddFavoriteAsync(LocationId path, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+
+        if (IndexOfFavorite(path) >= 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        // 이름은 폴더 이름으로 시작한다. 바꾸는 것은 사용자 몫이다.
+        favorites.Add(new Favorite(path, path.Name));
+
+        return ApplyAsync(ct);
+    }
+
+    /// <summary>
+    /// 끌어다 놓은 경로들을 고정한다 (목록 → 트리 드래그).
+    /// <para>
+    /// <b>폴더만 들어간다.</b> 파일을 고정하면 트리에서 펼칠 수도 없고 골라도 페인이 열지
+    /// 못한다. 무엇이 폴더인지는 파일시스템에 물어야 알고 그 물음은 저장소에 닿으므로
+    /// (CLAUDE.md §3) 여기서 한다 — View 는 경로 문자열만 넘긴다.
+    /// </para>
+    /// <para>
+    /// 없는 경로도 빠진다. <c>TryGetItemAsync</c> 가 존재 확인을 겸한다.
+    /// 저장은 <b>마지막에 한 번</b>이다 — 열 개를 끌어다 놓고 열 번 쓰지 않는다.
+    /// </para>
+    /// </summary>
+    public async Task AddFavoritesAsync(IReadOnlyList<string> paths, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(paths);
+
+        var added = false;
+
+        foreach (var path in paths)
+        {
+            if (!LocationId.TryParse(path, out var location, out _) || IndexOfFavorite(location) >= 0)
+            {
+                continue;
+            }
+
+            if (await IsFolderAsync(location, ct).ConfigureAwait(false))
+            {
+                favorites.Add(new Favorite(location, location.Name));
+                added = true;
+            }
+        }
+
+        if (added)
+        {
+            await ApplyAsync(ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 실제로 있는 폴더인가. 못 읽으면 아니라고 본다 — 트리에 올려도 갈 수 없는 것은
+    /// 없는 것과 같다.
+    /// </summary>
+    private async Task<bool> IsFolderAsync(LocationId location, CancellationToken ct)
+    {
+        // 루트(드라이브·서버)는 부모가 없어 '그 폴더의 항목' 으로 물을 수가 없다.
+        // 그리고 루트는 늘 폴더다 — 물어볼 필요 자체가 없다.
+        if (!location.TryGetParent(out _))
+        {
+            return true;
+        }
+
+        try
+        {
+            return await folders.TryGetItemAsync(location, ct).ConfigureAwait(false) is { IsDirectory: true };
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>고정을 푼다. 즐겨찾기가 아닌 노드에는 아무 일도 하지 않는다.</summary>
+    public Task RemoveFavoriteAsync(TreeNodeViewModel node, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        var index = node.IsFavorite ? IndexOfFavorite(node.Location) : -1;
+
+        if (index < 0)
+        {
+            return Task.CompletedTask;
+        }
+
+        favorites.RemoveAt(index);
+
+        return ApplyAsync(ct);
+    }
+
+    /// <summary>
+    /// 즐겨찾기의 이름을 바꾼다. 경로는 그대로다 — 같은 이름의 폴더가 여럿일 때
+    /// (<c>build</c> 가 셋일 수 있다) 그것을 가르는 유일한 수단이다.
+    /// <para>
+    /// 비어 있으면 그대로 둔다. 편집을 지우고 확정한 것은 취소로 본다 — 빈 라벨은 트리에
+    /// 빈 줄로 선다.
+    /// </para>
+    /// </summary>
+    public Task RenameFavoriteAsync(TreeNodeViewModel node, string label, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        var index = node.IsFavorite ? IndexOfFavorite(node.Location) : -1;
+
+        if (index < 0 || string.IsNullOrWhiteSpace(label))
+        {
+            return Task.CompletedTask;
+        }
+
+        favorites[index] = favorites[index] with { Label = label.Trim() };
+
+        return ApplyAsync(ct);
+    }
+
+    /// <summary>
+    /// 즐겨찾기를 <paramref name="offset"/> 만큼 위(음수)·아래(양수)로 옮긴다.
+    /// 끝을 넘어가면 아무 일도 하지 않는다 — 감아 돌면 맨 위를 한 번 더 누른 사람이
+    /// 맨 아래에서 그것을 찾게 된다.
+    /// </summary>
+    public Task MoveFavoriteAsync(TreeNodeViewModel node, int offset, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(node);
+
+        var index = node.IsFavorite ? IndexOfFavorite(node.Location) : -1;
+        var target = index + offset;
+
+        if (index < 0 || offset == 0 || target < 0 || target >= favorites.Count)
+        {
+            return Task.CompletedTask;
+        }
+
+        var moved = favorites[index];
+        favorites.RemoveAt(index);
+        favorites.Insert(target, moved);
+
+        return ApplyAsync(ct);
+    }
+
+    // ── 트리 메뉴가 부르는 것 ────────────────────────────────────────
+    //
+    // 메서드가 이미 있는데 커맨드를 따로 두는 이유: 메뉴는 노드 하나만 넘길 수 있고
+    // (ICommand 의 파라미터는 하나다) 위·아래는 같은 메서드의 부호만 다르다.
+
+    /// <summary>평범한 노드를 고정한다. 트리 우클릭의 진입점이다.</summary>
+    [RelayCommand]
+    private Task PinAsync(TreeNodeViewModel node, CancellationToken ct)
+        => AddFavoriteAsync(node.Location, ct);
+
+    [RelayCommand]
+    private Task UnpinAsync(TreeNodeViewModel node, CancellationToken ct)
+        => RemoveFavoriteAsync(node, ct);
+
+    [RelayCommand]
+    private Task MoveUpAsync(TreeNodeViewModel node, CancellationToken ct)
+        => MoveFavoriteAsync(node, -1, ct);
+
+    [RelayCommand]
+    private Task MoveDownAsync(TreeNodeViewModel node, CancellationToken ct)
+        => MoveFavoriteAsync(node, +1, ct);
+
+    /// <summary>
+    /// 즐겨찾기만 이름을 고칠 수 있다 — 나머지는 시스템이 주는 이름이다.
+    /// <para>
+    /// 편집 중인 노드를 여기서 기억한다. 목록의 이름변경이 <c>RenamingName</c> 을 두는 것과
+    /// 같은 구도이며, 그래야 편집기가 확정할 때 <b>글자만</b> 넘기면 된다 — 편집기는 목록과
+    /// 공용이고 (<c>RenameEditor</c>) 그쪽은 노드를 모른다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void BeginRename(TreeNodeViewModel node)
+    {
+        if (!node.IsFavorite)
+        {
+            return;
+        }
+
+        editing = node;
+        node.BeginEditing();
+    }
+
+    [RelayCommand]
+    private async Task CommitRenameAsync(string? label, CancellationToken ct)
+    {
+        if (editing is not { } node)
+        {
+            return;
+        }
+
+        // 먼저 닫는다. 이름 반영이 실패하더라도 편집기가 열린 채로 남으면 안 된다.
+        editing = null;
+        node.EndEditing();
+
+        await RenameFavoriteAsync(node, label ?? string.Empty, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>포커스 상실도 여기로 온다 (docs/DESIGN.md §9-1). 그래서 멱등이다.</summary>
+    [RelayCommand]
+    private void CancelRename()
+    {
+        editing?.EndEditing();
+        editing = null;
+    }
+
+    /// <summary>이름 비교 규칙은 파일시스템과 같다 — <c>C:\work</c> 와 <c>C:\WORK</c> 는 같은 곳이다.</summary>
+    private int IndexOfFavorite(LocationId path)
+        => favorites.FindIndex(favorite => favorite.Path.Equals(path));
+
+    /// <summary>
+    /// 바뀐 즐겨찾기를 화면과 파일에 반영한다.
+    /// <para>
+    /// <b>루트를 다시 세우지 않고 앞부분만 갈아 끼운다.</b> 통째로 세우면 펼쳐 둔 폴더가
+    /// 전부 접힌다 — 즐겨찾기 하나 넣었다고 보고 있던 자리를 잃으면 안 된다.
+    /// </para>
+    /// <para>
+    /// <b>저장 실패를 삼킨다.</b> 화면에서 방금 한 조작이 사라지는 것이 더 나쁘고, 다음
+    /// 조작이 목록 전체를 다시 저장하므로 한 번의 실패가 영구적이지 않다.
+    /// </para>
+    /// </summary>
+    private async Task ApplyAsync(CancellationToken ct)
+    {
+        var shown = favorites.Count;
+        var nodes = favorites.Select(favorite => NewNode(favorite.Path, favorite.Label, isFavorite: true)).ToList();
+
+        await dispatcher.InvokeAsync(() =>
+        {
+            while (Roots.Count > 0 && Roots[0].IsFavorite)
+            {
+                Roots.RemoveAt(0);
+            }
+
+            for (var index = 0; index < shown; index++)
+            {
+                Roots.Insert(index, nodes[index]);
+            }
+        }).ConfigureAwait(false);
+
+        try
+        {
+            await favoriteStore.SaveAsync([.. favorites], ct).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            // 위 §요약. 다음 조작이 다시 시도한다.
+        }
+    }
+
     /// <summary>
     /// 노드를 만들며 트리로 돌아오는 두 통로를 물린다. 노드가 포트를 들지 않는 이유는
     /// <see cref="TreeNodeViewModel"/> 에 있다.
     /// </summary>
-    private TreeNodeViewModel NewNode(LocationId location, string label)
+    private TreeNodeViewModel NewNode(LocationId location, string label, bool isFavorite = false)
         => new(
             location,
             label,
             node => ExpandAsync(node),
-            node => NavigationRequested?.Invoke(this, node.Location));
+            node => NavigationRequested?.Invoke(this, node.Location),
+            isFavorite);
 
     /// <summary>
     /// <c>Math.Clamp</c> 를 쓰지 않는 이유는 <see cref="WorkspaceViewModel"/> 과 같다 —

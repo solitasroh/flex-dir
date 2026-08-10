@@ -26,7 +26,7 @@ public class FakeContextMenuProviderTests
         var folder = Loc(@"C:\Temp");
         var item = Loc(@"C:\Temp\a.txt");
 
-        await provider.ShowAsync([item], folder, new ScreenPoint(120, 340), CancellationToken.None);
+        await provider.ShowAsync([item], folder, new ScreenPoint(120, 340), [], CancellationToken.None);
 
         var request = Assert.Single(provider.Requests);
 
@@ -43,7 +43,7 @@ public class FakeContextMenuProviderTests
         var provider = new FakeContextMenuProvider();
         var folder = Loc(@"C:\Temp");
 
-        await provider.ShowAsync([], folder, new ScreenPoint(0, 0), CancellationToken.None);
+        await provider.ShowAsync([], folder, new ScreenPoint(0, 0), [], CancellationToken.None);
 
         Assert.Empty(Assert.Single(provider.Requests).Items);
     }
@@ -54,8 +54,8 @@ public class FakeContextMenuProviderTests
         var provider = new FakeContextMenuProvider();
         var folder = Loc(@"C:\Temp");
 
-        await provider.ShowAsync([Loc(@"C:\Temp\a.txt")], folder, new ScreenPoint(1, 1), CancellationToken.None);
-        await provider.ShowAsync([Loc(@"C:\Temp\b.txt")], folder, new ScreenPoint(2, 2), CancellationToken.None);
+        await provider.ShowAsync([Loc(@"C:\Temp\a.txt")], folder, new ScreenPoint(1, 1), [], CancellationToken.None);
+        await provider.ShowAsync([Loc(@"C:\Temp\b.txt")], folder, new ScreenPoint(2, 2), [], CancellationToken.None);
 
         Assert.Equal(["a.txt", "b.txt"], [.. provider.Requests.Select(request => request.Items[0].Name)]);
     }
@@ -67,7 +67,7 @@ public class FakeContextMenuProviderTests
         var provider = new FakeContextMenuProvider();
         var items = new List<LocationId> { Loc(@"C:\Temp\a.txt") };
 
-        await provider.ShowAsync(items, Loc(@"C:\Temp"), new ScreenPoint(0, 0), CancellationToken.None);
+        await provider.ShowAsync(items, Loc(@"C:\Temp"), new ScreenPoint(0, 0), [], CancellationToken.None);
 
         items.Clear();
 
@@ -84,7 +84,7 @@ public class FakeContextMenuProviderTests
         await cancelled.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => provider.ShowAsync([], Loc(@"C:\Temp"), new ScreenPoint(0, 0), cancelled.Token));
+            () => provider.ShowAsync([], Loc(@"C:\Temp"), new ScreenPoint(0, 0), [], cancelled.Token));
     }
 
     [Fact]

@@ -1,9 +1,14 @@
+using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
+using FlexDir.App.ViewModels;
 using FlexDir.App.Views;
+
+using FlexDir.Core.Locations;
+using FlexDir.Core.Model;
 
 using Xunit;
 
@@ -18,6 +23,10 @@ namespace FlexDir.App.Tests.Views;
 /// </summary>
 public class RenameEditorTests
 {
+    private static LocationId Loc(string path) => LocationId.TryParse(path, out var id, out _)
+        ? id
+        : throw new InvalidOperationException(path);
+
     // ── 키가 뜻하는 것 (docs/DESIGN.md §9-1) ──────────────────────
 
     [Theory]
@@ -83,10 +92,10 @@ public class RenameEditorTests
         Assert.Equal((0, name.Length), RenameEditor.InitialSelection(name, isDirectory: true));
     }
 
-    // ── 편집이 닫히면 키보드를 목록으로 돌려준다 ──────────────────
+    // ── 편집이 닫히면 키보드를 목록·트리로 돌려준다 ────────────────
 
     [Fact]
-    public void OwnerList_FindsTheListTheEditorSitsIn()
+    public void OwnerContainer_FindsTheListTheEditorSitsIn()
     {
         // 편집기는 합성 행 안에 있을 수 있다 (ADR-016) — 중첩된 ItemsControl 에서
         // 멈추면 포커스가 Focusable=False 인 행 컨테이너로 간다.
@@ -100,14 +109,63 @@ public class RenameEditorTests
             list.Items.Add(row);
             list.Measure(new Size(400, 400));
 
-            Assert.Same(list, RenameEditor.OwnerList(box));
+            Assert.Same(list, RenameEditor.OwnerContainer(box));
         });
     }
 
     [Fact]
-    public void OwnerList_OutsideAList_IsNothing()
+    public void OwnerContainer_FindsTheTreeToo()
     {
-        OnSta(() => Assert.Null(RenameEditor.OwnerList(new TextBox())));
+        // 즐겨찾기 이름도 같은 편집기로 고친다 (docs/PRD-v2.md §10-2).
+        OnSta(() =>
+        {
+            var box = new TextBox();
+            var item = new TreeViewItem { Header = box };
+            var tree = new TreeView();
+
+            tree.Items.Add(item);
+            tree.Measure(new Size(400, 400));
+
+            Assert.Same(tree, RenameEditor.OwnerContainer(box));
+        });
+    }
+
+    [Fact]
+    public void OwnerContainer_OutsideBoth_IsNothing()
+    {
+        OnSta(() => Assert.Null(RenameEditor.OwnerContainer(new TextBox())));
+    }
+
+    // ── 무엇의 이름을 고치고 있나 ─────────────────────────────────
+
+    [Fact]
+    public void Subject_ForAListItem_IsItsName()
+    {
+        var item = new FileItemViewModel(
+            new FileItem("report.txt", Loc(@"C:\Temp\report.txt"), 10, DateTimeOffset.UnixEpoch, FileItemFlags.None),
+            "10 KB",
+            "텍스트 문서",
+            "2026-08-10");
+
+        Assert.Equal(("report.txt", false), RenameEditor.Subject(item));
+    }
+
+    [Fact]
+    public void Subject_ForAFavorite_IsTheEditingLabel()
+    {
+        // 표시 이름이 아니라 편집용 글자를 싣는다 — 확정할 때까지 트리의 이름은 그대로다.
+        var node = new TreeNodeViewModel(Loc(@"C:\work"), "작업", isFavorite: true);
+        node.EditingLabel = "펌웨어";
+
+        // 즐겨찾기는 늘 폴더라 전체가 선택된다.
+        Assert.Equal(("펌웨어", true), RenameEditor.Subject(node));
+    }
+
+    [Fact]
+    public void Subject_OfSomethingElse_IsNothing()
+    {
+        Assert.Null(RenameEditor.Subject(null));
+        Assert.Null(RenameEditor.Subject("문자열"));
     }
 
     // ── attached property 왕복 ────────────────────────────────────

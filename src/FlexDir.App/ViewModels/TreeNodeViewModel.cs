@@ -25,6 +25,9 @@ public sealed partial class TreeNodeViewModel : ObservableObject
     private readonly Func<TreeNodeViewModel, Task>? expand;
     private readonly Action<TreeNodeViewModel>? select;
 
+    private string label;
+    private string editingLabel = string.Empty;
+    private bool isEditing;
     private bool isExpanded;
     private bool isSelected;
     private bool canExpand = true;
@@ -37,25 +40,71 @@ public sealed partial class TreeNodeViewModel : ObservableObject
     /// 선택됐을 때 부른다. 해제될 때는 부르지 않는다 — TreeView 는 선택이 옮겨갈 때 이전
     /// 노드를 먼저 해제하므로, 해제까지 탐색을 일으키면 폴더 하나에 페인이 두 번 움직인다.
     /// </param>
+    /// <param name="isFavorite">
+    /// 사용자가 고정한 항목인가. 제거·이름 바꾸기·순서 바꾸기가 붙는 것은 이쪽뿐이라
+    /// 메뉴가 이 값으로 갈린다 (docs/PRD-v2.md §10-2).
+    /// </param>
     public TreeNodeViewModel(
         LocationId location,
         string label,
         Func<TreeNodeViewModel, Task>? expand = null,
-        Action<TreeNodeViewModel>? select = null)
+        Action<TreeNodeViewModel>? select = null,
+        bool isFavorite = false)
     {
         ArgumentNullException.ThrowIfNull(location);
 
         Location = location;
-        Label = label;
+        this.label = label;
         this.expand = expand;
         this.select = select;
+        IsFavorite = isFavorite;
     }
 
     /// <summary>이 노드가 가리키는 폴더. 선택하면 활성 페인이 여기로 간다.</summary>
     public LocationId Location { get; }
 
-    /// <summary>트리에 그릴 이름. 드라이브는 <c>로컬 디스크 (C:)</c>, 폴더는 폴더 이름이다.</summary>
-    public string Label { get; }
+    /// <summary>
+    /// 트리에 그릴 이름. 드라이브는 <c>로컬 디스크 (C:)</c>, 폴더는 폴더 이름이다.
+    /// <b>즐겨찾기만 바뀐다</b> — 나머지는 시스템이 주는 이름이라 우리가 정할 것이 없다.
+    /// </summary>
+    public string Label
+    {
+        get => label;
+        internal set => SetProperty(ref label, value);
+    }
+
+    /// <summary>사용자가 고정한 항목인가. 트리 맨 위에 서고 메뉴가 다르다.</summary>
+    public bool IsFavorite { get; }
+
+    /// <summary>
+    /// 이름을 고치는 중인가. View 가 이것으로 편집기를 연다 — 목록의 이름변경이
+    /// <c>RenamingName</c> 으로 여는 것과 같은 구도다 (docs/DESIGN.md §9-1).
+    /// </summary>
+    public bool IsEditing
+    {
+        get => isEditing;
+        private set => SetProperty(ref isEditing, value);
+    }
+
+    /// <summary>
+    /// 편집기 안의 글자. 확정하기 전에는 <see cref="Label"/> 을 건드리지 않는다 —
+    /// 타이핑하는 동안 트리의 이름이 따라 바뀌면 취소할 자리가 없다.
+    /// </summary>
+    public string EditingLabel
+    {
+        get => editingLabel;
+        set => SetProperty(ref editingLabel, value);
+    }
+
+    /// <summary>편집기를 연다. 지난 입력이 남지 않게 지금 이름을 다시 싣는다.</summary>
+    internal void BeginEditing()
+    {
+        EditingLabel = Label;
+        IsEditing = true;
+    }
+
+    /// <summary>편집기를 닫는다. <b>멱등이다</b> — 확정으로 닫힌 뒤에도 포커스 상실이 한 번 더 온다.</summary>
+    internal void EndEditing() => IsEditing = false;
 
     public ObservableCollection<TreeNodeViewModel> Children { get; } = [];
 

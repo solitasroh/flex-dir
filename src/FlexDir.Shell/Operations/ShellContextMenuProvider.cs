@@ -32,7 +32,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
 
     private readonly Func<nint> ownerWindow;
 
-    private readonly Func<Request, int> show;
+    private readonly Func<Request, MenuOutcome> show;
 
     /// <param name="ownerWindow">
     /// shell 대화상자의 부모가 될 창. <b>부를 때마다 묻는다</b> — 생성 시점에 잡아 두면
@@ -51,7 +51,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     /// 루프이므로 자동 테스트가 밟으면 매달림이 된다 (.harness/HANDOFF.md §규칙 5).
     /// 바꿔 끼운 자리 위에서 재는 것은 <b>무엇을 어떤 창으로 넘기는가</b> 다.
     /// </summary>
-    internal ShellContextMenuProvider(Func<nint> ownerWindow, Func<Request, int> show)
+    internal ShellContextMenuProvider(Func<nint> ownerWindow, Func<Request, MenuOutcome> show)
     {
         ArgumentNullException.ThrowIfNull(ownerWindow);
         ArgumentNullException.ThrowIfNull(show);
@@ -64,30 +64,50 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     /// 메뉴를 낼 항목들의 <b>자식 이름</b>. 비어 있으면 <paramref name="Folder"/> 의 배경
     /// 메뉴다 — shell 에서 둘은 다른 API 다 (<c>GetUIObjectOf</c> 대 <c>CreateViewObject</c>).
     /// </param>
-    internal sealed record Request(nint Owner, LocationId Folder, IReadOnlyList<string> Names, ScreenPoint At);
+    internal sealed record Request(
+        nint Owner,
+        LocationId Folder,
+        IReadOnlyList<string> Names,
+        ScreenPoint At,
+        IReadOnlyList<string> AppCommands);
 
-    public Task ShowAsync(IReadOnlyList<LocationId> items, LocationId folder, ScreenPoint at, CancellationToken ct)
+    /// <summary>
+    /// 메뉴가 남긴 것. <paramref name="AppCommand"/> 는 사용자가 고른 앱 항목의 인덱스이며,
+    /// shell verb 를 골랐거나 그냥 닫았으면 <c>null</c> 이다.
+    /// </summary>
+    internal readonly record struct MenuOutcome(int HResult, int? AppCommand);
+
+    public Task<int?> ShowAsync(
+        IReadOnlyList<LocationId> items,
+        LocationId folder,
+        ScreenPoint at,
+        IReadOnlyList<string> appCommands,
+        CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(items);
         ArgumentNullException.ThrowIfNull(folder);
+        ArgumentNullException.ThrowIfNull(appCommands);
 
         var names = LeafNames(items, folder);
 
         return worker.RunAsync(
             () =>
             {
-                var hresult = show(new Request(ownerWindow(), folder, names, at));
+                var outcome = show(new Request(ownerWindow(), folder, names, at, appCommands));
 
                 // 사용자가 아무것도 고르지 않고 닫은 것은 실패가 아니다.
-                if (hresult < 0)
+                if (outcome.HResult < 0)
                 {
-                    throw Translate(hresult, folder);
+                    throw Translate(outcome.HResult, folder);
                 }
 
-                return hresult;
+                return outcome.AppCommand;
             },
             ct);
     }
+
+    /// <summary>실패한 HRESULT 를 그대로 싣는다. 0 이면 알 수 없는 실패로 본다.</summary>
+    private static MenuOutcome Failed(int hresult) => new(hresult < 0 ? hresult : Unexpected, null);
 
     public void Dispose() => worker.Dispose();
 
@@ -141,13 +161,13 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     /// <b>COM 객체도 네이티브 핸들도 이 호출 밖으로 나가지 않는다</b>
     /// (<c>StaWorkQueue</c> 의 규칙). 나가는 것은 HRESULT 하나다.
     /// </summary>
-    private static int Show(Request request)
+    private static MenuOutcome Show(Request request)
     {
         var hr = SHGetDesktopFolder(out var desktopRaw);
 
         if (hr < 0 || desktopRaw == 0)
         {
-            return hr < 0 ? hr : Unexpected;
+            return Failed(hr);
         }
 
         using var desktop = new ComRef<IShellFolder>(desktopRaw);
@@ -157,7 +177,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
 
         if (hr < 0 || folderPidl == 0)
         {
-            return hr < 0 ? hr : Unexpected;
+            return Failed(hr);
         }
 
         try
@@ -168,7 +188,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
 
             if (hr < 0 || folderRaw == 0)
             {
-                return hr < 0 ? hr : Unexpected;
+                return Failed(hr);
             }
 
             using var folder = new ComRef<IShellFolder>(folderRaw);
@@ -185,7 +205,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     /// 메뉴 객체를 얻는다. <b>항목 메뉴와 배경 메뉴는 다른 API 다</b> —
     /// <c>GetUIObjectOf</c> 대 <c>CreateViewObject</c> (docs/SHELL_NOTES.md §컨텍스트 메뉴).
     /// </summary>
-    private static int Build(IShellFolder folder, Request request)
+    private static MenuOutcome Build(IShellFolder folder, Request request)
     {
         var children = new List<nint>(request.Names.Count);
 
@@ -206,7 +226,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
             // 대신 띄우면 사용자가 겨냥한 적 없는 항목들이 뜬다.
             if (request.Names.Count > 0 && children.Count == 0)
             {
-                return Ok;
+                return new MenuOutcome(Ok, null);
             }
 
             var menuIid = typeof(IContextMenu).GUID;
@@ -217,7 +237,7 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
 
             if (hr < 0 || menuRaw == 0)
             {
-                return hr < 0 ? hr : Unexpected;
+                return Failed(hr);
             }
 
             using var menu = new ComRef<IContextMenu>(menuRaw);
@@ -241,27 +261,28 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     /// 정리된다.
     /// </para>
     /// </summary>
-    private static int Track(IContextMenu menu, Request request)
+    private static MenuOutcome Track(IContextMenu menu, Request request)
     {
         var popup = CreatePopupMenu();
 
         if (popup == 0)
         {
-            return Unexpected;
+            return new MenuOutcome(Unexpected, null);
         }
 
         var sink = new MenuMessageSink(menu);
 
         try
         {
-            // verb ID 범위는 1 ~ 0x7FFF (함정 3). 앱 자체 항목을 넣지 않으므로 전 범위를
-            // shell 에 준다 — 넣는 순간 충돌 관리가 우리 몫이 된다.
+            // verb ID 범위는 1 ~ 0x7FFF (함정 3). 앱 항목은 그 위를 쓴다.
             var hr = menu.QueryContextMenu(popup, 0, MinVerbId, MaxVerbId, CmfNormal);
 
             if (hr < 0)
             {
-                return hr;
+                return new MenuOutcome(hr, null);
             }
+
+            InsertAppCommands(popup, request.AppCommands);
 
             using var host = new MenuHostWindow(request.Owner, sink);
 
@@ -275,13 +296,55 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
             PostMessage(host.Handle, WmNull, 0, 0);
 
             // 아무것도 고르지 않고 닫았다. 실패가 아니다.
-            return chosen == 0 ? Ok : Invoke(menu, request, (uint)chosen);
+            if (chosen == 0)
+            {
+                return new MenuOutcome(Ok, null);
+            }
+
+            // 우리 항목이면 shell 에 넘기지 않는다. 실행은 <b>메뉴가 완전히 풀린 뒤</b>에
+            // 부른 쪽이 한다 (함정 8) — 여기서 곧바로 하면 TrackPopupMenuEx 가 아직
+            // 자기 루프 안이다.
+            if (AppCommandOf(chosen) is { } appCommand)
+            {
+                return new MenuOutcome(Ok, appCommand);
+            }
+
+            return new MenuOutcome(Invoke(menu, request, (uint)chosen), null);
         }
         finally
         {
             DestroyMenu(popup);
         }
     }
+
+    /// <summary>
+    /// 앱 자체 항목을 메뉴 <b>맨 위</b>에 넣는다. 아래는 shell 이 세운 것 그대로다.
+    /// <para>
+    /// 위치로 넣는다(<c>MF_BYPOSITION</c>) — shell 이 첫 항목에 무슨 ID 를 줬는지 알 필요가
+    /// 없다. 구분선은 우리 것과 shell 것을 눈으로 가른다.
+    /// </para>
+    /// </summary>
+    private static void InsertAppCommands(nint popup, IReadOnlyList<string> commands)
+    {
+        if (commands.Count == 0)
+        {
+            return;
+        }
+
+        // 뒤에서부터 0 번 자리에 넣으면 준 순서대로 선다.
+        InsertMenu(popup, 0, MfByPosition | MfSeparator, 0, null);
+
+        for (var index = commands.Count - 1; index >= 0; index--)
+        {
+            InsertMenu(popup, 0, MfByPosition | MfString, (nuint)(AppVerbBase + index), commands[index]);
+        }
+    }
+
+    /// <summary>
+    /// 고른 것이 앱 항목이면 그 인덱스, shell verb 면 <c>null</c>.
+    /// </summary>
+    internal static int? AppCommandOf(int chosen)
+        => chosen >= AppVerbBase ? chosen - (int)AppVerbBase : null;
 
     /// <summary>
     /// 고른 verb 를 실행한다.
@@ -446,10 +509,22 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
 
     private const int Unexpected = unchecked((int)0x8000FFFF);
 
-    /// <summary>shell verb ID 범위 (함정 3). 앱 자체 항목은 <c>0x7FFF</c> 초과여야 하는데 넣지 않는다.</summary>
+    /// <summary>shell verb ID 범위 (함정 3). 앱 자체 항목은 이 위를 쓴다.</summary>
     private const uint MinVerbId = 1;
 
     private const uint MaxVerbId = 0x7FFF;
+
+    /// <summary>
+    /// 앱 자체 항목의 첫 ID. <b>shell 범위를 넘어야 한다</b> (함정 3) — 겹치면 사용자가 고른
+    /// 우리 항목을 shell 이 자기 verb 로 알아듣는다.
+    /// </summary>
+    private const uint AppVerbBase = MaxVerbId + 1;
+
+    private const uint MfString = 0x00000000;
+
+    private const uint MfSeparator = 0x00000800;
+
+    private const uint MfByPosition = 0x00000400;
 
     private const uint CmfNormal = 0x00000000;
 
@@ -532,6 +607,13 @@ public sealed partial class ShellContextMenuProvider : IContextMenuProvider, IDi
     [LibraryImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool DestroyMenu(nint menu);
+
+    /// <summary>
+    /// 앱 항목을 넣는다. <c>InsertMenuW</c> 다 — 항목 이름이 한글이라 ANSI 판을 쓰면 깨진다.
+    /// </summary>
+    [LibraryImport("user32.dll", EntryPoint = "InsertMenuW", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool InsertMenu(nint menu, uint position, uint flags, nuint id, string? item);
 
     [LibraryImport("user32.dll")]
     private static partial int TrackPopupMenuEx(nint menu, uint flags, int x, int y, nint window, nint parameters);

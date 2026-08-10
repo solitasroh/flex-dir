@@ -25,6 +25,54 @@ public class ShellContextMenuProviderTests
     // ── 무엇을 넘기는가 ───────────────────────────────────────────
 
     [Fact]
+    public void AppCommandOf_BelowTheShellRange_IsAShellVerb()
+    {
+        // verb ID 1~0x7FFF 는 shell 것이다 (docs/SHELL_NOTES.md §컨텍스트 메뉴 함정 3).
+        // 이 경계를 잘못 잡으면 사용자가 고른 shell 항목을 우리 것으로 알아듣는다.
+        Assert.Null(ShellContextMenuProvider.AppCommandOf(1));
+        Assert.Null(ShellContextMenuProvider.AppCommandOf(0x7FFF));
+    }
+
+    [Fact]
+    public void AppCommandOf_AboveTheShellRange_IsOurs()
+    {
+        Assert.Equal(0, ShellContextMenuProvider.AppCommandOf(0x8000));
+        Assert.Equal(1, ShellContextMenuProvider.AppCommandOf(0x8001));
+    }
+
+    [Fact]
+    public async Task ShowAsync_PassesTheAppCommandsThrough()
+    {
+        var seen = new List<ShellContextMenuProvider.Request>();
+        using var provider = Provider(seen);
+
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, ["즐겨찾기에 추가"], CancellationToken.None);
+
+        Assert.Equal(["즐겨찾기에 추가"], Assert.Single(seen).AppCommands);
+    }
+
+    [Fact]
+    public async Task ShowAsync_WhenAnAppCommandIsChosen_GivesItsIndex()
+    {
+        // 앱 항목은 shell 에 넘기지 않고 부른 쪽이 처리한다 (함정 8).
+        using var provider = new ShellContextMenuProvider(
+            () => 0,
+            _ => new ShellContextMenuProvider.MenuOutcome(0, 0));
+
+        Assert.Equal(0, await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, ["고정"], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ShowAsync_WhenAShellVerbIsChosen_GivesNothing()
+    {
+        using var provider = new ShellContextMenuProvider(
+            () => 0,
+            _ => new ShellContextMenuProvider.MenuOutcome(0, null));
+
+        Assert.Null(await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, ["고정"], CancellationToken.None));
+    }
+
+    [Fact]
     public async Task ShowAsync_ForItems_PassesTheirLeafNames()
     {
         // shell 은 폴더에 바인딩한 뒤 자식 이름으로 PIDL 을 만든다 — 전체 경로가 아니다.
@@ -35,6 +83,7 @@ public class ShellContextMenuProviderTests
             [Loc(@"C:\Temp\a.txt"), Loc(@"C:\Temp\b.txt")],
             Loc(@"C:\Temp"),
             Somewhere,
+            [],
             CancellationToken.None);
 
         var request = Assert.Single(seen);
@@ -52,7 +101,7 @@ public class ShellContextMenuProviderTests
         var seen = new List<ShellContextMenuProvider.Request>();
         using var provider = Provider(seen);
 
-        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None);
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None);
 
         Assert.Empty(Assert.Single(seen).Names);
     }
@@ -111,11 +160,11 @@ public class ShellContextMenuProviderTests
             request =>
             {
                 seen.Add(request);
-                return 0;
+                return new ShellContextMenuProvider.MenuOutcome(0, null);
             });
 
-        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None);
-        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None);
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None);
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None);
 
         Assert.Equal([11, 22], [.. seen.Select(request => request.Owner)]);
     }
@@ -125,10 +174,10 @@ public class ShellContextMenuProviderTests
     [Fact]
     public async Task ShowAsync_WhenTheShellRefuses_IsALocationAccessFailure()
     {
-        using var provider = new ShellContextMenuProvider(() => 0, _ => unchecked((int)0x80070005));
+        using var provider = new ShellContextMenuProvider(() => 0, _ => new ShellContextMenuProvider.MenuOutcome(unchecked((int)0x80070005), null));
 
         var failure = await Assert.ThrowsAsync<LocationAccessException>(
-            () => provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None));
+            () => provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None));
 
         Assert.Equal(LocationErrorKind.AccessDenied, failure.Kind);
         Assert.Equal(5, failure.Win32Error);
@@ -139,9 +188,9 @@ public class ShellContextMenuProviderTests
     {
         // 메뉴를 닫기만 한 것은 정상이다. 오류로 만들면 방금 스스로 한 선택을
         // 상태표시줄에서 오류로 통보받는다.
-        using var provider = new ShellContextMenuProvider(() => 0, _ => 0);
+        using var provider = new ShellContextMenuProvider(() => 0, _ => new ShellContextMenuProvider.MenuOutcome(0, null));
 
-        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None);
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None);
     }
 
     [Fact]
@@ -154,7 +203,7 @@ public class ShellContextMenuProviderTests
             _ =>
             {
                 called = true;
-                return 0;
+                return new ShellContextMenuProvider.MenuOutcome(0, null);
             });
 
         using var cancelled = new CancellationTokenSource();
@@ -162,7 +211,7 @@ public class ShellContextMenuProviderTests
         await cancelled.CancelAsync();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, cancelled.Token));
+            () => provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], cancelled.Token));
 
         Assert.False(called);
     }
@@ -172,19 +221,19 @@ public class ShellContextMenuProviderTests
     [Fact]
     public async Task ShowAsync_WithoutItems_Throws()
     {
-        using var provider = new ShellContextMenuProvider(() => 0, _ => 0);
+        using var provider = new ShellContextMenuProvider(() => 0, _ => new ShellContextMenuProvider.MenuOutcome(0, null));
 
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => provider.ShowAsync(null!, Loc(@"C:\Temp"), Somewhere, CancellationToken.None));
+            () => provider.ShowAsync(null!, Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None));
     }
 
     [Fact]
     public async Task ShowAsync_WithoutAFolder_Throws()
     {
-        using var provider = new ShellContextMenuProvider(() => 0, _ => 0);
+        using var provider = new ShellContextMenuProvider(() => 0, _ => new ShellContextMenuProvider.MenuOutcome(0, null));
 
         await Assert.ThrowsAsync<ArgumentNullException>(
-            () => provider.ShowAsync([], null!, Somewhere, CancellationToken.None));
+            () => provider.ShowAsync([], null!, Somewhere, [], CancellationToken.None));
     }
 
     [Fact]
@@ -207,10 +256,10 @@ public class ShellContextMenuProviderTests
             _ =>
             {
                 apartment = Thread.CurrentThread.GetApartmentState();
-                return 0;
+                return new ShellContextMenuProvider.MenuOutcome(0, null);
             });
 
-        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, CancellationToken.None);
+        await provider.ShowAsync([], Loc(@"C:\Temp"), Somewhere, [], CancellationToken.None);
 
         Assert.Equal(ApartmentState.STA, apartment);
     }
@@ -221,7 +270,7 @@ public class ShellContextMenuProviderTests
             request =>
             {
                 seen.Add(request);
-                return 0;
+                return new ShellContextMenuProvider.MenuOutcome(0, null);
             });
 
     private static LocationId Loc(string path)

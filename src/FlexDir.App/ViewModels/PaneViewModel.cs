@@ -941,6 +941,19 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </summary>
     public event EventHandler? ActivationRequested;
 
+    /// <summary>
+    /// 컨텍스트 메뉴에서 '즐겨찾기에 추가' 를 골랐다 (docs/PRD-v2.md §10-2). 경로 문자열을
+    /// 낸다 — 페인은 트리를 모르고, 무엇이 폴더인지 가리는 것도 받는 쪽의 몫이다.
+    /// </summary>
+    public event EventHandler<IReadOnlyList<string>>? PinRequested;
+
+    /// <summary>
+    /// 컨텍스트 메뉴 맨 위에 붙는 앱 자체 항목. 순서가 곧 <see cref="PinCommandIndex"/> 다.
+    /// </summary>
+    private static readonly string[] AppMenuCommands = ["즐겨찾기에 추가"];
+
+    private const int PinCommandIndex = 0;
+
     // 아래 얇은 커맨드들은 View 의 InputBindings·MouseBinding 이 문다 — 그 자리는
     // ICommand 만 받는다 (docs/DESIGN.md §9). 판단은 전부 이미 채점된 메서드 안에 있다.
 
@@ -1460,8 +1473,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 그 판정은 여기서 한다 — 어느 쪽인가를 아는 것은 선택을 든 이쪽이다.
     /// </para>
     /// <para>
-    /// 메뉴가 무엇을 했는지 묻지 않는다. shell verb 는 파일시스템을 직접 고치고 우리는
-    /// <c>IFolderWatcher</c> 로 그것을 본다 (CLAUDE.md §4).
+    /// <b>shell verb 가 무엇을 했는지는 묻지 않는다.</b> verb 는 파일시스템을 직접 고치고
+    /// 우리는 <c>IFolderWatcher</c> 로 그것을 본다 (CLAUDE.md §4). 다만 <b>앱 자체 항목</b>은
+    /// 우리가 처리해야 하므로 그것만 돌아온다 (docs/PRD-v2.md §10-2).
     /// </para>
     /// </summary>
     [RelayCommand]
@@ -1474,7 +1488,26 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         var items = Selection.SelectedNames.Select(folder.Combine).ToArray();
 
-        return RunAsync(token => contextMenus.ShowAsync(items, folder, at, token), ct);
+        return RunAsync(
+            async token =>
+            {
+                var chosen = await contextMenus.ShowAsync(items, folder, at, AppMenuCommands, token)
+                    .ConfigureAwait(false);
+
+                if (chosen != PinCommandIndex)
+                {
+                    return;
+                }
+
+                // 고른 것이 없으면 배경 메뉴였다 — 지금 폴더를 고정한다.
+                // 폴더만 들어가는지는 받는 쪽이 가린다 (FolderTreeViewModel.AddFavoritesAsync).
+                var paths = items.Length == 0
+                    ? [folder.DisplayPath]
+                    : items.Select(item => item.DisplayPath).ToArray();
+
+                PinRequested?.Invoke(this, paths);
+            },
+            ct);
     }
 
     /// <summary>이름 편집을 시작한다. 선택이 정확히 하나일 때만.</summary>

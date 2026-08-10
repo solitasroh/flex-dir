@@ -8,6 +8,7 @@ using FlexDir.Core.Usage;
 
 using FlexDir.Shell.Activation;
 using FlexDir.Shell.Enumeration;
+using FlexDir.Shell.Favorites;
 using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
 using FlexDir.Shell.Storage;
@@ -152,7 +153,11 @@ public sealed class AppComposition : IAsyncDisposable
         // 트리도 페인과 같은 열거 포트를 쓴다 (docs/PRD-v2.md §10) — 라우팅이 이미 서버와
         // 폴더를 가르므로 트리는 UNC 를 따로 알 필요가 없다. 창에 하나뿐이라 페인처럼
         // 두 벌 만들지 않는다.
-        var tree = new FolderTreeViewModel(driveList, networkPlaces, folderSource, dispatcher);
+        // 즐겨찾기는 뷰 상태와 다른 파일이다 — 그쪽이 깨져서 기본값으로 접히는 사건이
+        // 사용자가 모아 둔 목록을 함께 지우면 안 된다 (docs/PRD-v2.md §10-2).
+        var favorites = new JsonFavoriteStore(stateDirectory);
+
+        var tree = new FolderTreeViewModel(driveList, networkPlaces, favorites, folderSource, dispatcher);
 
         var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree);
 

@@ -83,6 +83,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 기다리지 않는다 — 이벤트 핸들러는 동기이고, 페인은 열거 실패를 자기
             // 상태표시줄에 낸다 (PaneViewModel.FillAsync).
             tree.NavigationRequested += (_, location) => _ = ActivePane.NavigateAsync(location);
+
+            // 목록 우클릭의 '즐겨찾기에 추가'. 페인은 트리를 모르므로 여기서 잇는다 —
+            // 페인 간 복사를 워크스페이스가 잇는 것과 같은 자리다.
+            left.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
+            right.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
         }
     }
 
@@ -234,6 +239,19 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         {
             tree.IsVisible = !tree.IsVisible;
         }
+    }
+
+    /// <summary>
+    /// 활성 페인이 보고 있는 폴더를 트리에 고정한다 (docs/PRD-v2.md §10-2).
+    /// 아무 곳도 열지 않았거나 트리가 없으면 아무 일도 하지 않는다 — 툴바 버튼은 그런
+    /// 상태에서도 눌린다.
+    /// </summary>
+    [RelayCommand]
+    private Task PinCurrentFolderAsync(CancellationToken ct)
+    {
+        return Tree is { } tree && ActivePane.CurrentLocation is { } folder
+            ? tree.AddFavoriteAsync(folder, ct)
+            : Task.CompletedTask;
     }
 
     /// <summary>

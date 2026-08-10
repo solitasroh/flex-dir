@@ -30,8 +30,13 @@ public enum RenameKey
 /// 일상 동작이고, 이름변경은 휴지통이 없는 유일한 조작이다.
 /// </para>
 /// <para>
-/// 판정 셋(<see cref="Choose"/>·<see cref="InitialSelection"/>·<see cref="OwnerList"/>)만
-/// 채점하고 포커스 이동과 이벤트 훅은 사람이 확인한다 (CLAUDE.md §5).
+/// 판정 넷(<see cref="Choose"/>·<see cref="InitialSelection"/>·<see cref="Subject"/>·
+/// <see cref="OwnerContainer"/>)만 채점하고 포커스 이동과 이벤트 훅은 사람이 확인한다
+/// (CLAUDE.md §5).
+/// </para>
+/// <para>
+/// <b>목록과 트리가 이 편집기를 함께 쓴다</b> (docs/PRD-v2.md §10-2). Enter·Esc·포커스
+/// 상실이 두 곳에서 다르게 동작할 이유가 없어서 따로 만들지 않았다.
 /// </para>
 /// </summary>
 public static class RenameEditor
@@ -125,20 +130,37 @@ public static class RenameEditor
     }
 
     /// <summary>
-    /// 편집기가 들어 있는 목록. 편집이 닫히면 키보드를 여기로 돌려준다 — 그러지 않으면
-    /// 다음 방향키가 갈 곳이 없다.
+    /// 편집기가 무엇의 이름을 고치고 있나 — 실을 글자와, 초기 선택을 정할 폴더 여부다.
+    /// 편집기가 붙을 수 없는 것이면 <c>null</c>.
+    /// <para>
+    /// 목록 항목과 트리 즐겨찾기 둘이 이 편집기를 함께 쓴다 (docs/PRD-v2.md §10-2).
+    /// 트리 쪽은 <b>이미 담아 둔 편집용 글자</b>를 싣는다 — 노드의 표시 이름은 확정할
+    /// 때까지 건드리지 않기 때문이다. 그리고 즐겨찾기는 늘 폴더라 전체가 선택된다.
+    /// </para>
+    /// </summary>
+    internal static (string Text, bool IsDirectory)? Subject(object? dataContext) => dataContext switch
+    {
+        FileItemViewModel item => (item.Name, item.IsDirectory),
+        TreeNodeViewModel node => (node.EditingLabel, true),
+        _ => null,
+    };
+
+    /// <summary>
+    /// 편집기가 들어 있는 목록·트리. 편집이 닫히면 키보드를 여기로 돌려준다 — 그러지
+    /// 않으면 다음 방향키가 갈 곳이 없다.
     /// <para>
     /// 가장 가까운 <c>ItemsControl</c> 에서 멈추지 않는다: wrap 뷰 3종에서 편집기는 합성
     /// 행 안의 중첩 <c>ItemsControl</c> 에 있고 (ADR-016) 그것은 <c>Focusable=False</c> 다.
+    /// 트리도 마찬가지로 <c>TreeViewItem</c> 이 중간에 여럿 끼어 있다.
     /// </para>
     /// </summary>
-    internal static ListBox? OwnerList(DependencyObject? node)
+    internal static Control? OwnerContainer(DependencyObject? node)
     {
         while (node is not null)
         {
-            if (node is ListBox list)
+            if (node is ListBox or TreeView)
             {
-                return list;
+                return (Control)node;
             }
 
             node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
@@ -164,13 +186,13 @@ public static class RenameEditor
     {
         var box = (TextBox)sender;
 
-        if (args.NewValue is not true || box.DataContext is not FileItemViewModel item)
+        if (args.NewValue is not true || Subject(box.DataContext) is not { } subject)
         {
             return;
         }
 
         // 이름을 바인딩으로 싣지 않는다 — 취소했다 다시 열면 지난 입력이 남는다.
-        box.Text = item.Name;
+        box.Text = subject.Text;
 
         // 방금 Visible 이 된 요소는 아직 레이아웃을 지나지 않아 포커스를 받지 못한다.
         // 가상화가 컨테이너를 실현하는 중일 수도 있다.
@@ -183,7 +205,7 @@ public static class RenameEditor
                     return;
                 }
 
-                var (start, length) = InitialSelection(box.Text, item.IsDirectory);
+                var (start, length) = InitialSelection(box.Text, subject.IsDirectory);
 
                 box.Focus();
                 box.Select(start, length);
@@ -198,12 +220,12 @@ public static class RenameEditor
         {
             case RenameKey.Commit:
                 GetCommitCommand(box)?.Execute(box.Text);
-                OwnerList(box)?.Focus();
+                OwnerContainer(box)?.Focus();
                 break;
 
             case RenameKey.Cancel:
                 GetCancelCommand(box)?.Execute(null);
-                OwnerList(box)?.Focus();
+                OwnerContainer(box)?.Focus();
                 break;
         }
 

@@ -1009,6 +1009,12 @@
             <!-- 이것이 없으면 자동화가 노드 이름을 ToString() 으로 읽어 클래스 이름을 낸다
                  (2026-08-10 UIA 로 확인). 헤더가 TextBlock 이라 자동으로 잡히지 않는다. -->
             <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+
+            <!-- 메뉴와 편집기가 트리의 커맨드에 닿는 통로. ContextMenu 는 비주얼 트리 밖이라
+                 RelativeSource 로는 트리를 찾을 수 없다. -->
+            <Setter Property="Tag"
+                    Value="{Binding DataContext.Tree, RelativeSource={RelativeSource AncestorType=TreeView}}" />
+            <Setter Property="ContextMenu" Value="{StaticResource TreeNodeMenu}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TreeViewItem">
@@ -1027,8 +1033,10 @@
                                     <!-- 드라이브·서버·폴더가 같은 글리프다. 무엇인지는 라벨이
                                          말한다 ("로컬 디스크 (C:)" · "\\10.10.10.23") — 유형별
                                          아이콘을 붙이려면 shell 에 물어야 하고 그것은 노드마다
-                                         저장소 호출이다. -->
-                                    <TextBlock Grid.Column="1" FontFamily="Segoe Fluent Icons" FontSize="12"
+                                         저장소 호출이다. 즐겨찾기만 갈라 둔다: 그것은 내가
+                                         만든 것이라 시스템이 주는 것과 섞이면 안 된다. -->
+                                    <TextBlock x:Name="Glyph" Grid.Column="1"
+                                               FontFamily="Segoe Fluent Icons" FontSize="12"
                                                Text="&#xE8B7;" Margin="2,0,6,0" VerticalAlignment="Center"
                                                Foreground="{StaticResource Text2Brush}" />
 
@@ -1052,6 +1060,11 @@
                                 <Setter TargetName="Chevron" Property="Visibility" Value="Hidden" />
                             </DataTrigger>
 
+                            <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                <Setter TargetName="Glyph" Property="Text" Value="&#xE735;" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                            </DataTrigger>
+
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Row" Property="Background" Value="{StaticResource HoverBrush}" />
                             </Trigger>
@@ -1064,9 +1077,97 @@
             </Setter>
         </Style>
 
+        <!-- 즐겨찾기 이름 편집. 목록과 같은 편집기를 쓴다 (Views/RenameEditor.cs) —
+             Enter·Esc·포커스 상실이 두 곳에서 다르게 동작할 이유가 없다. -->
+        <Style x:Key="TreeItemName" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="TreeItemNameEditor" TargetType="TextBox">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Setter Property="Height" Value="20" />
+            <Setter Property="Padding" Value="2,0" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="v:RenameEditor.Enabled" Value="True" />
+
+            <!-- 커맨드는 트리가 갖는다. 컨테이너의 Tag 가 그 트리다 (아래 TreeNodeItem). -->
+            <Setter Property="v:RenameEditor.CommitCommand"
+                    Value="{Binding Tag.CommitRenameCommand, RelativeSource={RelativeSource AncestorType=TreeViewItem}}" />
+            <Setter Property="v:RenameEditor.CancelCommand"
+                    Value="{Binding Tag.CancelRenameCommand, RelativeSource={RelativeSource AncestorType=TreeViewItem}}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsEditing}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 즐겨찾기인 항목과 아닌 항목의 메뉴가 다르다. 한 메뉴에 두고 IsFavorite 으로
+             각 항목을 여닫는다 — ContextMenu 는 PlacementTarget 에서 DataContext(노드)를
+             물려받고, 트리 자신은 그 Tag 로 닿는다. -->
+        <Style x:Key="PinMenuItem" TargetType="MenuItem">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="False">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FavoriteMenuItem" TargetType="MenuItem">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FavoriteSeparator" TargetType="Separator">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <ContextMenu x:Key="TreeNodeMenu" x:Shared="False">
+            <MenuItem Style="{StaticResource PinMenuItem}" Header="즐겨찾기에 추가"
+                      Command="{Binding PlacementTarget.Tag.PinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="이름 바꾸기"
+                      Command="{Binding PlacementTarget.Tag.BeginRenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="위로"
+                      Command="{Binding PlacementTarget.Tag.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="아래로"
+                      Command="{Binding PlacementTarget.Tag.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <Separator Style="{StaticResource FavoriteSeparator}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="즐겨찾기에서 제거"
+                      Command="{Binding PlacementTarget.Tag.UnpinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+        </ContextMenu>
+
         <HierarchicalDataTemplate DataType="{x:Type vm:TreeNodeViewModel}" ItemsSource="{Binding Children}">
-            <TextBlock Text="{Binding Label}" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
+            <Grid>
+                <TextBlock Style="{StaticResource TreeItemName}" Text="{Binding Label}" />
+                <TextBox Style="{StaticResource TreeItemNameEditor}"
+                         Text="{Binding EditingLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            </Grid>
         </HierarchicalDataTemplate>
     </Window.Resources>
 
@@ -1088,6 +1189,11 @@
                      페인 툴바에 두면 같은 버튼이 둘이 된다 (docs/PRD-v2.md §10). -->
                 <Button Style="{StaticResource ToolButton}" Content="&#xE700;" Margin="6,0,0,0"
                         ToolTip="폴더 트리" Command="{Binding ToggleTreeCommand}" />
+
+                <!-- 활성 페인이 보고 있는 폴더를 고정한다 (docs/PRD-v2.md §10-2).
+                     트리 조작이라 트리 토글 옆이다 — 페인 툴바에 두면 버튼이 둘이 된다. -->
+                <Button Style="{StaticResource ToolButton}" Content="&#xE735;"
+                        ToolTip="현재 폴더를 즐겨찾기에 추가" Command="{Binding PinCurrentFolderCommand}" />
                 <TextBlock Text="flex-dir" Margin="6,0,0,0" VerticalAlignment="Center"
                            Foreground="{StaticResource TextBrush}" />
             </StackPanel>
@@ -1126,6 +1232,7 @@
                      펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
                 <TreeView ItemsSource="{Binding Tree.Roots}"
                           ItemContainerStyle="{StaticResource TreeNodeItem}"
+                          v:FavoriteDropInput.Enabled="True"
                           Background="Transparent" BorderThickness="0" Padding="4"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"

@@ -1,6 +1,9 @@
+using System.IO;
+
 using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
 
+using FlexDir.Core.Favorites;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
 using FlexDir.Core.Storage;
@@ -21,6 +24,7 @@ public class FolderTreeViewModelTests
 {
     private readonly FakeDriveList drives = new();
     private readonly FakeNetworkPlaceList places = new();
+    private readonly FakeFavoriteStore favorites = new();
     private readonly FakeFolderSource folders = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
@@ -207,6 +211,363 @@ public class FolderTreeViewModelTests
         Assert.Equal(["Users"], node.Children.Select(child => child.Label));
     }
 
+    // ── 즐겨찾기 (docs/PRD-v2.md §10-2 · 사용자 결정 2026-08-10) ────
+
+    [Fact]
+    public async Task LoadAsync_PutsFavoritesAtTheVeryTop()
+    {
+        // 가장 자주 가는 곳이 눈과 마우스에 제일 가깝다 (사용자 결정) — 드라이브가 많은
+        // 기계에서 아래에 두면 스크롤해야 보인다.
+        drives.Drives.Add(new DriveEntry(Path(@"C:\"), "로컬 디스크 (C:)", null));
+        await favorites.SaveAsync([new Favorite(Path(@"C:\work"), "작업")], CancellationToken.None);
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(["작업", "로컬 디스크 (C:)"], tree.Roots.Select(node => node.Label));
+        Assert.True(tree.Roots[0].IsFavorite);
+        Assert.False(tree.Roots[1].IsFavorite);
+    }
+
+    [Fact]
+    public async Task AddFavoriteAsync_PutsItAtTheTopAndSaves()
+    {
+        var tree = await LoadedTreeAsync();
+
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        Assert.Equal("work", tree.Roots[0].Label);
+        Assert.True(tree.Roots[0].IsFavorite);
+
+        // 즉시 남긴다 — 창을 강제로 끄더라도 방금 넣은 것이 사라지면 안 된다.
+        Assert.Equal(1, favorites.Saves);
+        Assert.Equal([@"C:\work"], favorites.Current.Select(f => f.Path.DisplayPath));
+    }
+
+    [Fact]
+    public async Task AddFavoriteAsync_TheSamePathTwice_AddsItOnce()
+    {
+        var tree = await LoadedTreeAsync();
+
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+        await tree.AddFavoriteAsync(Path(@"C:\WORK"), CancellationToken.None);
+
+        // 파일시스템이 대소문자를 구분하지 않으므로 같은 폴더다.
+        Assert.Single(tree.Roots, node => node.IsFavorite);
+        Assert.Equal(1, favorites.Saves);
+    }
+
+    [Fact]
+    public async Task AddFavoriteAsync_DoesNotCollapseWhatIsAlreadyOpen()
+    {
+        // 루트를 통째로 다시 세우면 펼쳐 둔 폴더가 전부 접힌다 — 즐겨찾기 하나 넣었다고
+        // 보고 있던 자리를 잃으면 안 된다.
+        var root = Path(@"C:\");
+        folders.Folders[root] = [Folder(root, "Users")];
+
+        var tree = await LoadedTreeAsync(root);
+        var drive = tree.Roots[0];
+        await tree.ExpandAsync(drive, CancellationToken.None);
+
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        Assert.Same(drive, tree.Roots[1]);
+        Assert.True(drive.IsRealized);
+        Assert.Single(drive.Children);
+    }
+
+    [Fact]
+    public async Task RemoveFavoriteAsync_TakesItOutAndSaves()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        await tree.RemoveFavoriteAsync(tree.Roots[0], CancellationToken.None);
+
+        Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
+        Assert.Empty(favorites.Current);
+    }
+
+    [Fact]
+    public async Task RemoveFavoriteAsync_OnSomethingThatIsNotAFavorite_DoesNothing()
+    {
+        // 드라이브는 뺄 수 없다. 메뉴가 막더라도 여기서 한 번 더 막는다.
+        var tree = await LoadedTreeAsync();
+
+        await tree.RemoveFavoriteAsync(tree.Roots[0], CancellationToken.None);
+
+        Assert.Single(tree.Roots);
+        Assert.Equal(0, favorites.Saves);
+    }
+
+    [Fact]
+    public async Task RenameFavoriteAsync_ChangesTheLabelOnly()
+    {
+        // 같은 이름의 폴더가 여럿일 때 가르는 유일한 수단이다. 경로는 그대로다.
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        await tree.RenameFavoriteAsync(tree.Roots[0], "펌웨어", CancellationToken.None);
+
+        Assert.Equal("펌웨어", tree.Roots[0].Label);
+        Assert.Equal(@"C:\work", tree.Roots[0].Location.DisplayPath);
+        Assert.Equal("펌웨어", favorites.Current[0].Label);
+    }
+
+    [Fact]
+    public async Task RenameFavoriteAsync_WithBlank_KeepsTheOldLabel()
+    {
+        // 빈 라벨은 트리에 빈 줄로 선다. 편집을 지우고 확정한 것은 취소로 본다.
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        await tree.RenameFavoriteAsync(tree.Roots[0], "   ", CancellationToken.None);
+
+        Assert.Equal("work", tree.Roots[0].Label);
+    }
+
+    [Fact]
+    public async Task MoveFavoriteAsync_ReordersAndSaves()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\a"), CancellationToken.None);
+        await tree.AddFavoriteAsync(Path(@"C:\b"), CancellationToken.None);
+
+        // 추가 순서대로 선다: a · b
+        await tree.MoveFavoriteAsync(tree.Roots[1], -1, CancellationToken.None);
+
+        Assert.Equal(["b", "a"], tree.Roots.Where(n => n.IsFavorite).Select(n => n.Label));
+        Assert.Equal(["b", "a"], favorites.Current.Select(f => f.Label));
+    }
+
+    [Fact]
+    public async Task MoveFavoriteAsync_PastTheEdge_DoesNothing()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\a"), CancellationToken.None);
+        var saves = favorites.Saves;
+
+        await tree.MoveFavoriteAsync(tree.Roots[0], -1, CancellationToken.None);
+
+        Assert.Equal("a", tree.Roots[0].Label);
+        Assert.Equal(saves, favorites.Saves);
+    }
+
+    [Fact]
+    public async Task AddFavoriteAsync_WhenSavingFails_KeepsItOnScreen()
+    {
+        // 저장이 실패해도 앱이 죽거나 방금 한 조작이 화면에서 사라지면 안 된다.
+        // 다음 조작이 다시 저장을 시도한다.
+        var tree = await LoadedTreeAsync();
+        favorites.SaveFailure = new IOException("디스크가 꽉 찼다");
+
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        Assert.True(tree.Roots[0].IsFavorite);
+    }
+
+    [Fact]
+    public async Task SelectingAFavorite_AsksToNavigateThere()
+    {
+        var tree = await LoadedTreeAsync();
+        LocationId? asked = null;
+        tree.NavigationRequested += (_, location) => asked = location;
+
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+        tree.Roots[0].IsSelected = true;
+
+        Assert.Equal(Path(@"C:\work"), asked);
+    }
+
+    // ── 목록에서 트리로 드래그 ────────────────────────────────────
+
+    [Fact]
+    public async Task AddFavoritesAsync_TakesFoldersAndLeavesFilesOut()
+    {
+        // 파일을 고정하면 트리에서 펼칠 수도 없고 골라도 페인이 열지 못한다.
+        // 무엇이 폴더인지는 파일시스템에 물어야 알고, 그 물음은 UI 스레드 밖이다.
+        var root = Path(@"C:\");
+        folders.Folders[root] = [Folder(root, "work"), File(root, "note.txt")];
+
+        var tree = await LoadedTreeAsync(root);
+
+        await tree.AddFavoritesAsync([@"C:\work", @"C:\note.txt"], CancellationToken.None);
+
+        Assert.Equal(["work"], tree.Roots.Where(n => n.IsFavorite).Select(n => n.Label));
+    }
+
+    [Fact]
+    public async Task AddFavoritesAsync_SkipsWhatIsNotThere()
+    {
+        var root = Path(@"C:\");
+        folders.Folders[root] = [Folder(root, "work")];
+
+        var tree = await LoadedTreeAsync(root);
+
+        await tree.AddFavoritesAsync([@"C:\없는폴더"], CancellationToken.None);
+
+        Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
+    }
+
+    [Fact]
+    public async Task AddFavoritesAsync_SkipsPathsThatDoNotParse()
+    {
+        var tree = await LoadedTreeAsync();
+
+        await tree.AddFavoritesAsync(["", "??"], CancellationToken.None);
+
+        Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
+    }
+
+    [Fact]
+    public async Task AddFavoritesAsync_ManyAtOnce_SavesOnce()
+    {
+        // 열 개를 끌어다 놓으면 저장도 열 번이면 안 된다.
+        var root = Path(@"C:\");
+        folders.Folders[root] = [Folder(root, "a"), Folder(root, "b")];
+
+        var tree = await LoadedTreeAsync(root);
+
+        await tree.AddFavoritesAsync([@"C:\a", @"C:\b"], CancellationToken.None);
+
+        Assert.Equal(["a", "b"], tree.Roots.Where(n => n.IsFavorite).Select(n => n.Label));
+        Assert.Equal(1, favorites.Saves);
+    }
+
+    [Fact]
+    public async Task AddFavoritesAsync_WithNothingNew_DoesNotSave()
+    {
+        var root = Path(@"C:\");
+        folders.Folders[root] = [Folder(root, "work")];
+
+        var tree = await LoadedTreeAsync(root);
+        await tree.AddFavoritesAsync([@"C:\work"], CancellationToken.None);
+        var saves = favorites.Saves;
+
+        await tree.AddFavoritesAsync([@"C:\work"], CancellationToken.None);
+
+        Assert.Equal(saves, favorites.Saves);
+    }
+
+    // ── 즐겨찾기 이름 편집 (트리 우클릭 → 이름 바꾸기) ──────────────
+
+    [Fact]
+    public async Task BeginRename_LoadsTheCurrentLabelIntoTheEditor()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+        var node = tree.Roots[0];
+
+        tree.BeginRenameCommand.Execute(node);
+
+        Assert.True(node.IsEditing);
+        Assert.Equal("work", node.EditingLabel);
+    }
+
+    [Fact]
+    public async Task CommitRename_AppliesAndClosesTheEditor()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+        var node = tree.Roots[0];
+
+        tree.BeginRenameCommand.Execute(node);
+        await tree.CommitRenameCommand.ExecuteAsync("펌웨어");
+
+        Assert.False(node.IsEditing);
+        Assert.Equal("펌웨어", tree.Roots[0].Label);
+        Assert.Equal("펌웨어", favorites.Current[0].Label);
+    }
+
+    [Fact]
+    public async Task CancelRename_LeavesTheLabelAlone()
+    {
+        // 포커스를 잃는 것도 취소다 (목록 이름변경과 같은 규칙 — docs/DESIGN.md §9-1).
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+        var node = tree.Roots[0];
+
+        tree.BeginRenameCommand.Execute(node);
+        node.EditingLabel = "버릴 것";
+        tree.CancelRenameCommand.Execute(null);
+
+        Assert.False(node.IsEditing);
+        Assert.Equal("work", tree.Roots[0].Label);
+    }
+
+    [Fact]
+    public async Task CancelRename_Twice_IsFine()
+    {
+        // 확정으로 닫힌 뒤에도 포커스 상실이 한 번 더 온다. 멱등이어야 한다.
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        tree.CancelRenameCommand.Execute(null);
+        tree.CancelRenameCommand.Execute(null);
+    }
+
+    [Fact]
+    public async Task CommitRename_WithNothingBeingEdited_DoesNothing()
+    {
+        // 포커스 상실이 확정 뒤에 한 번 더 오는 경로다.
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        await tree.CommitRenameCommand.ExecuteAsync("아무거나");
+
+        Assert.Equal("work", tree.Roots[0].Label);
+    }
+
+    [Fact]
+    public async Task BeginRename_OnSomethingThatIsNotAFavorite_DoesNothing()
+    {
+        // 드라이브 이름은 시스템이 주는 것이라 우리가 정할 것이 없다.
+        var tree = await LoadedTreeAsync();
+
+        tree.BeginRenameCommand.Execute(tree.Roots[0]);
+
+        Assert.False(tree.Roots[0].IsEditing);
+    }
+
+    [Fact]
+    public async Task PinCommand_OnAnOrdinaryNode_PinsIt()
+    {
+        // 트리 우클릭의 진입점이다.
+        var tree = await LoadedTreeAsync();
+
+        await tree.PinCommand.ExecuteAsync(tree.Roots.Last());
+
+        Assert.True(tree.Roots[0].IsFavorite);
+        Assert.Equal(@"C:\", tree.Roots[0].Location.DisplayPath);
+    }
+
+    [Fact]
+    public async Task UnpinCommand_TakesItOut()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\work"), CancellationToken.None);
+
+        await tree.UnpinCommand.ExecuteAsync(tree.Roots[0]);
+
+        Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
+    }
+
+    [Fact]
+    public async Task MoveUpAndDownCommands_Reorder()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\a"), CancellationToken.None);
+        await tree.AddFavoriteAsync(Path(@"C:\b"), CancellationToken.None);
+
+        await tree.MoveUpCommand.ExecuteAsync(tree.Roots[1]);
+
+        Assert.Equal(["b", "a"], tree.Roots.Where(n => n.IsFavorite).Select(n => n.Label));
+
+        await tree.MoveDownCommand.ExecuteAsync(tree.Roots[0]);
+
+        Assert.Equal(["a", "b"], tree.Roots.Where(n => n.IsFavorite).Select(n => n.Label));
+    }
+
     [Fact]
     public void Width_BelowTheMinimum_IsClamped()
     {
@@ -227,7 +588,7 @@ public class FolderTreeViewModelTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private FolderTreeViewModel CreateTree() => new(drives, places, folders, dispatcher);
+    private FolderTreeViewModel CreateTree() => new(drives, places, favorites, folders, dispatcher);
 
     /// <summary>드라이브 하나를 등록하고 그 루트 노드를 낸다.</summary>
     private async Task<TreeNodeViewModel> FirstRootAsync(LocationId root, FolderTreeViewModel? tree = null)
@@ -241,6 +602,17 @@ public class FolderTreeViewModelTests
         await tree.LoadAsync(CancellationToken.None);
 
         return tree.Roots[0];
+    }
+
+    /// <summary>드라이브 하나를 세워 둔 트리. 즐겨찾기 테스트가 그 위에 얹는다.</summary>
+    private async Task<FolderTreeViewModel> LoadedTreeAsync(LocationId? root = null)
+    {
+        drives.Drives.Add(new DriveEntry(root ?? Path(@"C:\"), "로컬 디스크 (C:)", null));
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+
+        return tree;
     }
 
     private static FileItem Folder(LocationId parent, string name)

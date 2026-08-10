@@ -6,6 +6,7 @@ using FlexDir.App.ViewModels;
 
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
+using FlexDir.Core.Operations;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.Storage;
 using FlexDir.Core.Tests.Fakes;
@@ -454,6 +455,102 @@ public class WorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task PinCurrentFolder_PinsWhatTheActivePaneIsShowing()
+    {
+        // 툴바 버튼의 자리다 — 지금 보고 있는 폴더를 한 번에 고정한다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.Left.NavigateAsync(docs);
+
+        await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal([docs], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
+    }
+
+    [Fact]
+    public async Task PinCurrentFolder_FollowsTheActiveSide()
+    {
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        var pics = Folder(@"C:\Temp\Pics", ("p.jpg", 100));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.Left.NavigateAsync(docs);
+        await workspace.Right.NavigateAsync(pics);
+        workspace.ActivateCommand.Execute(PaneSide.Right);
+
+        await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
+
+        Assert.Equal([pics], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
+    }
+
+    [Fact]
+    public async Task PinCurrentFolder_WithNothingOpen_DoesNothing()
+    {
+        var (workspace, tree) = CreateWorkspaceWithTree();
+
+        await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
+
+        Assert.Empty(tree.Roots);
+    }
+
+    [Fact]
+    public async Task PinCurrentFolder_WithoutATree_DoesNothing()
+    {
+        // 툴바 버튼은 트리 없이 조립돼도 눌린다.
+        var workspace = CreateWorkspace();
+        await workspace.Left.NavigateAsync(Folder(@"C:\Temp\Docs", ("a.txt", 100)));
+
+        await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
+    }
+
+    [Fact]
+    public async Task ContextMenuPin_PinsTheSelectedFolders()
+    {
+        // 목록 우클릭 → '즐겨찾기에 추가' (docs/PRD-v2.md §10-2). shell 메뉴 맨 위에 우리
+        // 항목이 붙고, 고르면 shell 이 아니라 우리가 처리한다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        var sub = Subfolder(docs, "Sub");
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.Left.NavigateAsync(docs);
+        workspace.Left.Selection.SelectSingle("Sub");
+        contextMenus.ChosenAppCommand = 0;
+
+        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+
+        Assert.Equal([sub], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
+
+        // 우리 항목이 메뉴에 실제로 실렸는지도 본다 — 실리지 않으면 고를 수가 없다.
+        Assert.Equal(["즐겨찾기에 추가"], contextMenus.Requests[0].AppCommands);
+    }
+
+    [Fact]
+    public async Task ContextMenuPin_OnEmptySpace_PinsTheFolderItself()
+    {
+        // 선택이 비어 있으면 배경 메뉴다 — 지금 보고 있는 폴더를 고정한다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        Subfolder(Loc(@"C:\Temp"), "Docs");
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.Left.NavigateAsync(docs);
+        contextMenus.ChosenAppCommand = 0;
+
+        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+
+        Assert.Equal([docs], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
+    }
+
+    [Fact]
+    public async Task ContextMenu_WhenAShellVerbIsChosen_PinsNothing()
+    {
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.Left.NavigateAsync(docs);
+        contextMenus.ChosenAppCommand = null;
+
+        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+
+        Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
+    }
+
+    [Fact]
     public async Task TreeSelection_OpensInTheActivePane()
     {
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
@@ -565,9 +662,30 @@ public class WorkspaceViewModelTests
     /// <summary>트리를 물린 워크스페이스. 트리를 보는 테스트만 이것을 쓴다.</summary>
     private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree) CreateWorkspaceWithTree()
     {
-        var tree = new FolderTreeViewModel(drives, new FakeNetworkPlaceList(), source, dispatcher);
+        var tree = new FolderTreeViewModel(
+            drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
         return (new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, update: null, tree), tree);
+    }
+
+    /// <summary>
+    /// 부모 폴더의 <b>자식으로</b> 폴더 항목을 등록한다. 즐겨찾기의 존재 확인이
+    /// <c>TryGetItemAsync</c> 로 그것을 찾으므로, 폴더를 열어 두는 것만으로는 부족하다.
+    /// </summary>
+    private LocationId Subfolder(LocationId parent, string name)
+    {
+        var child = parent.Combine(name);
+
+        if (!source.Folders.TryGetValue(parent, out var items))
+        {
+            items = [];
+            source.Folders[parent] = items;
+        }
+
+        items.Add(new FileItem(name, child, 0, DateTimeOffset.UnixEpoch, FileItemFlags.Directory));
+        source.Folders[child] = [];
+
+        return child;
     }
 
     private PaneViewModel CreatePane()
