@@ -45,19 +45,26 @@ public sealed partial class FolderTreeViewModel : ObservableObject
     public const double DefaultWidth = 220;
 
     private readonly IDriveList drives;
+    private readonly INetworkPlaceList places;
     private readonly IFolderSource folders;
     private readonly IUiDispatcher dispatcher;
 
     private bool isVisible = true;
     private double width = DefaultWidth;
 
-    public FolderTreeViewModel(IDriveList drives, IFolderSource folders, IUiDispatcher dispatcher)
+    public FolderTreeViewModel(
+        IDriveList drives,
+        INetworkPlaceList places,
+        IFolderSource folders,
+        IUiDispatcher dispatcher)
     {
         ArgumentNullException.ThrowIfNull(drives);
+        ArgumentNullException.ThrowIfNull(places);
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(dispatcher);
 
         this.drives = drives;
+        this.places = places;
         this.folders = folders;
         this.dispatcher = dispatcher;
     }
@@ -95,9 +102,12 @@ public sealed partial class FolderTreeViewModel : ObservableObject
     /// </summary>
     public async Task LoadAsync(CancellationToken ct)
     {
-        var listed = await drives.ListAsync(ct).ConfigureAwait(false);
+        // 둘 다 저장소에 닿는다. 함께 기다린다 — 하나가 느려도 다른 쪽을 막지 않는다.
+        var listing = drives.ListAsync(ct);
+        var registered = await places.ListAsync(ct).ConfigureAwait(false);
+        var listed = await listing.ConfigureAwait(false);
 
-        var roots = new List<TreeNodeViewModel>(listed.Count);
+        var roots = new List<TreeNodeViewModel>(listed.Count + registered.Count);
 
         foreach (var drive in listed)
         {
@@ -109,6 +119,13 @@ public sealed partial class FolderTreeViewModel : ObservableObject
         foreach (var server in listed.Select(drive => drive.Server).OfType<LocationId>().Distinct())
         {
             roots.Add(NewNode(server, server.DisplayPath));
+        }
+
+        // '네트워크 위치 추가' 로 등록한 곳. 맨 아래이고 <b>등록한 이름 그대로</b> 선다
+        // (사용자 결정 2026-08-10) — 서버로 접으면 깊은 경로를 등록한 이유가 사라진다.
+        foreach (var place in registered)
+        {
+            roots.Add(NewNode(place.Path, place.Label));
         }
 
         await dispatcher.InvokeAsync(() =>

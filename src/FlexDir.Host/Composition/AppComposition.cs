@@ -122,6 +122,9 @@ public sealed class AppComposition : IAsyncDisposable
         var driveSpace = new FileSystemDriveSpace();
         var driveList = new SystemDriveList();
 
+        // 이쪽은 COM 이라 STA 워커를 든다 — 아래 정리 목록에 들어간다.
+        var networkPlaces = new ShellNetworkPlaceList();
+
         // 환경을 읽는 곳은 여기 한 곳이다. ViewModel 이 CultureInfo.CurrentCulture 를 직접
         // 읽으면 같은 목록에 다른 형식이 섞이고 테스트가 기계 설정에 따라 갈린다.
         var culture = CultureInfo.CurrentCulture;
@@ -149,14 +152,14 @@ public sealed class AppComposition : IAsyncDisposable
         // 트리도 페인과 같은 열거 포트를 쓴다 (docs/PRD-v2.md §10) — 라우팅이 이미 서버와
         // 폴더를 가르므로 트리는 UNC 를 따로 알 필요가 없다. 창에 하나뿐이라 페인처럼
         // 두 벌 만들지 않는다.
-        var tree = new FolderTreeViewModel(driveList, folderSource, dispatcher);
+        var tree = new FolderTreeViewModel(driveList, networkPlaces, folderSource, dispatcher);
 
         var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree);
 
         return new AppComposition(
             workspace,
             new FileUsageLog(stateDirectory),
-            [typeNames, thumbnails, fileOperations, clipboard, activator, contextMenus]);
+            [typeNames, thumbnails, fileOperations, clipboard, activator, contextMenus, networkPlaces]);
     }
 
     /// <summary>

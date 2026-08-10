@@ -20,6 +20,7 @@ namespace FlexDir.App.Tests.ViewModels;
 public class FolderTreeViewModelTests
 {
     private readonly FakeDriveList drives = new();
+    private readonly FakeNetworkPlaceList places = new();
     private readonly FakeFolderSource folders = new();
     private readonly InlineUiDispatcher dispatcher = new();
 
@@ -64,6 +65,35 @@ public class FolderTreeViewModelTests
         await tree.LoadAsync(CancellationToken.None);
 
         Assert.Equal([@"C:\", @"Z:\", @"\\10.10.10.23"], tree.Roots.Select(node => node.Location.DisplayPath));
+    }
+
+    [Fact]
+    public async Task LoadAsync_PutsNetworkPlacesLast()
+    {
+        // '네트워크 위치 추가' 로 등록한 곳은 드라이브 문자가 없어 매핑에서 뽑히지 않는다
+        // (2026-08-10 사용자 지적). 등록 이름 그대로 맨 아래 선다.
+        drives.Drives.Add(new DriveEntry(Path(@"C:\"), "로컬 디스크 (C:)", Path(@"\\10.10.10.23")));
+        places.Places.Add(new NetworkPlace(Path(@"\\10.10.20.30\rsj0811"), "DEV"));
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(["로컬 디스크 (C:)", @"\\10.10.10.23", "DEV"], tree.Roots.Select(node => node.Label));
+    }
+
+    [Fact]
+    public async Task LoadAsync_ForADeepNetworkPlace_KeepsTheWholePath()
+    {
+        // 깊은 경로를 이름 하나로 부르려고 등록한 것이다. 서버로 접으면 그 이유가 사라진다.
+        places.Places.Add(new NetworkPlace(Path(@"\\10.10.20.30\rsj0811\workspace\work"), "dev-server"));
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+
+        var node = Assert.Single(tree.Roots);
+
+        Assert.Equal("dev-server", node.Label);
+        Assert.Equal(@"\\10.10.20.30\rsj0811\workspace\work", node.Location.DisplayPath);
     }
 
     [Fact]
@@ -197,7 +227,7 @@ public class FolderTreeViewModelTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private FolderTreeViewModel CreateTree() => new(drives, folders, dispatcher);
+    private FolderTreeViewModel CreateTree() => new(drives, places, folders, dispatcher);
 
     /// <summary>드라이브 하나를 등록하고 그 루트 노드를 낸다.</summary>
     private async Task<TreeNodeViewModel> FirstRootAsync(LocationId root, FolderTreeViewModel? tree = null)

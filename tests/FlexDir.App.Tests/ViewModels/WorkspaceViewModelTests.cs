@@ -565,7 +565,7 @@ public class WorkspaceViewModelTests
     /// <summary>트리를 물린 워크스페이스. 트리를 보는 테스트만 이것을 쓴다.</summary>
     private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree) CreateWorkspaceWithTree()
     {
-        var tree = new FolderTreeViewModel(drives, source, dispatcher);
+        var tree = new FolderTreeViewModel(drives, new FakeNetworkPlaceList(), source, dispatcher);
 
         return (new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, update: null, tree), tree);
     }

@@ -161,9 +161,12 @@ public class AppCompositionTests : IDisposable
     [Fact]
     public async Task Create_OwnsEveryShellImplementationThatHoldsAnStaThread()
     {
-        // 여섯이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 였다.
-        // B-4 가 ShellContextMenuProvider 를 더했다. 이 배열에 없는 구현체는 아무도 닫지
-        // 않고 STA 스레드가 프로세스에 남는다.
+        // 일곱이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 였다.
+        // B-4 가 ShellContextMenuProvider 를, 트리(§10)가 ShellNetworkPlaceList 를 더했다.
+        // 이 배열에 없는 구현체는 아무도 닫지 않고 STA 스레드가 프로세스에 남는다.
+        //
+        // SystemDriveList 는 여기 없다 — COM 이 아니라 DriveInfo·mpr.dll 이라 STA 도 정리도
+        // 필요 없다 (FileSystemDriveSpace 와 같은 자리).
         await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
         Assert.Equal(
@@ -174,6 +177,7 @@ public class AppCompositionTests : IDisposable
                 typeof(Shell.Operations.ShellClipboardBridge),
                 typeof(Shell.Activation.ShellItemActivator),
                 typeof(Shell.Operations.ShellContextMenuProvider),
+                typeof(Shell.Storage.ShellNetworkPlaceList),
             ],
             composition.ShellServices.Select(service => service.GetType()));
     }
