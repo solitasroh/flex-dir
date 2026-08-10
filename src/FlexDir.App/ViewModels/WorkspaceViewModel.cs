@@ -47,11 +47,17 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// 나머지는 그대로 돈다. 창은 업데이트 없이도 서야 한다: 조립이 그 자리에서 막히면
     /// 업데이트와 무관한 앱 전체가 못 뜬다.
     /// </param>
+    /// <param name="tree">
+    /// 왼쪽 폴더 트리 (docs/PRD-v2.md §10). <paramref name="update"/> 와 같은 이유로
+    /// 선택이다 — 두 페인은 트리 없이도 돌아야 하고, 트리를 보지 않는 테스트가 드라이브
+    /// 열거 fake 까지 조립하게 만들 이유가 없다.
+    /// </param>
     public WorkspaceViewModel(
         PaneViewModel left,
         PaneViewModel right,
         IViewStateStore viewStateStore,
-        UpdateViewModel? update = null)
+        UpdateViewModel? update = null,
+        FolderTreeViewModel? tree = null)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -60,12 +66,24 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         Left = left;
         Right = right;
         Update = update;
+        Tree = tree;
         viewStates = viewStateStore;
 
         // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작). View 가
         // 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
         left.ActivationRequested += (_, _) => ActiveSide = PaneSide.Left;
         right.ActivationRequested += (_, _) => ActiveSide = PaneSide.Right;
+
+        if (tree is not null)
+        {
+            // 어느 페인이 갈지는 트리가 아니라 여기서 정한다 (사용자 결정 2026-08-10:
+            // 활성 페인). 트리가 페인을 직접 알면 창 하나에 트리 하나라는 전제가 트리
+            // 안으로 새어 든다.
+            //
+            // 기다리지 않는다 — 이벤트 핸들러는 동기이고, 페인은 열거 실패를 자기
+            // 상태표시줄에 낸다 (PaneViewModel.FillAsync).
+            tree.NavigationRequested += (_, location) => _ = ActivePane.NavigateAsync(location);
+        }
     }
 
     public PaneViewModel Left { get; }
@@ -77,6 +95,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// 배선되지 않았으면 <see langword="null"/> 이고 알림 바는 접혀 있다.
     /// </summary>
     public UpdateViewModel? Update { get; }
+
+    /// <summary>
+    /// 왼쪽 폴더 트리. 페인이 둘인데 트리는 하나다 — 알림과 같은 자리에 산다.
+    /// 배선되지 않았으면 <see langword="null"/> 이고 View 가 그 열을 접는다.
+    /// </summary>
+    public FolderTreeViewModel? Tree { get; }
 
     /// <summary>활성 페인은 항상 정확히 하나다. 어느 쪽인지를 이 값 하나로 정한다.</summary>
     public PaneSide ActiveSide
@@ -135,7 +159,19 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         SplitterRatio = state.SplitterRatio;
         WindowPlacement = state.Window;
 
-        var opens = new List<Task>(2);
+        var opens = new List<Task>(3);
+
+        if (Tree is { } tree)
+        {
+            // 폭도 클램프를 지난다 (FolderTreeViewModel.Width) — 손상된 값에 트리가
+            // 사라지지 않는다.
+            tree.IsVisible = state.TreeVisible;
+            tree.Width = state.TreeWidth;
+
+            // 드라이브 열거는 저장소에 닿는다. 페인 열기와 함께 두는 이유도 같다 —
+            // 트리 하나 때문에 폴더가 늦게 뜨면 안 된다.
+            opens.Add(tree.LoadAsync(ct));
+        }
 
         if ((state.LeftFolder ?? fallbackFolder) is { } left)
         {
@@ -159,7 +195,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             await viewStates
                 .SaveGlobalAsync(
                     new GlobalViewState(
-                        SplitterRatio, WindowPlacement, Left.CurrentLocation, Right.CurrentLocation),
+                        SplitterRatio,
+                        WindowPlacement,
+                        Left.CurrentLocation,
+                        Right.CurrentLocation,
+                        Tree?.IsVisible ?? true,
+                        Tree?.Width ?? GlobalViewState.DefaultTreeWidth),
                     ct)
                 .ConfigureAwait(false);
         }
@@ -180,6 +221,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [RelayCommand]
     private void SwitchPane()
         => Activate(activeSide == PaneSide.Left ? PaneSide.Right : PaneSide.Left);
+
+    /// <summary>
+    /// 트리를 접거나 편다. 좁은 화면에서 가로 공간을 되찾는 길이고, 접어 둔 것은 기억된다
+    /// (<see cref="PersistAsync"/>). 트리가 없으면 아무 일도 하지 않는다 — 툴바 버튼은
+    /// 트리 없이 조립돼도 눌린다.
+    /// </summary>
+    [RelayCommand]
+    private void ToggleTree()
+    {
+        if (Tree is { } tree)
+        {
+            tree.IsVisible = !tree.IsVisible;
+        }
+    }
 
     /// <summary>
     /// 반대편 페인의 현재 폴더를 활성 페인에서 연다 — 2분할의 존재 이유가 이 왕복이다.

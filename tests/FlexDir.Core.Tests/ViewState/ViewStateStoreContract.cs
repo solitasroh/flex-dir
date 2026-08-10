@@ -59,6 +59,22 @@ public abstract class ViewStateStoreContract
         Assert.Equal(state, await store.LoadGlobalAsync(CancellationToken.None));
     }
 
+    // 트리를 접어 둔 것과 폭도 전역 상태다 (docs/PRD-v2.md §10). 왕복하지 않으면 좁은
+    // 화면에서 되찾은 가로 공간을 실행할 때마다 다시 되찾아야 한다.
+    [Fact]
+    public async Task SavedGlobalState_KeepsTheTreeShape()
+    {
+        var store = CreateStore();
+        var state = GlobalViewState.Default with { TreeVisible = false, TreeWidth = 300 };
+
+        await store.SaveGlobalAsync(state, CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.False(loaded.TreeVisible);
+        Assert.Equal(300, loaded.TreeWidth);
+    }
+
     [Fact]
     public async Task SavedGlobalState_KeepsTheLastFoldersOfBothPanes()
     {

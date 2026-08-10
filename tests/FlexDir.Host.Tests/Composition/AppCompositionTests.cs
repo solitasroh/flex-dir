@@ -70,6 +70,21 @@ public class AppCompositionTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_BuildsTheFolderTree()
+    {
+        // 트리는 조립이 물려 주지 않으면 영영 비어 있다 — 화면에서만 아무 일도 일어나지
+        // 않으므로 테스트가 여기서 잡는다 (docs/PRD-v2.md §10).
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
+
+        Assert.NotNull(composition.Workspace.Tree);
+
+        await composition.Workspace.Tree.LoadAsync(CancellationToken.None);
+
+        // 이 기계에도 드라이브는 하나 이상 있다.
+        Assert.NotEmpty(composition.Workspace.Tree.Roots);
+    }
+
+    [Fact]
     public async Task Create_OpensARealFolder()
     {
         // 조립이 서기만 하고 아무것도 못 하는 상태를 통과시키지 않는다. 이 경로는 실물

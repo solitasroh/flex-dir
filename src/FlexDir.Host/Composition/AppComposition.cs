@@ -118,8 +118,9 @@ public sealed class AppComposition : IAsyncDisposable
         var contextMenus = new ShellContextMenuProvider(ownerWindow);
 
         // STA 도 정리도 필요 없다 — COM 이 아니라 GetDiskFreeSpaceEx 다. 그래서 아래
-        // 정리 목록에 들어가지 않는다.
+        // 정리 목록에 들어가지 않는다. 드라이브 목록(mpr.dll)도 같은 자리다.
         var driveSpace = new FileSystemDriveSpace();
+        var driveList = new SystemDriveList();
 
         // 환경을 읽는 곳은 여기 한 곳이다. ViewModel 이 CultureInfo.CurrentCulture 를 직접
         // 읽으면 같은 목록에 다른 형식이 섞이고 테스트가 기계 설정에 따라 갈린다.
@@ -145,7 +146,12 @@ public sealed class AppComposition : IAsyncDisposable
         // (위 §요약) 네트워크에 닿는 것은 Program 이 시작 뒤에 건다.
         var update = new UpdateViewModel(new VelopackUpdateSource(UpdateFeed), dispatcher);
 
-        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update);
+        // 트리도 페인과 같은 열거 포트를 쓴다 (docs/PRD-v2.md §10) — 라우팅이 이미 서버와
+        // 폴더를 가르므로 트리는 UNC 를 따로 알 필요가 없다. 창에 하나뿐이라 페인처럼
+        // 두 벌 만들지 않는다.
+        var tree = new FolderTreeViewModel(driveList, folderSource, dispatcher);
+
+        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree);
 
         return new AppComposition(
             workspace,

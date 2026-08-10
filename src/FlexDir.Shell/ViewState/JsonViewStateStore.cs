@@ -119,7 +119,9 @@ public sealed class JsonViewStateStore : IViewStateStore
                     state.SplitterRatio,
                     state.Window,
                     state.LeftFolder?.DisplayPath,
-                    state.RightFolder?.DisplayPath),
+                    state.RightFolder?.DisplayPath,
+                    state.TreeVisible,
+                    state.TreeWidth),
             },
             ct).ConfigureAwait(false);
     }
@@ -153,11 +155,15 @@ public sealed class JsonViewStateStore : IViewStateStore
 
         try
         {
+            // treeVisible·treeWidth 는 트리가 들어오기 전 파일에 없다. 없으면 보이는
+            // 것으로 읽는다 — 기본값과 같은 자리다.
             return new GlobalViewState(
                 stored.SplitterRatio,
                 stored.Window,
                 ParseFolder(stored.LeftFolder),
-                ParseFolder(stored.RightFolder));
+                ParseFolder(stored.RightFolder),
+                stored.TreeVisible ?? true,
+                stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -232,11 +238,17 @@ public sealed class JsonViewStateStore : IViewStateStore
     private static LocationId? ParseFolder(string? path)
         => path is not null && LocationId.TryParse(path, out var folder, out _) ? folder : null;
 
+    /// <summary>
+    /// <c>TreeVisible</c>·<c>TreeWidth</c> 는 선택적이다 — 트리가 들어오기 전 파일에는
+    /// 없고, 없으면 트리가 보이는 것으로 읽힌다 (docs/PRD-v2.md §10).
+    /// </summary>
     private sealed record GlobalRecord(
         double SplitterRatio,
         WindowPlacement? Window,
         string? LeftFolder = null,
-        string? RightFolder = null);
+        string? RightFolder = null,
+        bool? TreeVisible = null,
+        double? TreeWidth = null);
 
     /// <summary>
     /// <c>GroupBy</c>·<c>Collapsed</c> 는 선택적이다 — v1 이 쓴 파일에는 없고, 없으면

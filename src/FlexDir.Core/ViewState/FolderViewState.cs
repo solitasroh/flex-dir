@@ -114,14 +114,28 @@ public sealed record FolderViewState(
 }
 
 /// <summary>
-/// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율 (docs/ARCHITECTURE.md §4).
+/// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율, 트리의 모양 (docs/ARCHITECTURE.md §4).
 /// </summary>
+/// <param name="TreeVisible">
+/// 폴더 트리를 보이는가 (docs/PRD-v2.md §10). 처음 켠 사람에게는 보인다 — 토글은 트리를
+/// 보고 나서야 찾는다.
+/// </param>
+/// <param name="TreeWidth">
+/// 트리 폭. <see cref="SplitterRatio"/> 와 달리 <b>검증하지 않는다</b> — 여기서 던지면
+/// 손상된 값 하나가 전역 상태 전체를 기본값으로 접어 창 배치와 마지막 폴더까지 잃는다.
+/// 폭은 쓰는 쪽(<c>FolderTreeViewModel.Width</c>)이 자르면 되는 값이다.
+/// </param>
 public sealed record GlobalViewState(
     double SplitterRatio,
     WindowPlacement? Window,
     Locations.LocationId? LeftFolder = null,
-    Locations.LocationId? RightFolder = null)
+    Locations.LocationId? RightFolder = null,
+    bool TreeVisible = true,
+    double TreeWidth = GlobalViewState.DefaultTreeWidth)
 {
+    /// <summary>기억된 것이 없을 때의 트리 폭. 목록의 긴 폴더 이름이 대체로 들어간다.</summary>
+    public const double DefaultTreeWidth = 220;
+
     private readonly double splitterRatio = Validate(SplitterRatio);
 
     /// <summary>절반 분할, 창 배치·마지막 폴더 기억 없음 — 시작 폴더는 폴백으로 간다.</summary>

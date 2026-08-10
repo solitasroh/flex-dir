@@ -970,6 +970,104 @@
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
+
+        <!-- ── 폴더 트리 (docs/PRD-v2.md §10) ───────────────────────────────────
+             확장 화살표를 TreeViewItem 내장 HasItems 가 아니라 노드의 CanExpand 에 묶기
+             위해 템플릿을 새로 쓴다. 내장을 쓰면 자식을 미리 읽어 와야 화살표가 서는데,
+             그 미리 읽기가 트리에 선 모든 노드에 대한 저장소 호출이다 (CLAUDE.md §3). -->
+        <Style x:Key="TreeChevron" TargetType="ToggleButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="{TemplateBinding Background}">
+                            <TextBlock x:Name="Glyph" FontFamily="Segoe Fluent Icons" FontSize="8"
+                                       Text="&#xE76C;" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       Foreground="{StaticResource Text2Brush}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Glyph" Property="Text" Value="&#xE70D;" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="TreeNodeItem" TargetType="TreeViewItem">
+            <!-- 펼침·선택의 정본은 노드다. TreeView 의 SelectedItem 은 읽기 전용이라
+                 바인딩으로 되돌릴 수 없어서, 컨테이너 쪽을 노드에 맞춘다. -->
+            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+
+            <!-- 이것이 없으면 자동화가 노드 이름을 ToString() 으로 읽어 클래스 이름을 낸다
+                 (2026-08-10 UIA 로 확인). 헤더가 TextBlock 이라 자동으로 잡히지 않는다. -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TreeViewItem">
+                        <StackPanel>
+                            <Border x:Name="Row" Height="24" CornerRadius="4" Background="Transparent">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="16" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+
+                                    <ToggleButton x:Name="Chevron" Style="{StaticResource TreeChevron}"
+                                                  IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}" />
+
+                                    <!-- 드라이브·서버·폴더가 같은 글리프다. 무엇인지는 라벨이
+                                         말한다 ("로컬 디스크 (C:)" · "\\10.10.10.23") — 유형별
+                                         아이콘을 붙이려면 shell 에 물어야 하고 그것은 노드마다
+                                         저장소 호출이다. -->
+                                    <TextBlock Grid.Column="1" FontFamily="Segoe Fluent Icons" FontSize="12"
+                                               Text="&#xE8B7;" Margin="2,0,6,0" VerticalAlignment="Center"
+                                               Foreground="{StaticResource Text2Brush}" />
+
+                                    <ContentPresenter Grid.Column="2" ContentSource="Header" VerticalAlignment="Center" />
+                                </Grid>
+                            </Border>
+
+                            <!-- 들여쓰기는 중첩마다 누적된다 (자식도 같은 템플릿을 쓴다). -->
+                            <ItemsPresenter x:Name="Items" Margin="16,0,0,0" />
+                        </StackPanel>
+
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsExpanded" Value="False">
+                                <Setter TargetName="Items" Property="Visibility" Value="Collapsed" />
+                            </Trigger>
+
+                            <!-- 열어 봤더니 하위 폴더가 없었다. 화살표를 남기면 눌러도 아무
+                                 일이 없다. Hidden 이라 자리는 남는다 — 형제 이름이 들쭉날쭉
+                                 시작하면 훑기 어렵다. -->
+                            <DataTrigger Binding="{Binding CanExpand}" Value="False">
+                                <Setter TargetName="Chevron" Property="Visibility" Value="Hidden" />
+                            </DataTrigger>
+
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="{StaticResource SelBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <HierarchicalDataTemplate DataType="{x:Type vm:TreeNodeViewModel}" ItemsSource="{Binding Children}">
+            <TextBlock Text="{Binding Label}" VerticalAlignment="Center"
+                       Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
+        </HierarchicalDataTemplate>
     </Window.Resources>
 
     <Grid>
@@ -984,8 +1082,15 @@
         <!-- 타이틀바 32 (docs/DESIGN.md §1 · 목업 .titlebar). 배경을 따로 칠하지 않는다 —
              창 배경이 그대로 보여야 크롬이 한 덩어리로 읽힌다. -->
         <Grid>
-            <TextBlock Text="flex-dir" Margin="12,0,0,0" VerticalAlignment="Center"
-                       Foreground="{StaticResource TextBrush}" />
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center"
+                        WindowChrome.IsHitTestVisibleInChrome="True">
+                <!-- 트리 토글은 페인 툴바가 아니라 여기 있다 — 트리는 창에 하나이고,
+                     페인 툴바에 두면 같은 버튼이 둘이 된다 (docs/PRD-v2.md §10). -->
+                <Button Style="{StaticResource ToolButton}" Content="&#xE700;" Margin="6,0,0,0"
+                        ToolTip="폴더 트리" Command="{Binding ToggleTreeCommand}" />
+                <TextBlock Text="flex-dir" Margin="6,0,0,0" VerticalAlignment="Center"
+                           Foreground="{StaticResource TextBrush}" />
+            </StackPanel>
 
             <!-- 캡션 위에 놓인 것은 OS 가 먼저 가져간다. 버튼만 다시 꺼내 온다 —
                  이것이 없으면 눌러도 창이 끌린다. -->
@@ -1000,10 +1105,59 @@
             </StackPanel>
         </Grid>
 
+        <!-- 트리 + 페인 둘 (docs/PRD-v2.md §10 · 사용자 결정 2026-08-10: 창 왼쪽에 하나).
+             접으면 트리 열과 그 스플리터가 통째로 0 이 된다 — Visibility 만으로는 빈 띠가
+             남아 되찾으려던 가로 공간이 그대로 없다 (TreeSync). -->
+        <Grid Grid.Row="1" Margin="4,0,4,0"
+              v:TreeSync.Enabled="True"
+              v:TreeSync.Width="{Binding Tree.Width, Mode=TwoWay}"
+              v:TreeSync.Visible="{Binding Tree.IsVisible}">
+            <Grid.ColumnDefinitions>
+                <!-- MinWidth 를 걸지 않는다 — 걸면 접을 때 0 으로 못 간다. 하한은 ViewModel
+                     이 자르고(FolderTreeViewModel.Width) 놓는 순간 스냅한다. -->
+                <ColumnDefinition Width="220" />
+                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="*" MinWidth="646" />
+            </Grid.ColumnDefinitions>
+
+            <Border Background="{StaticResource PaneBgBrush}"
+                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
+                <!-- 가상화를 명시한다. TreeView 의 기본 패널은 StackPanel 이라 그대로 두면
+                     펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
+                <TreeView ItemsSource="{Binding Tree.Roots}"
+                          ItemContainerStyle="{StaticResource TreeNodeItem}"
+                          Background="Transparent" BorderThickness="0" Padding="4"
+                          VirtualizingStackPanel.IsVirtualizing="True"
+                          VirtualizingStackPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                    <TreeView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <VirtualizingStackPanel />
+                        </ItemsPanelTemplate>
+                    </TreeView.ItemsPanel>
+                </TreeView>
+            </Border>
+
+            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" Focusable="False">
+                <GridSplitter.Style>
+                    <Style TargetType="GridSplitter">
+                        <Style.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </GridSplitter.Style>
+            </GridSplitter>
+
         <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1). 비율은 복원·저장 대상이다.
              위 여백이 0 인 것은 목업 .panes 그대로다 — 페인의 둥근 위 모서리가 타이틀바에
              붙어야 크롬이 이어져 보인다. -->
-        <Grid Grid.Row="1" Margin="4,0,4,0"
+        <Grid Grid.Column="2"
               v:SplitterSync.Enabled="True"
               v:SplitterSync.Ratio="{Binding SplitterRatio, Mode=TwoWay}">
             <Grid.ColumnDefinitions>
@@ -1032,6 +1186,7 @@
             <ContentControl Grid.Column="2" Content="{Binding Right}" ContentTemplate="{StaticResource PaneTemplate}"
                             Focusable="False"
                             v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Right}}" />
+        </Grid>
         </Grid>
 
         <!-- 새 버전 알림 (docs/PRD-v2.md §9 · 사용자 결정 2026-08-07: 뜨고 사용자가 고른다).

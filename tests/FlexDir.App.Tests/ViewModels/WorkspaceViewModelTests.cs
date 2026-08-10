@@ -7,6 +7,7 @@ using FlexDir.App.ViewModels;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
 using FlexDir.Core.Sorting;
+using FlexDir.Core.Storage;
 using FlexDir.Core.Tests.Fakes;
 using FlexDir.Core.ViewState;
 
@@ -43,6 +44,7 @@ public class WorkspaceViewModelTests
     private readonly FakeItemActivator activator = new();
     private readonly FakeContextMenuProvider contextMenus = new();
     private readonly InlineUiDispatcher dispatcher = new();
+    private readonly FakeDriveList drives = new();
 
     // ── 초기 상태 ─────────────────────────────────────────────────
 
@@ -376,6 +378,112 @@ public class WorkspaceViewModelTests
         Assert.Single(source.EnumerateCalls);
     }
 
+    // ── 폴더 트리 (docs/PRD-v2.md §10 · 사용자 결정 2026-08-10) ────
+
+    [Fact]
+    public async Task RestoreAsync_BringsBackTheTreeShape()
+    {
+        await viewStates.SaveGlobalAsync(
+            GlobalViewState.Default with { TreeVisible = false, TreeWidth = 300 }, CancellationToken.None);
+        var (workspace, tree) = CreateWorkspaceWithTree();
+
+        await workspace.RestoreAsync(null);
+
+        Assert.False(tree.IsVisible);
+        Assert.Equal(300, tree.Width);
+    }
+
+    [Fact]
+    public async Task RestoreAsync_FillsTheTreeRoots()
+    {
+        // 드라이브 열거는 저장소에 닿는다 — 복원과 같은 자리에서 한 번에 한다.
+        drives.Drives.Add(new DriveEntry(Loc(@"C:\"), "로컬 디스크 (C:)", null));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+
+        await workspace.RestoreAsync(null);
+
+        Assert.Single(tree.Roots);
+    }
+
+    [Fact]
+    public async Task PersistAsync_SavesTheTreeShape()
+    {
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        tree.IsVisible = false;
+        tree.Width = 300;
+
+        await workspace.PersistAsync();
+
+        var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.False(saved.TreeVisible);
+        Assert.Equal(300, saved.TreeWidth);
+    }
+
+    [Fact]
+    public async Task PersistAsync_WithoutATree_KeepsTheDefaults()
+    {
+        // 트리 없이 조립된 워크스페이스도 저장은 해야 한다 — 업데이트 알림과 같은 자리다.
+        await CreateWorkspace().PersistAsync();
+
+        var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.True(saved.TreeVisible);
+        Assert.Equal(GlobalViewState.DefaultTreeWidth, saved.TreeWidth);
+    }
+
+    [Fact]
+    public void ToggleTree_FlipsVisibility()
+    {
+        var (workspace, tree) = CreateWorkspaceWithTree();
+
+        workspace.ToggleTreeCommand.Execute(null);
+
+        Assert.False(tree.IsVisible);
+
+        workspace.ToggleTreeCommand.Execute(null);
+
+        Assert.True(tree.IsVisible);
+    }
+
+    [Fact]
+    public void ToggleTree_WithoutATree_DoesNothing()
+    {
+        // 툴바 버튼은 트리 없이 조립돼도 눌린다. 눌러서 터지면 안 된다.
+        CreateWorkspace().ToggleTreeCommand.Execute(null);
+    }
+
+    [Fact]
+    public async Task TreeSelection_OpensInTheActivePane()
+    {
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        drives.Drives.Add(new DriveEntry(docs, "Docs", null));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.RestoreAsync(null);
+
+        tree.Roots[0].IsSelected = true;
+
+        Assert.Equal(docs, workspace.Left.CurrentLocation);
+        Assert.Null(workspace.Right.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task TreeSelection_FollowsTheActiveSide()
+    {
+        // 트리는 창에 하나뿐이고 양쪽을 다 몰 수 있어야 한다 (사용자 결정 2026-08-10) —
+        // Tab 으로 옮긴 뒤 고르면 그쪽이 간다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        drives.Drives.Add(new DriveEntry(docs, "Docs", null));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.RestoreAsync(null);
+        workspace.ActivateCommand.Execute(PaneSide.Right);
+
+        tree.Roots[0].IsSelected = true;
+
+        Assert.Equal(docs, workspace.Right.CurrentLocation);
+        Assert.Null(workspace.Left.CurrentLocation);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     // ── 시작 폴더 복원 (phase B-2) ────────────────────────────────
@@ -453,6 +561,14 @@ public class WorkspaceViewModelTests
     }
 
     private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
+
+    /// <summary>트리를 물린 워크스페이스. 트리를 보는 테스트만 이것을 쓴다.</summary>
+    private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree) CreateWorkspaceWithTree()
+    {
+        var tree = new FolderTreeViewModel(drives, source, dispatcher);
+
+        return (new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, update: null, tree), tree);
+    }
 
     private PaneViewModel CreatePane()
         => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);

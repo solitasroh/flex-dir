@@ -128,6 +128,23 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
         Assert.Empty(loaded.Collapsed);
     }
 
+    // 트리가 들어오기 전에 쓴 파일에는 tree 필드가 없다. 그것을 못 읽으면 창 배치와
+    // 마지막 폴더까지 함께 날아간다 (docs/PRD-v2.md §10 저장 호환).
+    [Fact]
+    public async Task FileWrittenBeforeTheTree_LoadsWithTheTreeShown()
+    {
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4, "leftFolder": "C:\\Temp" } }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(0.4, loaded.SplitterRatio);
+        Assert.NotNull(loaded.LeftFolder);
+        Assert.True(loaded.TreeVisible);
+        Assert.Equal(GlobalViewState.DefaultTreeWidth, loaded.TreeWidth);
+    }
+
     // 저장 파일이 손상돼 -3 이 들어와도 페인이 사라지면 안 된다 (GlobalViewState 가 거부한다).
     [Fact]
     public async Task FileWithOutOfRangeSplitter_FallsBackToDefault()

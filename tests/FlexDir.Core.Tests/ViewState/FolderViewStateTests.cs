@@ -192,6 +192,33 @@ public class FolderViewStateTests
         Assert.Null(GlobalViewState.Default.Window);
     }
 
+    [Fact]
+    public void GlobalDefault_ShowsTheTree()
+    {
+        // 처음 켠 사람에게 트리가 있다는 것을 알릴 길이 이것뿐이다 — 토글은 트리를 보고
+        // 나서야 찾는다.
+        Assert.True(GlobalViewState.Default.TreeVisible);
+        Assert.Equal(GlobalViewState.DefaultTreeWidth, GlobalViewState.Default.TreeWidth);
+    }
+
+    [Fact]
+    public void GlobalState_KeepsTheTreeShape()
+    {
+        var state = GlobalViewState.Default with { TreeVisible = false, TreeWidth = 300 };
+
+        Assert.False(state.TreeVisible);
+        Assert.Equal(300, state.TreeWidth);
+    }
+
+    [Fact]
+    public void GlobalState_WithAnAbsurdTreeWidth_DoesNotThrow()
+    {
+        // 스플리터 비율과 다르다. 저장 파일이 손상돼 -3 이 들어와도 여기서 던지면 전역
+        // 상태 전체가 기본값으로 접혀 창 배치와 마지막 폴더까지 잃는다 — 폭은 트리가
+        // 자르면 되는 값이다 (FolderTreeViewModel.Width).
+        Assert.Equal(-3, (GlobalViewState.Default with { TreeWidth = -3 }).TreeWidth);
+    }
+
     [Theory]
     [InlineData(0.01)]
     [InlineData(0.5)]
