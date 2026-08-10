@@ -6,11 +6,14 @@ using FlexDir.App.ViewModels;
 
 using FlexDir.Core.Usage;
 
+using FlexDir.Host.Startup;
+
 using FlexDir.Shell.Activation;
 using FlexDir.Shell.Enumeration;
 using FlexDir.Shell.Favorites;
 using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
+using FlexDir.Shell.Settings;
 using FlexDir.Shell.Storage;
 using FlexDir.Shell.Updates;
 using FlexDir.Shell.Usage;
@@ -159,7 +162,20 @@ public sealed class AppComposition : IAsyncDisposable
 
         var tree = new FolderTreeViewModel(driveList, networkPlaces, favorites, folderSource, dispatcher);
 
-        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree);
+        // 설정도 즐겨찾기와 같은 이유로 뷰 상태와 다른 파일이다 (docs/PRD-v2.md §12) —
+        // 뷰 상태는 캐시라 깨지면 기본값으로 접는데, 설정은 사용자의 의도라 그렇게 접히면
+        // "숨김 파일을 보겠다" 가 조용히 뒤집힌다.
+        //
+        // 버전은 여기서 읽어 넘긴다. ViewModel 이 진입 어셈블리를 직접 읽으면 테스트에서는
+        // 테스트 실행기의 버전이 나온다 (Startup/ProductVersion).
+        var settings = new SettingsViewModel(
+            new JsonSettingsStore(stateDirectory),
+            dispatcher,
+            ProductVersion.Current,
+            stateDirectory,
+            update);
+
+        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree, settings);
 
         return new AppComposition(
             workspace,

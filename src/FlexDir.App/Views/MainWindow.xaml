@@ -1118,6 +1118,17 @@
             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
 
+            <!-- 자식도 가상화한다. 노드마다 패널이 따로이므로 TreeView 에만 걸면 펼친
+                 폴더의 항목 수만큼 컨테이너가 산다. 파생 패널인 이유는 TreeScroll 이
+                 BringIndexIntoView 를 불러야 하기 때문이다 (protected 라 밖으로 연다). -->
+            <Setter Property="ItemsPanel">
+                <Setter.Value>
+                    <ItemsPanelTemplate>
+                        <v:RealizingStackPanel />
+                    </ItemsPanelTemplate>
+                </Setter.Value>
+            </Setter>
+
             <!-- 이것이 없으면 자동화가 노드 이름을 ToString() 으로 읽어 클래스 이름을 낸다
                  (2026-08-10 UIA 로 확인). 헤더가 TextBlock 이라 자동으로 잡히지 않는다. -->
             <Setter Property="AutomationProperties.Name" Value="{Binding Label}" />
@@ -1245,6 +1256,85 @@
                          Text="{Binding EditingLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </Grid>
         </HierarchicalDataTemplate>
+
+        <!-- ═══ 설정 패널 (docs/PRD-v2.md §12) ═══
+             여기 있는 것은 전부 이 패널 전용이라 파일 끝에 모아 둔다. StaticResource 는
+             자기보다 앞선 정의만 찾으므로 (2026-08-10 에 값을 치르고 배운 것), 위의 색
+             토큰만 참조하고 아래를 가리키지 않는다. -->
+
+        <!-- 절 제목. 항목 사이를 가르는 것은 선이 아니라 이 간격이다. -->
+        <Style x:Key="SettingsHeading" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+
+        <!-- 곁들이는 설명·결과 문구. 본문보다 작고 흐리다. -->
+        <Style x:Key="SettingsNote" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+
+        <Style x:Key="SettingsChoice" TargetType="RadioButton">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+        </Style>
+
+        <Style x:Key="SettingsToggle" TargetType="CheckBox">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+
+        <!-- 패널 안의 누름 버튼. 툴바 버튼은 아이콘 전용이라 글자가 들어가지 않는다. -->
+        <Style x:Key="SettingsButton" TargetType="Button">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{StaticResource ChromeBgBrush}" />
+            <Setter Property="Padding" Value="10,4" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="4"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 시작 폴더 입력. 주소줄과 같은 계열이되 폭이 패널에 맞춰 늘어난다. -->
+        <Style x:Key="SettingsPathBox" TargetType="TextBox">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="6,4" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource StrokeStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -1270,6 +1360,15 @@
                      트리 조작이라 트리 토글 옆이다 — 페인 툴바에 두면 버튼이 둘이 된다. -->
                 <Button Style="{StaticResource ToolButton}" Content="&#xE735;"
                         ToolTip="현재 폴더를 즐겨찾기에 추가" Command="{Binding PinCurrentFolderCommand}" />
+
+                <!-- 설정 (docs/PRD-v2.md §12). 창 전체에 걸리는 것이라 페인 툴바가 아니라
+                     여기다 — 트리 토글·즐겨찾기와 같은 판단이다. E713 은 톱니 실루엣이고
+                     옆의 둘(선 E700 · 별 E735)과 계열이 겹치지 않는다 (docs/DESIGN.md §7). -->
+                <!-- AutomationProperties.Name 이 없으면 UIA 에 글리프 문자가 이름으로 잡힌다
+                     — 트리 노드가 클래스 이름으로 잡히던 것과 같은 자리다 (§10). -->
+                <Button Style="{StaticResource ToolButton}" Content="&#xE713;"
+                        AutomationProperties.Name="설정"
+                        ToolTip="설정" Command="{Binding OpenSettingsCommand}" />
                 <TextBlock Text="flex-dir" Margin="6,0,0,0" VerticalAlignment="Center"
                            Foreground="{StaticResource TextBrush}" />
             </StackPanel>
@@ -1306,16 +1405,20 @@
                     BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
                 <!-- 가상화를 명시한다. TreeView 의 기본 패널은 StackPanel 이라 그대로 두면
                      펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
+                <!-- TreeScroll.Path 는 트리가 따라간 경로다 (docs/PRD-v2.md §10-3).
+                     프로그램이 정한 선택으로는 TreeView 가 스크롤하지 않고, 가상화 때문에
+                     화면 밖 노드는 컨테이너조차 없어 루트부터 실현하며 내려가야 한다. -->
                 <TreeView ItemsSource="{Binding Tree.Roots}"
                           ItemContainerStyle="{StaticResource TreeNodeItem}"
                           v:FavoriteDropInput.Enabled="True"
+                          v:TreeScroll.Path="{Binding Tree.RevealedPath}"
                           Background="Transparent" BorderThickness="0" Padding="4"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
                           ScrollViewer.HorizontalScrollBarVisibility="Auto">
                     <TreeView.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <VirtualizingStackPanel />
+                            <v:RealizingStackPanel />
                         </ItemsPanelTemplate>
                     </TreeView.ItemsPanel>
                 </TreeView>
@@ -1421,5 +1524,142 @@
             </TextBlock>
           </Grid>
         </Border>
+
+        <!-- ═══ 설정 패널 (docs/PRD-v2.md §12 · 사용자 결정 2026-08-10: 창 안 오버레이) ═══
+
+             별도 Window 가 아니다. 상주 프로세스에서 창 닫기는 숨기기이므로 (ADR-003)
+             별도 창을 두면 "주 창이 숨을 때 설정 창은 어떻게 되나" 가 그대로 새 결정이 된다.
+
+             타이틀바(0행)는 덮지 않는다 — 창을 옮기고 닫는 길이 설정 중에도 살아 있어야 한다.
+             마지막 자식이라 나머지 위에 그려진다 (Grid 의 z 순서는 문서 순서다).
+
+             FallbackValue 가 있어야 한다: Settings 가 배선되지 않은 조립에서는 바인딩이
+             UnsetValue 를 내고, 그러면 변환기가 아예 불리지 않아 Visibility 가 기본값
+             (Visible)로 남는다 — 설정 없이 조립한 창이 설정 패널에 덮인다. -->
+        <Grid Grid.Row="1" Grid.RowSpan="3"
+              Visibility="{Binding Settings.IsOpen, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
+
+            <!-- 바깥을 눌러도 닫힌다. Button 인 이유는 코드비하인드 없이 클릭을 받는 길이
+                 그것뿐이기 때문이다 (CLAUDE.md §2). -->
+            <Button Command="{Binding Settings.CloseCommand}" Focusable="False">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="#40000000" />
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+
+            <Border Width="460" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{StaticResource WinBgBrush}"
+                    BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                    CornerRadius="8" Padding="20,16">
+                <StackPanel>
+                    <DockPanel LastChildFill="False" Margin="0,0,0,16">
+                        <TextBlock DockPanel.Dock="Left" Text="설정" FontSize="14" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" />
+                        <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
+                                Content="&#xE8BB;" FontSize="12"
+                                Command="{Binding Settings.CloseCommand}" />
+                    </DockPanel>
+
+                    <!-- ── 정보 ─────────────────────────────────────────── -->
+                    <TextBlock Style="{StaticResource SettingsHeading}" Text="정보" />
+
+                    <DockPanel LastChildFill="False" Margin="0,0,0,6">
+                        <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"
+                                   Foreground="{StaticResource TextBrush}">
+                            <Run Text="버전" />
+                            <Run Text="{Binding Settings.Version, Mode=OneWay}" FontWeight="SemiBold" />
+                        </TextBlock>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource SettingsButton}"
+                                Content="업데이트 확인"
+                                Command="{Binding Settings.CheckUpdateCommand}" />
+                    </DockPanel>
+
+                    <!-- 누르기 전에는 비어 있다. 빈 문자열일 때 자리까지 접어야 버튼과
+                         아래 항목 사이가 벌어지지 않는다. -->
+                    <TextBlock Text="{Binding Settings.UpdateStatus}" Margin="0,0,0,10">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource SettingsNote}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Settings.UpdateStatus}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <Button Style="{StaticResource SettingsButton}" HorizontalAlignment="Left"
+                            Content="상태 폴더 열기"
+                            Command="{Binding Settings.OpenStateFolderCommand}" />
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,4,0,0"
+                               Text="{Binding Settings.StateFolderText}" />
+
+                    <Separator Margin="0,16" Background="{StaticResource StrokeBrush}" />
+
+                    <!-- ── 시작 폴더 ────────────────────────────────────── -->
+                    <TextBlock Style="{StaticResource SettingsHeading}" Text="시작 폴더" />
+
+                    <RadioButton Style="{StaticResource SettingsChoice}" GroupName="StartFolder"
+                                 Content="마지막에 보던 폴더"
+                                 IsChecked="{Binding Settings.StartsAtLastFolder, Mode=TwoWay}" />
+                    <RadioButton Style="{StaticResource SettingsChoice}" GroupName="StartFolder"
+                                 Content="정해 둔 폴더"
+                                 IsChecked="{Binding Settings.StartsAtFixedFolder, Mode=TwoWay}" />
+
+                    <Grid Margin="20,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+
+                        <!-- '마지막 폴더' 를 고른 동안 상자만 잠근다 — 고칠 수 있는데 아무
+                             효과가 없으면 고쳐 놓고 왜 안 되는지 찾게 된다.
+
+                             버튼은 잠그지 않는다. '현재 폴더로' 는 그 자체가 "여기서
+                             시작하겠다" 라서 모드까지 바꾸는데 (SettingsViewModel), 버튼을
+                             함께 잠그면 그 경로에 화면에서 닿을 수가 없다 — 라디오를 먼저
+                             고르고 나서야 누를 수 있는 2단계가 된다.
+
+                             기본 UpdateSourceTrigger(LostFocus)를 그대로 쓴다 — 글자마다
+                             바꾸면 치는 도중의 반쪽 경로가 매번 저장된다. -->
+                        <TextBox Style="{StaticResource SettingsPathBox}"
+                                 IsEnabled="{Binding Settings.StartsAtFixedFolder}"
+                                 Text="{Binding Settings.StartFolderText, Mode=TwoWay}" />
+
+                        <Button Grid.Column="1" Style="{StaticResource SettingsButton}" Margin="6,0,0,0"
+                                Content="현재 폴더로"
+                                Command="{Binding UseCurrentFolderAsStartCommand}" />
+                    </Grid>
+
+                    <TextBlock Text="{Binding Settings.StartFolderError}" Margin="20,4,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource SettingsNote}">
+                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Settings.StartFolderError}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <Separator Margin="0,16" Background="{StaticResource StrokeBrush}" />
+
+                    <!-- ── 숨김·시스템 파일 ─────────────────────────────── -->
+                    <CheckBox Style="{StaticResource SettingsToggle}"
+                              Content="숨김·시스템 파일 보기"
+                              IsChecked="{Binding Settings.ShowHiddenItems, Mode=TwoWay}" />
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,4,0,0"
+                               Text="켜면 $Recycle.Bin · System Volume Information · desktop.ini 처럼 평소 감춰진 것이 목록과 트리에 함께 나옵니다." />
+
+                    <Button Style="{StaticResource SettingsButton}" HorizontalAlignment="Right"
+                            Margin="0,20,0,0" Content="닫기"
+                            Command="{Binding Settings.CloseCommand}" />
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

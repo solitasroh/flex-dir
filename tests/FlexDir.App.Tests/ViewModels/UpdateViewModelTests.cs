@@ -166,4 +166,61 @@ public class UpdateViewModelTests
 
         Assert.False(update.IsAvailable);
     }
+
+    // ── 사용자가 직접 누른 확인 (docs/PRD-v2.md §12 설정 창) ───────────
+    //
+    // 시작할 때의 자동 확인과 반대다. 그쪽은 사용자가 요구한 작업이 아니라 조용히 실패하지만,
+    // 설정 창의 '확인' 은 방금 누른 조작이다 — 아무 말도 하지 않으면 눌렸는지조차 알 수 없다.
+
+    [Fact]
+    public async Task CheckNow_WhenThereIsNothingNew_SaysSo()
+    {
+        Assert.Equal(UpdateCheckOutcome.UpToDate, await Create().CheckNowAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CheckNow_WhenSomethingIsFound_DownloadsItAndSaysSo()
+    {
+        updates.Available = new AvailableUpdate("1.2.3");
+        var update = Create();
+
+        Assert.Equal(UpdateCheckOutcome.Downloaded, await update.CheckNowAsync(CancellationToken.None));
+
+        // 받아 두는 것까지가 한 조작이다 — 누르고 나서 받으면 '지금 설치' 가 몇 분짜리가 된다.
+        Assert.Equal(["1.2.3"], updates.Downloads.Select(found => found.Version));
+        Assert.True(update.IsAvailable);
+    }
+
+    [Fact]
+    public async Task CheckNow_WhenTheFeedCannotBeReached_SaysItFailed()
+    {
+        // 자동 확인은 이것을 삼킨다. 직접 누른 확인은 삼키면 안 된다 — 다만 던지지도 않는다.
+        updates.Failure = new HttpRequestException("피드에 못 닿는다");
+
+        Assert.Equal(UpdateCheckOutcome.Failed, await Create().CheckNowAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CheckNow_WhenCancelled_SaysItFailedAndDoesNotThrow()
+    {
+        // 확인 중에 창을 닫았다. 예외로 나가면 커맨드 밖으로 새어 프로세스가 죽는다
+        // (PaneViewModel.RunAsync 가 배운 것과 같은 자리다).
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        Assert.Equal(UpdateCheckOutcome.Failed, await Create().CheckNowAsync(cancelled.Token));
+    }
+
+    [Fact]
+    public async Task Check_DelegatesToCheckNow_SoBothPathsBehaveTheSame()
+    {
+        // 시작 경로와 설정 창이 다른 코드를 지나면 한쪽만 고치는 순간 갈린다.
+        updates.Available = new AvailableUpdate("1.2.3");
+        var update = Create();
+
+        await update.CheckAsync(CancellationToken.None);
+
+        Assert.Equal(1, updates.Checks);
+        Assert.True(update.IsAvailable);
+    }
 }

@@ -257,6 +257,19 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private string freeSpaceText = string.Empty;
 
+    private bool isWatchThrottled;
+
+    /// <summary>
+    /// 이어진 오버플로의 수 (<see cref="WatchBackoff"/>). <b>감시가 아니라 페인이 센다</b> —
+    /// 오버플로의 처방인 새로고침이 <see cref="WatchRun"/> 을 새로 만들므로, 거기 두면
+    /// 세는 값이 매번 0 으로 돌아가 백오프가 영영 걸리지 않는다 (테스트가 이것을 잡았다).
+    /// 폴더를 옮길 때만 리셋한다.
+    /// </summary>
+    private int overflowRun;
+
+    /// <summary>직전 오버플로의 시각. 처음에는 아주 옛날이라 첫 오버플로가 이어지지 않는다.</summary>
+    private DateTimeOffset lastOverflow = DateTimeOffset.MinValue;
+
     private IReadOnlyList<PathSegment> addressSegments = [];
 
     private bool isAddressEditing;
@@ -413,6 +426,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>목록을 그리는 방식. 폴더마다 기억한다 (docs/PRD.md §2).</summary>
+    /// <summary>
+    /// 숨김·시스템 항목을 목록에 낼 것인가 (docs/PRD-v2.md §12). 판정은
+    /// <see cref="ItemVisibility"/> 하나가 하고 트리도 같은 것을 쓴다.
+    ///
+    /// <para>
+    /// <b>바뀌었다고 스스로 다시 읽지 않는다.</b> 목록 둘과 트리를 언제 다시 읽을지는
+    /// <c>WorkspaceViewModel</c> 이 정한다 — 페인이 스스로 열거를 걸면 복원 경로가 이 값을
+    /// 넣는 것만으로 폴더를 두 번 읽고, 창 하나에 그런 자리가 셋이 된다.
+    /// </para>
+    /// </summary>
+    public bool ShowHiddenItems { get; set; }
+
     public ViewMode ViewMode
     {
         get => viewMode;
@@ -610,6 +635,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(visible);
 
+
         thumbnails.SetVisibleRange(visible, IconSize(ViewMode));
     }
 
@@ -623,6 +649,33 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 상태표시줄 오른쪽 끝의 여유 용량 문구. <b>모르면 빈 문자열이다</b> — 자리를 비우는
     /// 것과 <c>0 B</c> 를 적는 것은 다르다 (<see cref="IDriveSpace"/>).
     /// </summary>
+    /// <summary>
+    /// 자동 갱신이 늦춰졌음을 알리는 접미사 (docs/PRD-v2.md §13).
+    /// <c>StatusSummary</c> 에 두지 않는 이유: 그쪽은 <b>목록의 요약</b>이고 이것은
+    /// <b>감시의 상태</b>다 — 섞으면 항목 수를 세는 함수가 감시를 알게 된다.
+    /// </summary>
+    private const string ThrottledSuffix = " · 자동 갱신이 느려졌습니다 — 새로 고침(F5)";
+
+    /// <summary>
+    /// 감시 오버플로가 되풀이돼 재열거를 늦추고 있는가 (<see cref="WatchBackoff"/>).
+    /// 상태표시줄이 이 값을 문구로 낸다.
+    /// <para>
+    /// <b>폴더를 옮기거나 새로 고치면 내려간다</b> — 새 <c>WatchRun</c> 이 세는 값을
+    /// 처음부터 시작하기 때문이다.
+    /// </para>
+    /// </summary>
+    public bool IsWatchThrottled
+    {
+        get => isWatchThrottled;
+        private set
+        {
+            if (SetProperty(ref isWatchThrottled, value))
+            {
+                RefreshStatusText();
+            }
+        }
+    }
+
     public string FreeSpaceText
     {
         get => freeSpaceText;
@@ -1752,6 +1805,13 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 // 포커스도 같은 이유로 접는다 — 다음 키 입력이 첫 항목부터 시작한다.
                 Selection.Clear();
                 FocusedName = null;
+
+                // 감시 백오프도 폴더의 성질이다 (docs/PRD-v2.md §13). 여기서만 리셋하는
+                // 것이 핵심이다 — 새로 고침에서도 리셋하면 그 새로고침이 오버플로의
+                // 처방이므로 세는 값이 영영 쌓이지 않고 폭주가 그대로 남는다.
+                overflowRun = 0;
+                lastOverflow = DateTimeOffset.MinValue;
+                IsWatchThrottled = false;
             }
         }).ConfigureAwait(false);
 
@@ -1927,8 +1987,19 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         IReadOnlyList<FileItem> batch,
         CancellationToken ct)
     {
+        // 숨김·시스템은 여기서 걸러진다 — 열거는 있는 것을 다 낸다 (ItemVisibility).
+        // 정렬 앞에서 거른다: 뒤에서 거르면 걸러질 것까지 비교하게 된다.
+        var items = new List<FileItem>(batch.Count);
+
+        foreach (var item in batch)
+        {
+            if (ItemVisibility.IsVisible(item, ShowHiddenItems))
+            {
+                items.Add(item);
+            }
+        }
+
         // 배치 안에서만 정렬한다. 배치마다 전체를 다시 정렬하면 항목이 쌓일수록 느려진다.
-        var items = new List<FileItem>(batch);
         items.Sort(comparer);
 
         var rows = new List<FileItemViewModel>(items.Count);
@@ -2130,7 +2201,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         {
             // 이벤트가 유실됐다. 무시하면 목록이 파일시스템과 어긋난 채 남는다
             // (docs/SHELL_NOTES.md §폴더 감시). 선택은 이름으로 남아 재열거 뒤 Retain 이
-            // 복원한다. 감시의 토큰을 넘기지 않는다 — 이 호출이 그 토큰을 취소한다.
+            // 복원한다.
+            //
+            // 되풀이되면 기다렸다 한다 (docs/PRD-v2.md §13). 이 새로고침이 감시를 다시
+            // 걸고, 다시 건 감시가 즉시 같은 오류를 내는 경로가 실제로 있다 — 처방과
+            // 증상이 한 고리에 있어 대기가 없으면 초당 열 번씩 돈다 (WSL 실측).
+            if (await WaitOutOverflowAsync(watching).ConfigureAwait(false))
+            {
+                // 기다리는 동안 폴더를 옮겼다. 낡은 폴더를 다시 읽지 않는다.
+                return;
+            }
+
+            // 감시의 토큰을 넘기지 않는다 — 이 호출이 그 토큰을 취소한다.
             await RefreshAsync(CancellationToken.None).ConfigureAwait(false);
             return;
         }
@@ -2146,7 +2228,11 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 .ConfigureAwait(false);
 
             // 알림과 실제가 어긋나는 것은 정상이다 — 없으면 목록에서도 없다.
-            if (item is null)
+            //
+            // 숨김·시스템도 같은 자리에서 '없는 것' 이 된다 (ItemVisibility). 열거만 거르고
+            // 여기를 놔두면 숨김 파일이 생기는 순간 목록에 나타나고, 속성이 바뀌어 숨김이
+            // 붙은 항목은 반대로 남는다 — 둘 다 다음 새로 고침 때까지 간다.
+            if (item is null || !ItemVisibility.IsVisible(item, ShowHiddenItems))
             {
                 removals.Add(name);
             }
@@ -2390,9 +2476,55 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         }
 
         // ForSelection 은 선택이 0 개면 ForItems 와 같은 문자열을 낸다 — 여기서 분기하지 않는다.
-        StatusText = Items.Count == 0
+        var summary = Items.Count == 0
             ? StatusSummary.Empty
             : StatusSummary.ForSelection(Items.Count, Selection.Count, SelectedBytes(), culture);
+
+        // 자동 갱신이 늦춰진 동안은 그 사실을 붙인다 (docs/PRD-v2.md §13). 목록이
+        // 파일시스템과 어긋날 수 있다는 것은 사용자가 손쓸 수 있는(새로 고침) 사실이라
+        // 조용히 두지 않는다 — 업데이트 확인 실패와 다른 판단이다.
+        StatusText = IsWatchThrottled ? $"{summary}{ThrottledSuffix}" : summary;
+    }
+
+    /// <summary>
+    /// 되풀이되는 오버플로를 늦춘다 (docs/PRD-v2.md §13 · <see cref="WatchBackoff"/>).
+    /// <para>
+    /// 대기 중에 폴더를 옮기면 감시 토큰이 취소되고 <see langword="true"/> 를 낸다 —
+    /// 그때 호출자는 낡은 폴더를 다시 읽지 않는다.
+    /// </para>
+    /// </summary>
+    /// <returns>기다리다 취소됐는가.</returns>
+    private async Task<bool> WaitOutOverflowAsync(WatchRun watching)
+    {
+        var now = timeProvider.GetUtcNow();
+
+        overflowRun = WatchBackoff.IsConsecutive(now - lastOverflow) ? overflowRun + 1 : 0;
+        lastOverflow = now;
+
+        var throttled = WatchBackoff.IsThrottled(overflowRun);
+
+        if (throttled != IsWatchThrottled)
+        {
+            await dispatcher.InvokeAsync(() => IsWatchThrottled = throttled).ConfigureAwait(false);
+        }
+
+        var delay = WatchBackoff.Delay(overflowRun);
+
+        if (delay <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        try
+        {
+            await Task.Delay(delay, timeProvider, watching.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -2502,11 +2634,17 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     }
 
     /// <summary>
-    /// 주소창 입력이 거부된 사유. <see cref="LocationErrorMessages"/> 는 열거 실패
+    /// 경로 입력이 거부된 사유. <see cref="LocationErrorMessages"/> 는 열거 실패
     /// (<see cref="LocationErrorKind"/>)만 다루므로 파싱 실패 문구는 여기 둔다 —
-    /// 주소를 문자열로 받는 것은 ViewModel 뿐이다.
+    /// 경로를 문자열로 받는 것은 ViewModel 이다.
+    /// <para>
+    /// <b><see cref="SettingsViewModel"/> 도 이것을 쓴다</b> (시작 폴더 입력).
+    /// 문구를 두 벌 두면 같은 오타에 다른 안내가 나온다 — 사유별로 <b>고칠 것이 다르다는</b>
+    /// 것이 <see cref="LocationParseError"/> 를 나눈 이유이므로 그 구분이 한쪽에서만
+    /// 살아 있으면 나눈 값이 반만 남는다.
+    /// </para>
     /// </summary>
-    private static string DescribeParseError(LocationParseError error, string? address)
+    internal static string DescribeParseError(LocationParseError error, string? address)
     {
         var wording = error switch
         {
@@ -2616,6 +2754,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
         /// <summary>감시 루프. <see cref="DisposeAsync"/> 만 이것을 기다린다.</summary>
         public Task Loop { get; set; } = Task.CompletedTask;
+
 
         public void MarkEnumerated(bool listed)
         {

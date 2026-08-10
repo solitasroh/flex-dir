@@ -62,6 +62,22 @@ public sealed partial class FolderTreeViewModel : ObservableObject
     private bool isVisible = true;
     private double width = DefaultWidth;
 
+    /// <summary>
+    /// 따라가는 중인가 (<see cref="RevealAsync"/>). <b>되먹임을 끊는 값이다</b> — 노드를
+    /// 고르면 <c>IsSelected</c> 세터가 <see cref="NavigationRequested"/> 를 쏘고 활성 페인이
+    /// 그리로 가는데, 그 탐색이 다시 따라가기를 부르면 페인과 트리가 서로를 영원히 민다.
+    /// <para>UI 스레드에서만 만진다 — 켜고 끄는 것이 전부 dispatcher 안이다.</para>
+    /// </summary>
+    private bool revealing;
+
+    /// <summary>진행 중인 따라가기. 새 탐색이 오면 앞선 것을 끊는다.</summary>
+    private CancellationTokenSource? reveal;
+
+    /// <summary>지금 고른 노드. 새로 고를 때 이전 것을 내리는 데 쓴다.</summary>
+    private TreeNodeViewModel? selected;
+
+    private IReadOnlyList<TreeNodeViewModel> revealedPath = [];
+
     public FolderTreeViewModel(
         IDriveList drives,
         INetworkPlaceList places,
@@ -84,6 +100,38 @@ public sealed partial class FolderTreeViewModel : ObservableObject
 
     /// <summary>고른 폴더. 활성 페인이 여기로 간다 (사용자 결정 2026-08-10).</summary>
     public event EventHandler<LocationId>? NavigationRequested;
+
+    /// <summary>
+    /// 숨김·시스템 폴더를 트리에 낼 것인가 (docs/PRD-v2.md §12). 판정은
+    /// <see cref="ItemVisibility"/> 하나가 하고 목록도 같은 것을 쓴다 — 트리에는 있는데
+    /// 목록에는 없는 폴더가 생기면 안 된다.
+    ///
+    /// <para>
+    /// <b>바뀌었다고 스스로 다시 읽지 않는다.</b> 언제 다시 읽을지는
+    /// <c>WorkspaceViewModel</c> 이 정한다 (<see cref="ReloadFoldersAsync"/>) — 페인이 같은
+    /// 자리에서 같은 이유로 그렇게 한다.
+    /// </para>
+    /// </summary>
+    public bool ShowHiddenItems { get; set; }
+
+    /// <summary>
+    /// 마지막 따라가기가 지나온 노드들 — 루트부터 고른 것까지 (docs/PRD-v2.md §10-3).
+    ///
+    /// <para>
+    /// <b>"어느 노드를 골랐나" 만으로는 View 가 화면을 옮길 수 없다.</b> 트리는 가상화돼
+    /// 있어 (docs/ARCHITECTURE.md §5) 화면 밖 노드는 컨테이너가 없고, 컨테이너를 얻으려면
+    /// <b>부모 컨테이너부터 차례로</b> 실현해야 한다 — 그 순서가 이 목록이다.
+    /// </para>
+    /// <para>
+    /// 실물에서 <c>C:\Users\SOOJANG\orca\...</c> 로 갔을 때 드러났다: 노드는 펴졌는데
+    /// <c>SOOJANG</c> 아래 형제가 90개라 대상이 화면 밖이었고, 화면은 그대로였다.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<TreeNodeViewModel> RevealedPath
+    {
+        get => revealedPath;
+        private set => SetProperty(ref revealedPath, value);
+    }
 
     /// <summary>드라이브 다음에 서버가 온다. 그 순서가 곧 화면 순서다.</summary>
     public ObservableCollection<TreeNodeViewModel> Roots { get; } = [];
@@ -188,6 +236,217 @@ public sealed partial class FolderTreeViewModel : ObservableObject
         await dispatcher.InvokeAsync(() => node.Realize(children)).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 페인이 보고 있는 폴더를 트리에서 찾아 열고 고른다 (docs/PRD-v2.md §10-3 ·
+    /// 사용자 요청 2026-08-10).
+    ///
+    /// <para>
+    /// <b>§10 이 "트리는 따라가지 않는다" 로 정해 둔 것을 뒤집은 것이다.</b> 그때의 근거
+    /// ("경로를 따라 노드를 여는 것이 전부 저장소 호출이다")는 그대로 유효하므로 값을 세
+    /// 군데서 아낀다: <b>가장 가까운 루트</b>에서 출발하고, 이미 연 단계는
+    /// <see cref="ExpandAsync"/> 가 다시 읽지 않으며, 새 탐색이 오면 앞선 따라가기를 끊는다.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>중간에서 막히면 거기서 멈춘다.</b> 권한 없는 폴더가 경로에 있을 수 있다 —
+    /// 갈 수 있는 데까지 간 자리를 고르면 사용자가 어디쯤인지는 볼 수 있고, 트리가 곁다리라는
+    /// 전제도 지켜진다 (<see cref="ExpandAsync"/> 와 같은 판단).
+    /// </para>
+    /// </summary>
+    public async Task RevealAsync(LocationId folder, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(folder);
+
+        // 앞선 따라가기를 끊는다. 폴더를 빠르게 옮기면 옛 경로가 뒤늦게 도착해 방금 고른
+        // 자리를 덮는다 — 열거 스케줄러가 세대를 여는 것과 같은 자리다.
+        var previous = reveal;
+        var current = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        reveal = current;
+        previous?.Cancel();
+        previous?.Dispose();
+
+        try
+        {
+            await RevealCoreAsync(folder, current.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // 다음 폴더가 왔거나 창을 닫았다. 정상 종료다.
+        }
+    }
+
+    private async Task RevealCoreAsync(LocationId folder, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+
+        if (FindStart(folder) is not { } start)
+        {
+            // 트리의 어느 루트 아래도 아니다 (주소줄로 친 다른 드라이브). 아무 일도 하지
+            // 않는다 — 루트를 늘리는 것은 드라이브 목록이 할 일이다.
+            return;
+        }
+
+        var (node, chain) = start;
+        var walked = new List<TreeNodeViewModel>(chain.Count + 1) { node };
+
+        foreach (var step in chain)
+        {
+            await ExpandAsync(node, ct).ConfigureAwait(false);
+
+            // 자식에 없으면 여기서 멈춘다 — 못 읽은 폴더이거나(ExpandAsync 가 빈 목록으로
+            // 접는다) 숨김 정책에 걸린 폴더다. 후자는 실제로 일어난다: 숨김을 감춘 채
+            // C:\$Recycle.Bin 을 주소줄로 열면 트리에는 그 노드가 없다.
+            if (node.Children.FirstOrDefault(child => child.Location.Equals(step)) is not { } next)
+            {
+                break;
+            }
+
+            await dispatcher.InvokeAsync(() => node.IsExpanded = true).ConfigureAwait(false);
+
+            node = next;
+            walked.Add(node);
+        }
+
+        await dispatcher.InvokeAsync(() =>
+        {
+            // 되먹임을 끊는다 (위 §revealing). finally 로 반드시 되돌린다 — 켜진 채로 남으면
+            // 그 뒤의 사용자 클릭이 조용히 무시된다.
+            revealing = true;
+
+            try
+            {
+                if (selected is { } old && !ReferenceEquals(old, node))
+                {
+                    old.IsSelected = false;
+                }
+
+                node.IsSelected = true;
+                selected = node;
+            }
+            finally
+            {
+                revealing = false;
+            }
+
+            // 길을 마지막에 낸다 — View 가 이것을 신호로 컨테이너를 내려가므로, 선택이
+            // 서기 전에 알리면 아직 없는 노드를 찾아 내려간다.
+            RevealedPath = walked;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 출발할 루트와 거기서부터 열어야 하는 단계들. <b>가장 가까운 루트를 고른다</b> —
+    /// 즐겨찾기 <c>C:\Users</c> 와 드라이브 <c>C:\</c> 가 둘 다 <c>C:\Users\SOOJANG</c> 을
+    /// 담을 때, 앞의 것에서 출발하면 여는 단계가 하나로 줄고 그것이 그대로 저장소 호출 수다.
+    /// </summary>
+    private (TreeNodeViewModel Node, IReadOnlyList<LocationId> Chain)? FindStart(LocationId folder)
+    {
+        (TreeNodeViewModel Node, IReadOnlyList<LocationId> Chain)? best = null;
+
+        foreach (var root in Roots)
+        {
+            if (ChainFrom(root.Location, folder) is not { } chain)
+            {
+                continue;
+            }
+
+            if (best is null || chain.Count < best.Value.Chain.Count)
+            {
+                best = (root, chain);
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
+    /// <paramref name="root"/> 바로 아래부터 <paramref name="folder"/> 까지의 단계. 루트
+    /// 아래가 아니면 <see langword="null"/> 이고, 루트 자신이면 빈 목록이다.
+    /// <para>
+    /// 위로 거슬러 올라가며 만든다 — 아래로 내려가려면 각 단계에서 자식을 열거해야 하는데
+    /// 그것이 바로 아끼려는 호출이다. <c>TryGetParent</c> 는 문자열만 본다.
+    /// </para>
+    /// </summary>
+    private static IReadOnlyList<LocationId>? ChainFrom(LocationId root, LocationId folder)
+    {
+        var chain = new List<LocationId>();
+        var current = folder;
+
+        while (!current.Equals(root))
+        {
+            chain.Add(current);
+
+            if (!current.TryGetParent(out var parent))
+            {
+                return null;   // 루트를 만나지 못하고 꼭대기까지 갔다.
+            }
+
+            current = parent;
+        }
+
+        chain.Reverse();
+
+        return chain;
+    }
+
+    /// <summary>
+    /// 이미 펼쳐 둔 노드를 다시 읽는다. 숨김 설정이 바뀌었을 때 부른다.
+    ///
+    /// <para>
+    /// <b><see cref="LoadAsync"/> 를 다시 부르지 않는다.</b> 그쪽은 루트를 통째로 세우므로
+    /// 펼쳐 둔 폴더가 전부 접힌다 — 설정 하나 바꿨다고 보고 있던 자리를 잃으면 안 된다
+    /// (즐겨찾기가 앞부분만 갈아 끼우는 것과 같은 판단 · docs/PRD-v2.md §10-2).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>펼치지 않은 노드는 건드리지 않는다.</b> 트리에 선 모든 폴더를 읽으면 지연 로딩을
+    /// 고른 이유가 사라진다 (CLAUDE.md §3) — 다음에 펼칠 때 새 설정으로 읽힌다.
+    /// </para>
+    /// </summary>
+    public async Task ReloadFoldersAsync(CancellationToken ct = default)
+    {
+        // 지금 찍는다. 아래에서 자식을 갈아 끼우는 동안 Roots 가 흔들리지 않아야 한다.
+        var opened = Roots.Where(root => root.IsRealized).ToList();
+
+        foreach (var root in opened)
+        {
+            await ReloadAsync(root, ct).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 노드 하나와 <b>그 아래 펼쳐 둔 것들</b>을 다시 읽는다.
+    /// <para>
+    /// 무엇이 열려 있었는지를 <b>갈아 끼우기 전에</b> 찍어 둔다 — <c>Realize</c> 가 자식
+    /// 인스턴스를 통째로 바꾸므로 그 뒤에는 물어볼 대상이 없다.
+    /// </para>
+    /// </summary>
+    private async Task ReloadAsync(TreeNodeViewModel node, CancellationToken ct)
+    {
+        var reopen = node.Children
+            .Where(child => child.IsRealized)
+            .Select(child => child.Location)
+            .ToHashSet();
+
+        var children = await ReadFoldersAsync(node.Location, node.IsNetwork, ct).ConfigureAwait(false);
+
+        await dispatcher.InvokeAsync(() => node.Realize(children)).ConfigureAwait(false);
+
+        foreach (var child in children)
+        {
+            if (!reopen.Contains(child.Location))
+            {
+                continue;
+            }
+
+            // 먼저 채우고 나서 편다. 순서를 뒤집으면 IsExpanded 세터가 ExpandAsync 를
+            // 기다리지 않고 걸어(TreeNodeViewModel) 같은 폴더를 두 번 읽는다.
+            await ReloadAsync(child, ct).ConfigureAwait(false);
+
+            await dispatcher.InvokeAsync(() => child.IsExpanded = true).ConfigureAwait(false);
+        }
+    }
+
     private async Task<IReadOnlyList<TreeNodeViewModel>> ReadFoldersAsync(
         LocationId folder,
         bool isNetwork,
@@ -199,9 +458,10 @@ public sealed partial class FolderTreeViewModel : ObservableObject
         {
             await foreach (var item in folders.EnumerateAsync(folder, ct).ConfigureAwait(false))
             {
-                // 파일은 트리에 서지 않는다. 숨김·시스템 정책은 열거가 이미 정한 것을
-                // 그대로 따른다 — 목록과 트리가 다른 것을 보여주면 안 된다.
-                if (item.IsDirectory)
+                // 파일은 트리에 서지 않는다. 숨김·시스템은 목록과 <b>같은 판정</b>을 지난다
+                // (ItemVisibility) — 열거는 있는 것을 다 내므로 여기서 거르지 않으면
+                // $Recycle.Bin 이 트리에만 남는다.
+                if (item.IsDirectory && ItemVisibility.IsVisible(item, ShowHiddenItems))
                 {
                     names.Add((item.Name, item.Location));
                 }
@@ -495,7 +755,16 @@ public sealed partial class FolderTreeViewModel : ObservableObject
             location,
             label,
             node => ExpandAsync(node),
-            node => NavigationRequested?.Invoke(this, node.Location),
+
+            // 따라가는 중에는 쏘지 않는다 (위 §revealing) — 우리가 고른 것을 페인에게
+            // 다시 열라고 하면 그 탐색이 또 따라가기를 불러 서로를 영원히 민다.
+            node =>
+            {
+                if (!revealing)
+                {
+                    NavigationRequested?.Invoke(this, node.Location);
+                }
+            },
             isFavorite,
             isNetwork);
 

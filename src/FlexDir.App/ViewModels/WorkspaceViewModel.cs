@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
+using FlexDir.Core.Settings;
 using FlexDir.Core.ViewState;
 
 namespace FlexDir.App.ViewModels;
@@ -42,6 +43,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private double splitterRatio = GlobalViewState.Default.SplitterRatio;
     private WindowPlacement? windowPlacement;
 
+    /// <summary>숨김 정책이 바뀌어 다시 읽는 중인 작업. 테스트가 "끝났는가" 를 보는 자리다.</summary>
+    private Task hiddenItemsWork = Task.CompletedTask;
+
+    /// <summary>진행 중인 트리 따라가기. 테스트가 "끝났는가" 를 보는 자리다.</summary>
+    private Task treeRevealWork = Task.CompletedTask;
+
     /// <param name="update">
     /// 새 버전 알림 (docs/PRD-v2.md §9). <b>선택이다</b> — 없으면 알림 바가 영영 접혀 있고
     /// 나머지는 그대로 돈다. 창은 업데이트 없이도 서야 한다: 조립이 그 자리에서 막히면
@@ -52,12 +59,17 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// 선택이다 — 두 페인은 트리 없이도 돌아야 하고, 트리를 보지 않는 테스트가 드라이브
     /// 열거 fake 까지 조립하게 만들 이유가 없다.
     /// </param>
+    /// <param name="settings">
+    /// 설정 패널 (docs/PRD-v2.md §12). 앞의 둘과 같은 이유로 선택이다 — 없으면 시작 폴더는
+    /// 마지막 폴더로, 숨김 정책은 기본값으로 간다.
+    /// </param>
     public WorkspaceViewModel(
         PaneViewModel left,
         PaneViewModel right,
         IViewStateStore viewStateStore,
         UpdateViewModel? update = null,
-        FolderTreeViewModel? tree = null)
+        FolderTreeViewModel? tree = null,
+        SettingsViewModel? settings = null)
     {
         ArgumentNullException.ThrowIfNull(left);
         ArgumentNullException.ThrowIfNull(right);
@@ -67,7 +79,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         Right = right;
         Update = update;
         Tree = tree;
+        Settings = settings;
         viewStates = viewStateStore;
+
+        if (settings is not null)
+        {
+            // 상태 폴더 열기. 트리의 NavigationRequested 와 같은 자리다 — 설정은 페인을
+            // 모르고, 어느 페인이 갈지는 여기서 정한다.
+            settings.NavigationRequested += (_, location) => _ = ActivePane.NavigateAsync(location);
+
+            // 숨김 정책이 바뀌면 지금 보고 있는 것을 다시 걸러야 한다. 페인과 트리가
+            // 스스로 하지 않는 이유는 각자의 속성 주석에 있다 — 다시 읽을지를 정하는
+            // 곳이 하나여야 클릭 한 번에 저장소 호출이 셋으로 늘지 않는다.
+            settings.HiddenItemsChanged += (_, _) => hiddenItemsWork = ApplyHiddenItemsAsync();
+        }
 
         // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작). View 가
         // 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
@@ -83,6 +108,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 기다리지 않는다 — 이벤트 핸들러는 동기이고, 페인은 열거 실패를 자기
             // 상태표시줄에 낸다 (PaneViewModel.FillAsync).
             tree.NavigationRequested += (_, location) => _ = ActivePane.NavigateAsync(location);
+
+            // 반대 방향 — 활성 페인이 옮기면 트리가 그 자리를 편다 (docs/PRD-v2.md §10-3 ·
+            // 사용자 요청 2026-08-10). 위의 배선과 짝이 되어 고리를 이루므로, 되먹임을
+            // 끊는 것은 트리 쪽이다 (FolderTreeViewModel 의 revealing).
+            left.PropertyChanged += OnPaneLocationChanged;
+            right.PropertyChanged += OnPaneLocationChanged;
 
             // 목록 우클릭의 '즐겨찾기에 추가'. 페인은 트리를 모르므로 여기서 잇는다 —
             // 페인 간 복사를 워크스페이스가 잇는 것과 같은 자리다.
@@ -107,6 +138,18 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// </summary>
     public FolderTreeViewModel? Tree { get; }
 
+    /// <summary>
+    /// 설정 패널 (docs/PRD-v2.md §12). 알림·트리와 같은 자리에 산다 — 페인이 둘인데
+    /// 설정은 하나다. 배선되지 않았으면 <see langword="null"/> 이고 오버레이가 뜨지 않는다.
+    /// </summary>
+    public SettingsViewModel? Settings { get; }
+
+    /// <summary>숨김 정책 변경에 이어지는 재열거. 테스트가 "끝났는가" 를 보는 자리다.</summary>
+    internal Task HiddenItemsWork => hiddenItemsWork;
+
+    /// <summary>진행 중인 트리 따라가기. 테스트가 "끝났는가" 를 보는 자리다.</summary>
+    internal Task TreeRevealWork => treeRevealWork;
+
     /// <summary>활성 페인은 항상 정확히 하나다. 어느 쪽인지를 이 값 하나로 정한다.</summary>
     public PaneSide ActiveSide
     {
@@ -119,6 +162,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                 // 바인딩한다 (docs/DESIGN.md §6).
                 OnPropertyChanged(nameof(ActivePane));
                 OnPropertyChanged(nameof(InactivePane));
+
+                // 가리키는 페인이 바뀌었으니 트리도 옮겨간다 — Tab 으로 옮긴 뒤에도 트리가
+                // 반대쪽 자리를 가리키면 어느 쪽을 보고 있는지 알 수 없다.
+                RevealInTree();
             }
         }
     }
@@ -160,6 +207,14 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     {
         var state = await LoadGlobalAsync(ct).ConfigureAwait(false);
 
+        // 설정을 먼저 읽는다. 시작 폴더 규칙과 숨김 정책이 둘 다 여기서 나오고, 둘 다
+        // 폴더를 열기 <b>전에</b> 서 있어야 한다 — 나중에 밀면 시작할 때 한 번은 옛 정책으로
+        // 그려지고 아무도 다시 읽지 않는다.
+        var settings = await LoadSettingsAsync(ct).ConfigureAwait(false);
+
+        Left.ShowHiddenItems = settings.ShowHiddenItems;
+        Right.ShowHiddenItems = settings.ShowHiddenItems;
+
         // 클램프를 지난다 — 저장된 값이 0.02 여도 페인 하나가 사라지지 않는다.
         SplitterRatio = state.SplitterRatio;
         WindowPlacement = state.Window;
@@ -177,18 +232,21 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 사라지지 않는다.
             tree.IsVisible = state.TreeVisible;
             tree.Width = state.TreeWidth;
+            tree.ShowHiddenItems = settings.ShowHiddenItems;
 
             // 드라이브 열거는 저장소에 닿는다. 페인 열기와 함께 두는 이유도 같다 —
             // 트리 하나 때문에 폴더가 늦게 뜨면 안 된다.
             opens.Add(tree.LoadAsync(ct));
         }
 
-        if ((state.LeftFolder ?? fallbackFolder) is { } left)
+        // 시작 폴더 규칙은 Core 에 있다 (AppSettings.ResolveStartFolder) — 페인마다 한 번씩
+        // 같은 규칙을 지난다.
+        if (settings.ResolveStartFolder(state.LeftFolder, fallbackFolder) is { } left)
         {
             opens.Add(Left.NavigateAsync(left, ct));
         }
 
-        if ((state.RightFolder ?? fallbackFolder) is { } right)
+        if (settings.ResolveStartFolder(state.RightFolder, fallbackFolder) is { } right)
         {
             opens.Add(Right.NavigateAsync(right, ct));
         }
@@ -247,6 +305,23 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             tree.IsVisible = !tree.IsVisible;
         }
     }
+
+    /// <summary>
+    /// 설정 패널을 연다. 패널이 배선되지 않았으면 아무 일도 하지 않는다 — 타이틀바 버튼은
+    /// 그런 조립에서도 눌린다 (<see cref="ToggleTree"/> 와 같은 자리).
+    /// </summary>
+    [RelayCommand]
+    private void OpenSettings() => Settings?.OpenCommand.Execute(null);
+
+    /// <summary>
+    /// 활성 페인이 보고 있는 폴더를 시작 폴더로 삼는다 (docs/PRD-v2.md §12).
+    /// <para>
+    /// <b>설정은 페인을 모른다.</b> 어느 폴더인지를 아는 곳이 여기뿐이라 여기서 건넨다 —
+    /// 즐겨찾기 고정(<see cref="PinCurrentFolderAsync"/>)과 같은 구도다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void UseCurrentFolderAsStart() => Settings?.UseCurrentFolder(ActivePane.CurrentLocation);
 
     /// <summary>
     /// 활성 페인이 보고 있는 폴더를 트리에 고정한다 (docs/PRD-v2.md §10-2).
@@ -318,6 +393,84 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         {
             return GlobalViewState.Default;
         }
+    }
+
+    /// <summary>
+    /// 페인의 위치가 바뀌면 트리를 그리로 편다. <b>활성 페인만</b> 본다 (사용자 결정
+    /// 2026-08-10) — 반대편까지 따라가면 트리가 어느 쪽을 가리키는지 알 수 없고, 그 탐색은
+    /// 전부 저장소 호출이다.
+    /// </summary>
+    private void OnPaneLocationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(PaneViewModel.CurrentLocation) && ReferenceEquals(sender, ActivePane))
+        {
+            RevealInTree();
+        }
+    }
+
+    /// <summary>
+    /// 활성 페인이 보는 폴더를 트리에서 편다 (docs/PRD-v2.md §10-3).
+    /// <para>
+    /// <b>기다리지 않는다</b> — 부르는 곳이 전부 속성 변경 알림이고, 여는 것은 저장소에
+    /// 닿는다 (CLAUDE.md §3). 앞선 따라가기를 끊는 것은 트리가 한다 (<c>RevealAsync</c>).
+    /// </para>
+    /// </summary>
+    private void RevealInTree()
+    {
+        if (Tree is { } tree && ActivePane.CurrentLocation is { } folder)
+        {
+            treeRevealWork = tree.RevealAsync(folder);
+        }
+    }
+
+    /// <summary>
+    /// 저장된 설정. 패널이 배선되지 않았으면 기본값이다 — 그때 시작 폴더는 마지막 폴더로,
+    /// 숨김은 감춤으로 간다.
+    /// </summary>
+    private async ValueTask<AppSettings> LoadSettingsAsync(CancellationToken ct)
+    {
+        if (Settings is not { } settings)
+        {
+            return AppSettings.Default;
+        }
+
+        // 던지지 않는다 (SettingsViewModel.LoadAsync) — 설정 파일 하나 때문에 창이 안 뜨면
+        // 안 된다. 전역 상태를 읽을 때와 같은 판단이다.
+        await settings.LoadAsync(ct).ConfigureAwait(false);
+
+        return settings.Current;
+    }
+
+    /// <summary>
+    /// 바뀐 숨김 정책을 페인 둘과 트리에 밀고 지금 보고 있는 것을 다시 읽는다.
+    /// <para>
+    /// <b>함께 기다린다.</b> 페인은 독립이고 트리는 곁다리라, 한쪽이 느려도(네트워크 폴더가
+    /// 열려 있을 수 있다) 다른 쪽을 막을 이유가 없다 — <see cref="RestoreAsync"/> 가 폴더
+    /// 셋을 함께 여는 것과 같은 자리다.
+    /// </para>
+    /// </summary>
+    private async Task ApplyHiddenItemsAsync()
+    {
+        if (Settings is not { } settings)
+        {
+            return;
+        }
+
+        var showHidden = settings.ShowHiddenItems;
+
+        Left.ShowHiddenItems = showHidden;
+        Right.ShowHiddenItems = showHidden;
+
+        var work = new List<Task>(3) { Left.RefreshAsync(), Right.RefreshAsync() };
+
+        if (Tree is { } tree)
+        {
+            tree.ShowHiddenItems = showHidden;
+
+            work.Add(tree.ReloadFoldersAsync());
+        }
+
+        await Task.WhenAll(work).ConfigureAwait(false);
     }
 
     /// <summary>

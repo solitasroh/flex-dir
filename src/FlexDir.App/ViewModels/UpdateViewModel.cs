@@ -8,6 +8,28 @@ using FlexDir.Core.Updates;
 namespace FlexDir.App.ViewModels;
 
 /// <summary>
+/// 확인 한 번의 결과 (docs/PRD-v2.md §12). <b>사용자가 직접 눌렀을 때만 쓰인다</b> —
+/// 시작할 때의 자동 확인은 결과를 묻지 않는다.
+/// <para>
+/// <b>'설치되지 않음' 이 없는 이유</b>: <c>IUpdateSource.CheckAsync</c> 는 개발 중 실행
+/// (<c>dotnet run</c>·빌드 산출물)에서도 <see langword="null"/> 을 내므로 "최신" 과 구분되지
+/// 않는다. 구분하려면 포트에 '설치되었는가' 를 물어야 하는데, 그것은 설정 창 하나 때문에
+/// 포트를 넓히는 일이다.
+/// </para>
+/// </summary>
+public enum UpdateCheckOutcome
+{
+    /// <summary>피드에 우리보다 새 것이 없다.</summary>
+    UpToDate,
+
+    /// <summary>새 버전을 찾아 <b>받아 두기까지</b> 끝냈다. 알림 바가 떠 있다.</summary>
+    Downloaded,
+
+    /// <summary>피드에 닿지 못했거나 받다가 끊겼다. 다음에 다시 누르면 된다.</summary>
+    Failed,
+}
+
+/// <summary>
 /// 새 버전 알림 (docs/PRD-v2.md §9).
 ///
 /// <para>
@@ -62,7 +84,22 @@ public sealed partial class UpdateViewModel : ObservableObject
     /// 예외가 나가면 아무도 기다리지 않는 Task 가 faulted 로 남는다.
     /// </para>
     /// </summary>
-    public async Task CheckAsync(CancellationToken ct)
+    public Task CheckAsync(CancellationToken ct) => CheckNowAsync(ct);
+
+    /// <summary>
+    /// 같은 일을 하되 <b>결과를 돌려준다</b>. 설정 창의 '확인' 이 부르는 자리다
+    /// (docs/PRD-v2.md §12).
+    /// <para>
+    /// <b>같은 코드를 지나야 한다.</b> 시작 경로와 설정 창을 따로 구현하면 한쪽만 고치는
+    /// 순간 갈린다 — 다른 것은 <b>말하느냐</b> 뿐이고, 말할지는 부르는 쪽이 정한다.
+    /// </para>
+    /// <para>
+    /// <b>던지지 않는 것도 그대로다.</b> 취소는 <see cref="UpdateCheckOutcome.Failed"/> 로
+    /// 돌아온다 — 종료 중이라면 그 값을 볼 화면이 이미 없고, 커맨드 밖으로 새면
+    /// 프로세스가 죽는다.
+    /// </para>
+    /// </summary>
+    public async Task<UpdateCheckOutcome> CheckNowAsync(CancellationToken ct)
     {
         try
         {
@@ -70,7 +107,7 @@ public sealed partial class UpdateViewModel : ObservableObject
 
             if (found is null)
             {
-                return;
+                return UpdateCheckOutcome.UpToDate;
             }
 
             await updates.DownloadAsync(found, ct).ConfigureAwait(false);
@@ -81,14 +118,18 @@ public sealed partial class UpdateViewModel : ObservableObject
                 Version = found.Version;
                 IsAvailable = true;
             }).ConfigureAwait(false);
+
+            return UpdateCheckOutcome.Downloaded;
         }
         catch (OperationCanceledException)
         {
             // 종료 중이다. 정상 종료다.
+            return UpdateCheckOutcome.Failed;
         }
         catch (Exception)
         {
-            // 위 §요약 참조 — 실패는 조용하다. 다음 실행이 다시 확인한다.
+            // 위 §요약 참조 — 자동 확인에서는 조용하다. 다음 실행이 다시 확인한다.
+            return UpdateCheckOutcome.Failed;
         }
     }
 
