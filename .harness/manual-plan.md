@@ -696,6 +696,20 @@ $btn.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invok
 
 - **페인 폭(= 스플리터 위치)** 은 `ControlType.List` 의 `BoundingRectangle` 로 잰다.
   페인마다 List 가 **둘씩** 잡히므로 X 로 정렬해 양 끝을 쓴다.
+
+**트리에는 합성 우클릭이 닿는다** (2026-08-10). 목록에서 한 번도 닿지 않아 "우클릭은 사람에게
+맡긴다" 로 적어 두었는데, 트리 노드에서는 `SetCursorPos` + `mouse_event(RIGHTDOWN/UP)` 이
+그대로 통했다 — 포그라운드만 확보하면 된다. 메뉴는 **별도 최상위 창**이라 주 창을
+`PrintWindow` 해도 안 나오므로, `EnumWindows` 로 같은 PID 의 보이는 창 중 주 창이 아닌 것을
+찾아 그것을 찍는다. **찍는 것까지 한 스크립트 안에서 해야 한다** — 명령을 나누면 그 사이
+포커스가 옮겨져 메뉴가 닫힌다.
+
+> 그러므로 "우클릭은 확인할 수 없다" 는 **목록에 대해서만** 참이다. 무엇이 다른지는
+> 밝히지 못했다 (트리는 우리 WPF 메뉴, 목록은 shell 의 `TrackPopupMenuEx` 다).
+
+**트리 노드는 `ControlType.TreeItem` 으로 잡힌다.** 다만 자식을 읽기 전에는
+`ExpandCollapseState` 가 `LeafNode` 라 `ExpandCollapsePattern.Expand()` 가 통하지 않는다
+(지연 로딩의 대가 — docs/PRD-v2.md §10). 펼치기는 화살표를 좌클릭한다.
 - 창 핸들은 `EnumWindows` 로 **제목이 정확히 `flex-dir`** 인 것을 고른다 — shell 대화상자가
   뜨면 `MainWindowHandle` 이 그쪽으로 옮겨간다 (아래 §열린 결정 의 주의와 같은 이유).
 - 창을 닫는(=숨기는) 것은 `PostMessage(hwnd, WM_CLOSE)` 로 한다. 이것도 포그라운드가 없다.

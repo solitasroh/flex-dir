@@ -1000,6 +1000,62 @@
             </Setter>
         </Style>
 
+        <!-- 즐겨찾기인 항목과 아닌 항목의 메뉴가 다르다. 한 메뉴에 두고 IsFavorite 으로
+             각 항목을 여닫는다 — ContextMenu 는 PlacementTarget 에서 DataContext(노드)를
+             물려받고, 트리 자신은 그 Tag 로 닿는다.
+
+             **아래 TreeNodeItem 보다 먼저 있어야 한다.** StaticResource 는 앞선 정의만
+             찾으므로, 뒤에 두면 Setter 가 조용히 UnsetValue 를 받고 우클릭하는 순간
+             프로세스가 죽는다 (2026-08-10 실물에서 밟았다 — 컴파일도 테스트도 통과한다).
+
+             x:Shared="False" 도 쓰지 않는다. 메뉴는 한 번에 하나만 열리므로 공유해도 되고,
+             위 GroupByMenu 가 그것을 쓰는 이유는 페인 둘에 각각 붙기 때문이다. -->
+        <Style x:Key="PinMenuItem" TargetType="MenuItem">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="False">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FavoriteMenuItem" TargetType="MenuItem">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="FavoriteSeparator" TargetType="Separator">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <ContextMenu x:Key="TreeNodeMenu">
+            <MenuItem Style="{StaticResource PinMenuItem}" Header="즐겨찾기에 추가"
+                      Command="{Binding PlacementTarget.Tag.PinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="이름 바꾸기"
+                      Command="{Binding PlacementTarget.Tag.BeginRenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="위로"
+                      Command="{Binding PlacementTarget.Tag.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="아래로"
+                      Command="{Binding PlacementTarget.Tag.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+            <Separator Style="{StaticResource FavoriteSeparator}" />
+            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="즐겨찾기에서 제거"
+                      Command="{Binding PlacementTarget.Tag.UnpinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
+                      CommandParameter="{Binding}" />
+        </ContextMenu>
+
         <Style x:Key="TreeNodeItem" TargetType="TreeViewItem">
             <!-- 펼침·선택의 정본은 노드다. TreeView 의 SelectedItem 은 읽기 전용이라
                  바인딩으로 되돌릴 수 없어서, 컨테이너 쪽을 노드에 맞춘다. -->
@@ -1112,55 +1168,6 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-
-        <!-- 즐겨찾기인 항목과 아닌 항목의 메뉴가 다르다. 한 메뉴에 두고 IsFavorite 으로
-             각 항목을 여닫는다 — ContextMenu 는 PlacementTarget 에서 DataContext(노드)를
-             물려받고, 트리 자신은 그 Tag 로 닿는다. -->
-        <Style x:Key="PinMenuItem" TargetType="MenuItem">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsFavorite}" Value="False">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="FavoriteMenuItem" TargetType="MenuItem">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <Style x:Key="FavoriteSeparator" TargetType="Separator">
-            <Setter Property="Visibility" Value="Collapsed" />
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
-                    <Setter Property="Visibility" Value="Visible" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
-        <ContextMenu x:Key="TreeNodeMenu" x:Shared="False">
-            <MenuItem Style="{StaticResource PinMenuItem}" Header="즐겨찾기에 추가"
-                      Command="{Binding PlacementTarget.Tag.PinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                      CommandParameter="{Binding}" />
-            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="이름 바꾸기"
-                      Command="{Binding PlacementTarget.Tag.BeginRenameCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                      CommandParameter="{Binding}" />
-            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="위로"
-                      Command="{Binding PlacementTarget.Tag.MoveUpCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                      CommandParameter="{Binding}" />
-            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="아래로"
-                      Command="{Binding PlacementTarget.Tag.MoveDownCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                      CommandParameter="{Binding}" />
-            <Separator Style="{StaticResource FavoriteSeparator}" />
-            <MenuItem Style="{StaticResource FavoriteMenuItem}" Header="즐겨찾기에서 제거"
-                      Command="{Binding PlacementTarget.Tag.UnpinCommand, RelativeSource={RelativeSource AncestorType=ContextMenu}}"
-                      CommandParameter="{Binding}" />
-        </ContextMenu>
 
         <HierarchicalDataTemplate DataType="{x:Type vm:TreeNodeViewModel}" ItemsSource="{Binding Children}">
             <Grid>
