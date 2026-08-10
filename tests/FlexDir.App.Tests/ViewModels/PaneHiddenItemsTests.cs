@@ -214,9 +214,16 @@ public class PaneHiddenItemsTests
 
         void Check()
         {
-            if (reached())
+            try
             {
-                signal.TrySetResult();
+                if (reached())
+                {
+                    signal.TrySetResult();
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // 목록이 바뀌는 중이었다 (PaneWatcherTests.WaitAsync 와 같은 이유).
             }
         }
 
@@ -229,13 +236,24 @@ public class PaneHiddenItemsTests
 
         try
         {
-            Check();
+            var deadline = DateTime.UtcNow + Limit;
 
-            await signal.Task.WaitAsync(Limit);
-        }
-        catch (TimeoutException)
-        {
-            Assert.Fail($"{expectation} — {Limit.TotalSeconds}초 안에 일어나지 않았다.");
+            while (true)
+            {
+                Check();
+
+                if (signal.Task.IsCompleted)
+                {
+                    return;
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    Assert.Fail($"{expectation} — {Limit.TotalSeconds}초 안에 일어나지 않았다.");
+                }
+
+                await Task.Delay(20);
+            }
         }
         finally
         {

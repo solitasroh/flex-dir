@@ -527,9 +527,20 @@ public class PaneWatcherTests
 
         void Check()
         {
-            if (reached())
+            try
             {
-                signal.TrySetResult();
+                if (reached())
+                {
+                    signal.TrySetResult();
+                }
+            }
+            catch (InvalidOperationException)
+            {
+                // 목록이 바뀌는 중이었다 — 판정식이 Items 를 열거하는데 갱신은 감시
+                // 스레드에서 온다. 다음 알림이나 아래 폴링에서 다시 본다.
+                //
+                // 갱신이 Reset 알림 하나였을 때는 이 창이 좁아 드러나지 않았다. 열거
+                // 경로도 MergeItems 로 바뀌면서(개별 알림 여러 번) 넓어졌다.
             }
         }
 
@@ -543,14 +554,26 @@ public class PaneWatcherTests
 
         try
         {
-            // 구독하기 전에 이미 반영됐을 수 있다.
-            Check();
+            // 알림만 믿지 않는다. 위 catch 로 한 번 건너뛴 판정이 마지막 알림이었으면
+            // 다시 볼 기회가 없다.
+            var deadline = DateTime.UtcNow + Limit;
 
-            await signal.Task.WaitAsync(Limit);
-        }
-        catch (TimeoutException)
-        {
-            Assert.Fail($"갱신을 기다리다 상한을 넘겼다: {expectation}");
+            while (true)
+            {
+                Check();
+
+                if (signal.Task.IsCompleted)
+                {
+                    return;
+                }
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    Assert.Fail($"갱신을 기다리다 상한을 넘겼다: {expectation}");
+                }
+
+                await Task.Delay(20);
+            }
         }
         finally
         {
