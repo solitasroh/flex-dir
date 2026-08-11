@@ -12,7 +12,7 @@
     semver 다. vpk 가 이 값을 패키지 이름과 피드 항목에 그대로 쓴다 (scripts/pack.ps1).
   -->
   <PropertyGroup>
-    <Version>0.4.3</Version>
+    <Version>0.5.0</Version>
   </PropertyGroup>
 
 </Project>
