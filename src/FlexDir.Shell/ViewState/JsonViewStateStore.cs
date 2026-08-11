@@ -115,15 +115,17 @@ public sealed class JsonViewStateStore : IViewStateStore
             {
                 // 경로는 표시형으로 저장한다 — \\?\ 접두사 없는 쪽이 파일을 읽는 사람에게 낫고
                 // TryParse 가 도로 붙여 준다.
+                // 단수 필드(leftFolder·rightFolder)는 더 이상 쓰지 않는다. 함께 쓰면 어느
+                // 쪽이 진실인지 파일마다 갈리고, 읽는 쪽이 그 판정을 영영 들고 있게 된다.
                 Global = new GlobalRecord(
                     state.SplitterRatio,
                     state.Window,
-                    state.LeftFolder?.DisplayPath,
-                    state.RightFolder?.DisplayPath,
-                    state.TreeVisible,
-                    state.TreeWidth,
-                    state.LeftColumns,
-                    state.RightColumns),
+                    TreeVisible: state.TreeVisible,
+                    TreeWidth: state.TreeWidth,
+                    LeftColumns: state.LeftColumns,
+                    RightColumns: state.RightColumns,
+                    LeftTabs: ToRecord(state.LeftTabs),
+                    RightTabs: ToRecord(state.RightTabs)),
             },
             ct).ConfigureAwait(false);
     }
@@ -162,8 +164,8 @@ public sealed class JsonViewStateStore : IViewStateStore
             return new GlobalViewState(
                 stored.SplitterRatio,
                 stored.Window,
-                ParseFolder(stored.LeftFolder),
-                ParseFolder(stored.RightFolder),
+                ToTabs(stored.LeftTabs, stored.LeftFolder),
+                ToTabs(stored.RightTabs, stored.RightFolder),
                 stored.TreeVisible ?? true,
                 stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth,
                 stored.LeftColumns,
@@ -243,9 +245,70 @@ public sealed class JsonViewStateStore : IViewStateStore
         => path is not null && LocationId.TryParse(path, out var folder, out _) ? folder : null;
 
     /// <summary>
+    /// 저장된 탭 목록 (docs/PRD-v2.md §17). <b>구버전 파일과의 호환이 여기서 끝난다</b> —
+    /// 탭 목록이 없으면 단수 필드를 "탭 1개짜리 목록" 으로 읽고, ViewModel 은 두 모양을
+    /// 구분하지 않는다.
+    /// <para>
+    /// 읽을 수 있는 탭이 하나도 없으면 <c>null</c> 이다. 탭 0개짜리 목록을 내면 복원이
+    /// 그것을 <b>기억된 상태</b>로 받아 시작 폴더 규칙을 지나지 못한다 — 페인이 빈 채로 뜬다.
+    /// </para>
+    /// </summary>
+    private static PaneTabsState? ToTabs(PaneTabsRecord? stored, string? legacyFolder)
+    {
+        if (stored?.Tabs is not { } records)
+        {
+            return ParseFolder(legacyFolder) is { } folder ? PaneTabsState.Single(folder) : null;
+        }
+
+        var tabs = new List<TabState>(records.Count);
+
+        // 활성 탭이 어느 것인지는 번호가 아니라 인스턴스로 기억한다. 경로 하나가 깨져
+        // 빠지면 그 뒤의 번호가 전부 하나씩 당겨지기 때문이다.
+        var activeIndex = stored.ActiveIndex ?? 0;
+        var active = -1;
+
+        for (var index = 0; index < records.Count; index++)
+        {
+            // 탭 하나의 경로가 깨져도 나머지는 살린다 — 폴더별 기억을 한 폴더의 손상으로
+            // 통째로 버리지 않는 것과 같은 판단이다.
+            if (ParseFolder(records[index].Folder) is not { } folder)
+            {
+                continue;
+            }
+
+            if (index == activeIndex)
+            {
+                active = tabs.Count;
+            }
+
+            tabs.Add(new TabState(folder, records[index].IsPinned ?? false, records[index].Title));
+        }
+
+        // 활성이던 탭이 깨져 빠졌으면 첫 탭으로 간다. PaneTabsState 가 자르기도 하지만
+        // 그것은 범위 밖일 때뿐이고, 여기서는 범위 안의 <b>다른</b> 탭을 가리키게 된다.
+        return tabs.Count == 0 ? null : new PaneTabsState(tabs, active < 0 ? 0 : active);
+    }
+
+    private static PaneTabsRecord? ToRecord(PaneTabsState? state)
+        => state is null
+            ? null
+            : new PaneTabsRecord(
+                [.. state.Tabs.Select(tab => new TabRecord(
+                    // 경로는 표시형으로 저장한다 — 전역 상태의 다른 경로와 같은 규칙이다.
+                    tab.Folder.DisplayPath,
+                    // 기본값은 아예 쓰지 않는다. 고정하지 않은 탭의 기록이 짧게 남는다.
+                    tab.IsPinned ? true : null,
+                    tab.Title))],
+                state.ActiveIndex);
+
+    /// <summary>
     /// <c>TreeVisible</c>·<c>TreeWidth</c> 는 선택적이다 — 트리가 들어오기 전 파일에는
     /// 없고, 없으면 트리가 보이는 것으로 읽힌다 (docs/PRD-v2.md §10).
     /// </summary>
+    /// <param name="LeftFolder">
+    /// 탭이 들어오기 전 파일의 단수 필드 (docs/PRD-v2.md §17). <b>읽기 전용이다</b> —
+    /// 새로 쓰지 않고, 읽을 때만 "탭 1개짜리 목록" 으로 옮긴다 (<see cref="ToTabs"/>).
+    /// </param>
     private sealed record GlobalRecord(
         double SplitterRatio,
         WindowPlacement? Window,
@@ -254,7 +317,17 @@ public sealed class JsonViewStateStore : IViewStateStore
         bool? TreeVisible = null,
         double? TreeWidth = null,
         PaneColumns? LeftColumns = null,
-        PaneColumns? RightColumns = null);
+        PaneColumns? RightColumns = null,
+        PaneTabsRecord? LeftTabs = null,
+        PaneTabsRecord? RightTabs = null);
+
+    private sealed record PaneTabsRecord(List<TabRecord>? Tabs, int? ActiveIndex = null);
+
+    /// <summary>
+    /// <c>IsPinned</c>·<c>Title</c> 은 선택적이다 — 고정하지 않고 이름도 안 바꾼 탭이
+    /// 대부분이라, 없으면 기본값으로 읽어 파일을 짧게 유지한다.
+    /// </summary>
+    private sealed record TabRecord(string Folder, bool? IsPinned = null, string? Title = null);
 
     /// <summary>
     /// <c>GroupBy</c>·<c>Collapsed</c> 는 선택적이다 — v1 이 쓴 파일에는 없고, 없으면

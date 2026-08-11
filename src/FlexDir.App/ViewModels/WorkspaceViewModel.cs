@@ -16,6 +16,12 @@ public enum PaneSide
 }
 
 /// <summary>
+/// 닫은 탭 하나 — 어느 페인의 어느 자리였는지까지 (docs/PRD-v2.md §17 되살리기).
+/// 스택이 창 전체에 하나이므로 페인을 함께 들어야 원래 자리로 돌아갈 수 있다.
+/// </summary>
+internal readonly record struct ClosedTabRecord(PaneSide Side, ClosedTab Closed);
+
+/// <summary>
 /// 창 전체. 페인 둘과 활성 페인, 그리고 폴더와 무관한 전역 상태를 쥔다.
 /// <para>
 /// 두 페인은 완전히 독립이다 (docs/PRD.md §4) — 여기에는 한쪽 조작을 다른 쪽으로 옮기는
@@ -37,7 +43,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
     private const double MaxSplitterRatio = 0.85;
 
+    /// <summary>
+    /// 되살릴 수 있는 닫은 탭의 수 (docs/PRD-v2.md §17). 종료하면 비운다 — 프로세스
+    /// 수명이라 별도로 지울 자리가 없다.
+    /// </summary>
+    private const int ReopenDepth = 10;
+
     private readonly IViewStateStore viewStates;
+
+    /// <summary>
+    /// 닫은 탭. <b>창 전체에 하나다</b> (docs/PRD-v2.md §17) — 끝이 가장 최근이다.
+    /// 스택 타입을 쓰지 않는 이유: 깊이를 넘길 때 <b>가장 오래된 것</b>을 버려야 하고
+    /// <c>Stack&lt;T&gt;</c> 는 바닥에 닿는 길이 없다.
+    /// </summary>
+    private readonly List<ClosedTabRecord> closedTabs = [];
 
     private PaneSide activeSide = PaneSide.Left;
     private double splitterRatio = GlobalViewState.Default.SplitterRatio;
@@ -63,20 +82,23 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// 설정 패널 (docs/PRD-v2.md §12). 앞의 둘과 같은 이유로 선택이다 — 없으면 시작 폴더는
     /// 마지막 폴더로, 숨김 정책은 기본값으로 간다.
     /// </param>
+    /// <param name="paneFactory">
+    /// 탭 하나를 만드는 법 (docs/PRD-v2.md §17). <b>페인 둘이 아니라 팩토리를 받는다</b> —
+    /// 탭이 런타임에 늘어나므로 조립 시점에 인스턴스를 다 알 수 없다. 조립은 이미 열려
+    /// 있었다: <c>AppComposition.Create</c> 의 <c>Pane()</c> 지역 함수가 그대로 이것이다.
+    /// </param>
     public WorkspaceViewModel(
-        PaneViewModel left,
-        PaneViewModel right,
+        Func<PaneViewModel> paneFactory,
         IViewStateStore viewStateStore,
         UpdateViewModel? update = null,
         FolderTreeViewModel? tree = null,
         SettingsViewModel? settings = null)
     {
-        ArgumentNullException.ThrowIfNull(left);
-        ArgumentNullException.ThrowIfNull(right);
+        ArgumentNullException.ThrowIfNull(paneFactory);
         ArgumentNullException.ThrowIfNull(viewStateStore);
 
-        Left = left;
-        Right = right;
+        LeftTabs = new PaneTabsViewModel(paneFactory);
+        RightTabs = new PaneTabsViewModel(paneFactory);
         Update = update;
         Tree = tree;
         Settings = settings;
@@ -96,8 +118,15 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
         // 비활성 페인의 항목 클릭은 선택과 활성 전환이 한 동작이다 (목업 동작). View 가
         // 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
-        left.ActivationRequested += (_, _) => ActiveSide = PaneSide.Left;
-        right.ActivationRequested += (_, _) => ActiveSide = PaneSide.Right;
+        //
+        // 탭이 들어와도 무는 곳은 여전히 <b>페인 둘</b>이다 — 탭마다 구독하면 탭을 만들고
+        // 닫을 때마다 이 배선이 새거나 남는다. 페인이 자기 탭들의 신호를 모아 낸다.
+        LeftTabs.ActivationRequested += (_, _) => ActiveSide = PaneSide.Left;
+        RightTabs.ActivationRequested += (_, _) => ActiveSide = PaneSide.Right;
+
+        // 활성 탭이 바뀌면 XAML 이 물고 있는 자리가 통째로 바뀐다 (Left·Right·ActivePane).
+        LeftTabs.PropertyChanged += OnPaneTabsChanged;
+        RightTabs.PropertyChanged += OnPaneTabsChanged;
 
         if (tree is not null)
         {
@@ -112,19 +141,32 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 반대 방향 — 활성 페인이 옮기면 트리가 그 자리를 편다 (docs/PRD-v2.md §10-3 ·
             // 사용자 요청 2026-08-10). 위의 배선과 짝이 되어 고리를 이루므로, 되먹임을
             // 끊는 것은 트리 쪽이다 (FolderTreeViewModel 의 revealing).
-            left.PropertyChanged += OnPaneLocationChanged;
-            right.PropertyChanged += OnPaneLocationChanged;
+            //
+            // 페인이 "활성 탭이 보는 폴더가 바뀌었다" 를 모아 낸다 — 탭 전환도 그 신호다
+            // (docs/PRD-v2.md §17 자명하게).
+            LeftTabs.ActiveLocationChanged += OnPaneLocationChanged;
+            RightTabs.ActiveLocationChanged += OnPaneLocationChanged;
 
             // 목록 우클릭의 '즐겨찾기에 추가'. 페인은 트리를 모르므로 여기서 잇는다 —
             // 페인 간 복사를 워크스페이스가 잇는 것과 같은 자리다.
-            left.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
-            right.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
+            LeftTabs.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
+            RightTabs.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
         }
     }
 
-    public PaneViewModel Left { get; }
+    /// <summary>좌 페인의 탭 목록 (docs/PRD-v2.md §17). 탭 줄이 이것을 그린다.</summary>
+    public PaneTabsViewModel LeftTabs { get; }
 
-    public PaneViewModel Right { get; }
+    /// <summary>우 페인의 탭 목록. 좌·우가 독립된 목록을 갖는다 (ADR-018).</summary>
+    public PaneTabsViewModel RightTabs { get; }
+
+    /// <summary>
+    /// 좌 페인의 <b>활성 탭</b>. View 가 물고 있는 자리이고, 탭이 바뀌면 이 속성이 바뀐다.
+    /// </summary>
+    public PaneViewModel Left => LeftTabs.Active;
+
+    /// <inheritdoc cref="Left"/>
+    public PaneViewModel Right => RightTabs.Active;
 
     /// <summary>
     /// 새 버전 알림. 폴더와 무관한 전역 상태라 여기 산다 — 페인이 둘인데 알림은 하나다.
@@ -173,6 +215,8 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                 // 바인딩한다 (docs/DESIGN.md §6).
                 OnPropertyChanged(nameof(ActivePane));
                 OnPropertyChanged(nameof(InactivePane));
+                OnPropertyChanged(nameof(ActiveTabs));
+                OnPropertyChanged(nameof(InactiveTabs));
 
                 // 가리키는 페인이 바뀌었으니 트리도 옮겨간다 — Tab 으로 옮긴 뒤에도 트리가
                 // 반대쪽 자리를 가리키면 어느 쪽을 보고 있는지 알 수 없다.
@@ -181,11 +225,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
     }
 
-    /// <summary>활성 페인. 키보드 조작이 향하는 곳이다.</summary>
-    public PaneViewModel ActivePane => activeSide == PaneSide.Left ? Left : Right;
+    /// <summary>활성 페인의 탭 목록. 키보드 탭 조작(<c>Ctrl+T</c>·<c>Ctrl+W</c>)이 향하는 곳이다.</summary>
+    public PaneTabsViewModel ActiveTabs => activeSide == PaneSide.Left ? LeftTabs : RightTabs;
 
-    /// <summary>활성이 아닌 페인. 페인 간 복사·이동의 대상이다.</summary>
-    public PaneViewModel InactivePane => activeSide == PaneSide.Left ? Right : Left;
+    /// <summary>활성이 아닌 페인의 탭 목록.</summary>
+    public PaneTabsViewModel InactiveTabs => activeSide == PaneSide.Left ? RightTabs : LeftTabs;
+
+    /// <summary>
+    /// 활성 페인의 <b>활성 탭</b>. 키보드 조작이 향하는 곳이다 — 탭이 들어오며 한 단
+    /// 깊어진 자리가 여기다 (docs/PRD-v2.md §17 · ADR-018).
+    /// </summary>
+    public PaneViewModel ActivePane => ActiveTabs.Active;
+
+    /// <summary>활성이 아닌 페인의 활성 탭. 페인 간 복사·이동의 대상이다.</summary>
+    public PaneViewModel InactivePane => InactiveTabs.Active;
 
     /// <summary>
     /// 좌 페인이 차지하는 비율. 범위를 벗어난 값은 예외 없이 가장 가까운 경계로 잘린다 —
@@ -223,17 +276,19 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         // 그려지고 아무도 다시 읽지 않는다.
         var settings = await LoadSettingsAsync(ct).ConfigureAwait(false);
 
-        Left.ShowHiddenItems = settings.ShowHiddenItems;
-        Right.ShowHiddenItems = settings.ShowHiddenItems;
+        // 페인에 민다. 소유자가 페인이므로 복원된 탭과 앞으로 만들 탭이 모두 이 정책으로
+        // 뜬다 (docs/PRD-v2.md §17 구조 렌즈 — 예전에는 나중에 만든 탭이 기본값으로 떴다).
+        LeftTabs.ShowHiddenItems = settings.ShowHiddenItems;
+        RightTabs.ShowHiddenItems = settings.ShowHiddenItems;
 
         // 클램프를 지난다 — 저장된 값이 0.02 여도 페인 하나가 사라지지 않는다.
         SplitterRatio = state.SplitterRatio;
         WindowPlacement = state.Window;
 
         // 컬럼 폭은 페인마다 따로다 (사용자 지적 2026-08-10) — 한쪽에서 끌 때 반대편이
-        // 함께 움직이면 안 된다.
-        Left.Columns = state.LeftColumns ?? PaneColumns.Default;
-        Right.Columns = state.RightColumns ?? PaneColumns.Default;
+        // 함께 움직이면 안 된다. 한 페인 <b>안의</b> 탭들은 이것을 나눠 쓴다.
+        LeftTabs.Columns = state.LeftColumns ?? PaneColumns.Default;
+        RightTabs.Columns = state.RightColumns ?? PaneColumns.Default;
 
         var opens = new List<Task>(3);
 
@@ -251,16 +306,17 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
 
         // 시작 폴더 규칙은 Core 에 있다 (AppSettings.ResolveStartFolder) — 페인마다 한 번씩
-        // 같은 규칙을 지난다.
-        if (settings.ResolveStartFolder(state.LeftFolder, fallbackFolder) is { } left)
-        {
-            opens.Add(Left.NavigateAsync(left, ct));
-        }
+        // 같은 규칙을 지난다. 규칙이 정하는 것은 <b>활성 탭</b>이 열 폴더이고, 배경 탭은
+        // 기억된 자기 폴더를 그대로 든다 (docs/PRD-v2.md §17 세션 복원).
+        opens.Add(LeftTabs.RestoreAsync(
+            state.LeftTabs,
+            settings.ResolveStartFolder(ActiveFolder(state.LeftTabs), fallbackFolder),
+            ct));
 
-        if (settings.ResolveStartFolder(state.RightFolder, fallbackFolder) is { } right)
-        {
-            opens.Add(Right.NavigateAsync(right, ct));
-        }
+        opens.Add(RightTabs.RestoreAsync(
+            state.RightTabs,
+            settings.ResolveStartFolder(ActiveFolder(state.RightTabs), fallbackFolder),
+            ct));
 
         // 함께 연다 — 페인은 독립이라 한쪽이 느려도 (네트워크·대용량) 다른 쪽을 막지 않는다.
         await Task.WhenAll(opens).ConfigureAwait(false);
@@ -276,12 +332,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                     new GlobalViewState(
                         SplitterRatio,
                         WindowPlacement,
-                        Left.CurrentLocation,
-                        Right.CurrentLocation,
+                        LeftTabs.Capture(),
+                        RightTabs.Capture(),
                         Tree?.IsVisible ?? true,
                         Tree?.Width ?? GlobalViewState.DefaultTreeWidth,
-                        Left.Columns,
-                        Right.Columns),
+                        LeftTabs.Columns,
+                        RightTabs.Columns),
                     ct)
                 .ConfigureAwait(false);
         }
@@ -302,6 +358,80 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     [RelayCommand]
     private void SwitchPane()
         => Activate(activeSide == PaneSide.Left ? PaneSide.Right : PaneSide.Left);
+
+    // ── 탭 (docs/PRD-v2.md §17) ───────────────────────────────────
+    //
+    // 키보드는 활성 페인으로 간다 (Tab·F6 은 페인 전환 그대로다). 판단은 전부
+    // PaneTabsViewModel 안에 있고 여기서 정하는 것은 <b>어느 페인</b>인가 뿐이다 — 페인 간
+    // 복사가 "어디로" 만 정하는 것과 같은 구도다.
+
+    /// <summary>
+    /// 새 탭 (<c>Ctrl+T</c>). 활성 페인에, 지금 폴더를 복제해서 활성 탭 바로 오른쪽에.
+    /// </summary>
+    [RelayCommand]
+    private void NewTab() => ActiveTabs.NewTab();
+
+    /// <summary>
+    /// 활성 탭 닫기 (<c>Ctrl+W</c>). 탭이 1개거나 고정 탭이면 무시된다 — 그 판정은
+    /// 페인이 하고, 여기서는 되살리기 스택에 쌓는 일만 한다.
+    /// </summary>
+    [RelayCommand]
+    private async Task CloseTabAsync()
+    {
+        var side = activeSide;
+
+        if (await ActiveTabs.CloseAsync(ActivePane).ConfigureAwait(false) is { } closed)
+        {
+            Remember(side, closed);
+        }
+    }
+
+    /// <summary>다음 탭 (<c>Ctrl+Tab</c> · <c>Ctrl+PageDown</c>). 활성 페인 안에서 순환한다.</summary>
+    [RelayCommand]
+    private void NextTab() => ActiveTabs.Next();
+
+    /// <summary>이전 탭 (<c>Ctrl+Shift+Tab</c> · <c>Ctrl+PageUp</c>).</summary>
+    [RelayCommand]
+    private void PreviousTab() => ActiveTabs.Previous();
+
+    /// <summary>
+    /// 닫은 탭 되살리기 (<c>Ctrl+Shift+T</c>). <b>창 전체에 스택 하나</b>다
+    /// (docs/PRD-v2.md §17) — 실수로 닫은 것이 어느 페인이었는지 기억하지 않아도 된다.
+    /// 페인별 스택이면 닫은 직후 반대편으로 옮겨가 누르면 돌아오지 않는다.
+    /// <para>
+    /// 되살린 탭이 활성이 되고 <b>그 페인도 활성이 된다</b> — 방금 그것을 원해서 누른
+    /// 키다 (사용자 렌즈가 잡은 것). 그러지 않으면 화면 밖에서 조용히 생긴다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private void ReopenClosedTab()
+    {
+        if (closedTabs.Count == 0)
+        {
+            return;
+        }
+
+        var last = closedTabs[^1];
+        closedTabs.RemoveAt(closedTabs.Count - 1);
+
+        (last.Side == PaneSide.Left ? LeftTabs : RightTabs).Insert(last.Closed.Index, last.Closed.State);
+
+        ActiveSide = last.Side;
+    }
+
+    /// <summary>
+    /// 닫은 탭을 스택에 쌓는다. 깊이를 넘으면 <b>가장 오래된 것</b>을 버린다 —
+    /// 되살리기는 최근 것부터 꺼낸다.
+    /// </summary>
+    private void Remember(PaneSide side, ClosedTab closed)
+    {
+        closedTabs.Add(new ClosedTabRecord(side, closed));
+
+        if (closedTabs.Count > ReopenDepth)
+        {
+            closedTabs.RemoveAt(0);
+        }
+    }
 
     /// <summary>
     /// 마우스 보조 버튼의 뒤로 (docs/PRD-v2.md §15 · 사용자 결정 2026-08-11).
@@ -332,18 +462,20 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// </summary>
     private PaneViewModel Target(PaneViewModel? under)
     {
-        if (ReferenceEquals(under, Left))
+        // 어느 페인의 탭인지로 가른다. 화면에 보이는 것은 활성 탭뿐이므로 실물에서는 그것이
+        // 오지만, 목록에서 찾는 편이 배경 탭이 오는 경우에도 옳은 페인을 고른다.
+        if (under is not null && LeftTabs.Tabs.Contains(under))
         {
             ActiveSide = PaneSide.Left;
 
-            return Left;
+            return LeftTabs.Active;
         }
 
-        if (ReferenceEquals(under, Right))
+        if (under is not null && RightTabs.Tabs.Contains(under))
         {
             ActiveSide = PaneSide.Right;
 
-            return Right;
+            return RightTabs.Active;
         }
 
         return ActivePane;
@@ -453,17 +585,49 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 페인의 위치가 바뀌면 트리를 그리로 편다. <b>활성 페인만</b> 본다 (사용자 결정
+    /// 페인이 보는 폴더가 바뀌면 트리를 그리로 편다 — <b>활성 탭의 이동과 탭 전환 둘 다</b>가
+    /// 이 자리를 지난다 (docs/PRD-v2.md §17 자명하게). <b>활성 페인만</b> 본다 (사용자 결정
     /// 2026-08-10) — 반대편까지 따라가면 트리가 어느 쪽을 가리키는지 알 수 없고, 그 탐색은
     /// 전부 저장소 호출이다.
     /// </summary>
-    private void OnPaneLocationChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    private void OnPaneLocationChanged(object? sender, EventArgs args)
     {
-        if (args.PropertyName == nameof(PaneViewModel.CurrentLocation) && ReferenceEquals(sender, ActivePane))
+        if (ReferenceEquals(sender, ActiveTabs))
         {
             RevealInTree();
         }
     }
+
+    /// <summary>
+    /// 활성 탭이 바뀌었다. <b>View 가 물고 있는 자리가 통째로 바뀐다</b> —
+    /// <see cref="Left"/>·<see cref="Right"/>·<see cref="ActivePane"/> 는 전부 파생
+    /// 속성이라 값 비교로 걸러낼 수 없다.
+    /// </summary>
+    private void OnPaneTabsChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName != nameof(PaneTabsViewModel.Active))
+        {
+            return;
+        }
+
+        OnPropertyChanged(ReferenceEquals(sender, LeftTabs) ? nameof(Left) : nameof(Right));
+
+        if (ReferenceEquals(sender, ActiveTabs))
+        {
+            OnPropertyChanged(nameof(ActivePane));
+        }
+        else
+        {
+            OnPropertyChanged(nameof(InactivePane));
+        }
+    }
+
+    /// <summary>
+    /// 기억된 탭 목록에서 활성 탭의 폴더를 낸다 — 시작 폴더 규칙의 입력이다
+    /// (<c>AppSettings.ResolveStartFolder</c> 의 <c>lastFolder</c>).
+    /// </summary>
+    private static Core.Locations.LocationId? ActiveFolder(PaneTabsState? state)
+        => state is { Tabs.Count: > 0 } tabs ? tabs.Tabs[tabs.ActiveIndex].Folder : null;
 
     /// <summary>
     /// 활성 페인이 보는 폴더를 트리에서 편다 (docs/PRD-v2.md §10-3).
@@ -515,8 +679,11 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
         var showHidden = settings.ShowHiddenItems;
 
-        Left.ShowHiddenItems = showHidden;
-        Right.ShowHiddenItems = showHidden;
+        // 페인에 민다 — 모든 탭이 새 정책을 갖는다. 다시 <b>읽는</b> 것은 활성 탭 둘뿐이다:
+        // 배경 탭은 활성이 될 때 도는 새로 고침이 새 정책으로 다시 읽는다 (ADR-018). 여기서
+        // 전부 읽으면 클릭 한 번에 저장소 호출이 탭 수만큼 나간다.
+        LeftTabs.ShowHiddenItems = showHidden;
+        RightTabs.ShowHiddenItems = showHidden;
 
         var work = new List<Task>(3) { Left.RefreshAsync(), Right.RefreshAsync() };
 

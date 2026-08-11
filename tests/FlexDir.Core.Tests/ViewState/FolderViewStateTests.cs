@@ -1,3 +1,4 @@
+using FlexDir.Core.Locations;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.ViewState;
 
@@ -263,5 +264,113 @@ public class FolderViewStateTests
         Assert.Equal(
             new WindowPlacement(0, 0, 1280, 800, Maximized: true),
             new WindowPlacement(0, 0, 1280, 800, Maximized: true));
+    }
+
+    // ── 탭 (docs/PRD-v2.md §17) ────────────────────────────────────
+
+    [Fact]
+    public void TabState_KeepsFolderPinAndTitle()
+    {
+        var tab = new TabState(Folder(@"C:\Work"), IsPinned: true, Title: "일감");
+
+        Assert.Equal(Folder(@"C:\Work"), tab.Folder);
+        Assert.True(tab.IsPinned);
+        Assert.Equal("일감", tab.Title);
+    }
+
+    [Fact]
+    public void TabState_DefaultsToUnpinnedWithoutATitle()
+    {
+        // 제목이 없으면 폴더 이름을 쓴다 (docs/PRD-v2.md §17) — 그 판정은 ViewModel 이
+        // 하므로 여기서는 "사용자가 정한 것이 없다" 만 표현한다.
+        var tab = new TabState(Folder(@"C:\Work"));
+
+        Assert.False(tab.IsPinned);
+        Assert.Null(tab.Title);
+    }
+
+    [Fact]
+    public void PaneTabsState_ComparesByValue()
+    {
+        // 왕복이 다른 인스턴스를 내므로 참조 비교로는 "바뀌었는가" 를 판정할 수 없다 —
+        // FolderViewState.Equals 와 같은 자리다.
+        Assert.Equal(
+            new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"))], 1),
+            new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"))], 1));
+    }
+
+    [Fact]
+    public void PaneTabsState_CopiesTheListItWasGiven()
+    {
+        var tabs = new List<TabState> { new(Folder(@"C:\A")) };
+
+        var state = new PaneTabsState(tabs);
+        tabs.Clear();
+
+        Assert.Single(state.Tabs);
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(2)]
+    public void PaneTabsState_WithAnActiveIndexOutsideTheList_ClampsIt(int index)
+    {
+        // 손상된 저장 파일이 활성 탭 번호를 벗어나게 적어도 페인이 빈 채로 뜨면 안 된다.
+        // 던지지 않는 이유는 TreeWidth 와 같다 — 여기서 던지면 전역 상태 전체가 기본값으로
+        // 접혀 창 배치까지 잃는다.
+        var state = new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"))], index);
+
+        Assert.InRange(state.ActiveIndex, 0, 1);
+    }
+
+    [Fact]
+    public void PaneTabsState_WithoutTabs_HasNoActiveIndex()
+    {
+        // 탭이 없는 페인은 저장 파일에서만 나온다. ViewModel 이 탭 하나를 만들어 채운다.
+        var state = new PaneTabsState([], 3);
+
+        Assert.Empty(state.Tabs);
+        Assert.Equal(0, state.ActiveIndex);
+    }
+
+    [Fact]
+    public void PaneTabsState_Single_IsOneUnpinnedTab()
+    {
+        // 구버전 저장 파일의 단수 필드가 이 모양으로 들어온다 (docs/PRD-v2.md §17).
+        var state = PaneTabsState.Single(Folder(@"C:\Work"));
+
+        Assert.Equal(new TabState(Folder(@"C:\Work")), Assert.Single(state.Tabs));
+        Assert.Equal(0, state.ActiveIndex);
+    }
+
+    [Fact]
+    public void GlobalDefault_HasNoTabs()
+    {
+        // 기억이 없는 것과 "탭 0개" 는 다르다 — 전자는 시작 폴더 규칙으로 가고 후자는
+        // 손상된 파일이다.
+        Assert.Null(GlobalViewState.Default.LeftTabs);
+        Assert.Null(GlobalViewState.Default.RightTabs);
+    }
+
+    [Fact]
+    public void GlobalState_KeepsBothPanesTabs()
+    {
+        var state = GlobalViewState.Default with
+        {
+            LeftTabs = new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"), IsPinned: true)], 1),
+            RightTabs = PaneTabsState.Single(Folder(@"D:\")),
+        };
+
+        Assert.Equal(2, state.LeftTabs!.Tabs.Count);
+        Assert.Equal(1, state.LeftTabs.ActiveIndex);
+        Assert.True(state.LeftTabs.Tabs[1].IsPinned);
+        Assert.Single(state.RightTabs!.Tabs);
+    }
+
+    private static LocationId Folder(string path)
+    {
+        Assert.True(LocationId.TryParse(path, out var location, out _));
+
+        return location;
     }
 }

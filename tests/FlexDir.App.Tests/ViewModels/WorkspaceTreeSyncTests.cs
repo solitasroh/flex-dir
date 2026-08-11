@@ -73,7 +73,7 @@ public class WorkspaceTreeSyncTests
         var tree = new FolderTreeViewModel(
             drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, null, tree);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates, null, tree);
 
         return (workspace, tree, work, play);
     }
@@ -188,7 +188,7 @@ public class WorkspaceTreeSyncTests
         var folder = Loc(@"C:\work");
         source.Folders[folder] = [];
 
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
 
         await workspace.Left.NavigateAsync(folder);
         await workspace.TreeRevealWork;

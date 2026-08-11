@@ -102,7 +102,7 @@ public class MouseNavigationInputTests
 
     /// <summary>창의 DataContext. 페인 밖 판정이 이것을 페인으로 오인하지 않아야 한다.</summary>
     private static WorkspaceViewModel Workspace()
-        => new(Pane(), Pane(), new InMemoryViewStateStore());
+        => new(Pane, new InMemoryViewStateStore());
 
     private static PaneViewModel Pane()
         => new(

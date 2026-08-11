@@ -252,6 +252,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private DateTimeOffset typeAheadLast = DateTimeOffset.MinValue;
 
     private LocationId? currentLocation;
+    private LocationId? pendingLocation;
+    private bool isPinned;
+    private string? customTitle;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
 
@@ -394,9 +397,72 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             if (SetProperty(ref currentLocation, value))
             {
                 OnPropertyChanged(nameof(AddressText));
+                OnPropertyChanged(nameof(Title));
             }
         }
     }
+
+    /// <summary>
+    /// 아직 열지 않은 폴더 (docs/PRD-v2.md §17). <b>복원된 배경 탭이 여기에 산다</b> —
+    /// 위치만 들고 있다가 처음 활성이 될 때 열린다.
+    /// <para>
+    /// <b>넣는다고 열거가 나가지 않는다.</b> 그것이 이 속성의 존재 이유다 — 시작할 때
+    /// 열거가 나가는 것은 좌·우 활성 탭 둘뿐이어야 cold start 가 지금과 같다 (ADR-018).
+    /// 여는 시점을 정하는 것은 <c>PaneTabsViewModel</c> 이다.
+    /// </para>
+    /// </summary>
+    public LocationId? PendingLocation
+    {
+        get => pendingLocation;
+        set
+        {
+            if (SetProperty(ref pendingLocation, value))
+            {
+                OnPropertyChanged(nameof(Title));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 탭이 이 페인을 고정했는가 (docs/PRD-v2.md §17). 고정 탭은 닫히지 않는다 — 그 판정은
+    /// <c>PaneTabsViewModel</c> 이 하고, 여기서는 값만 든다.
+    /// <para>
+    /// 페인이 탭이므로 여기 산다 (ADR-018: 탭 하나 = <see cref="PaneViewModel"/> 하나).
+    /// 페인 간 이동이 인스턴스를 옮기는 것으로 끝나는 것도 고정·제목이 함께 따라오기
+    /// 때문이다.
+    /// </para>
+    /// </summary>
+    public bool IsPinned
+    {
+        get => isPinned;
+        set => SetProperty(ref isPinned, value);
+    }
+
+    /// <summary>
+    /// 사용자가 바꾼 탭 제목. <see langword="null"/> 이면 폴더 이름을 쓴다
+    /// (docs/PRD-v2.md §17).
+    /// </summary>
+    public string? CustomTitle
+    {
+        get => customTitle;
+        set
+        {
+            if (SetProperty(ref customTitle, value))
+            {
+                OnPropertyChanged(nameof(Title));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 탭 줄에 보이는 이름. 폴더 이름이고, 사용자가 바꿨으면 그것이 이긴다
+    /// (docs/PRD-v2.md §17).
+    /// <para>
+    /// 아직 열지 않은 탭은 <see cref="PendingLocation"/> 에서 이름을 얻는다 — 배경 탭이
+    /// 빈 이름으로 서면 어느 탭인지 고를 수 없다.
+    /// </para>
+    /// </summary>
+    public string Title => CustomTitle ?? (CurrentLocation ?? PendingLocation)?.Name ?? string.Empty;
 
     /// <summary>주소창에 보이는 경로. 확장 접두사(<c>\\?\</c>)는 사용자에게 보이지 않는다.</summary>
     public string AddressText => CurrentLocation?.DisplayPath ?? string.Empty;
@@ -2184,6 +2250,43 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         next.Loop = Task.Run(() => WatchLoopAsync(next));
 
         return next;
+    }
+
+    /// <summary>
+    /// 감시만 놓는다 — 목록·선택·히스토리·폴더는 그대로다 (docs/PRD-v2.md §17 · ADR-018).
+    /// <para>
+    /// 탭이 비활성이 될 때 부른다. <b>이것이 §13(감시 오버플로 폭주)이 탭 수만큼 곱해지는
+    /// 것을 막는 자리다</b> — 화면에 없는 탭에서 폭주하면 상태표시줄 문구조차 보이지 않는다.
+    /// 대가는 명시돼 있다: 배경 탭은 외부 변경을 즉시 모르고, 다시 활성이 될 때의 새로
+    /// 고침이 그것을 메운다.
+    /// </para>
+    /// <para>
+    /// <see cref="Task.Run"/> 으로 떼어낸다. 감시를 <b>푸는</b> 것도 shell 호출이라
+    /// (실제 구현체는 <c>FileSystemWatcher</c> 를 버린다) 부르는 스레드에서 하면 UI
+    /// 스레드가 그 값을 낸다 (CLAUDE.md §3) — <see cref="StartWatching"/> 과 같은 이유다.
+    /// </para>
+    /// </summary>
+    internal Task SuspendWatchAsync()
+    {
+        // 폴더 전환과 같은 수로 바꿔 든다. 놓는 중에 폴더가 바뀌면 새 감시는 새 자리에
+        // 들어가므로, 이 경로가 그것까지 접어 버리지 않는다.
+        var current = Interlocked.Exchange(ref watch, null);
+
+        if (current is null)
+        {
+            // 한 번도 폴더를 열지 않았거나 이미 놓았다. 전환이 겹치면 같은 탭에 두 번
+            // 들어올 수 있으므로 던지지 않는다.
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(async () =>
+        {
+            current.Cancel();
+
+            // 감시 루프는 예외를 밖으로 내지 않는다 — 여기서 기다리는 것은 종료뿐이다
+            // (DisposeAsync 와 같은 자리).
+            await current.Loop.ConfigureAwait(false);
+        });
     }
 
     /// <summary>

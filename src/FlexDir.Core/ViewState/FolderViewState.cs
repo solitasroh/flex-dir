@@ -132,8 +132,81 @@ public sealed record PaneColumns(double Name, double Size, double Type, double M
 }
 
 /// <summary>
+/// 탭 하나가 기억하는 것 (docs/PRD-v2.md §17). <b>뷰 모드·정렬·그룹화는 없다</b> —
+/// 그것은 폴더별이고 <see cref="FolderViewState"/> 가 정본이라, 같은 폴더를 연 두 탭은
+/// 같은 뷰다 (ADR-018).
+/// </summary>
+/// <param name="Title">
+/// 사용자가 바꾼 제목. <c>null</c> 이면 폴더 이름을 쓴다 — 그 판정은 ViewModel 이 한다.
+/// </param>
+public sealed record TabState(Locations.LocationId Folder, bool IsPinned = false, string? Title = null);
+
+/// <summary>
+/// 페인 하나의 탭 목록과 활성 탭 (docs/PRD-v2.md §17 · docs/ARCHITECTURE.md §4).
+/// 좌·우가 각각 하나씩 갖는다 — 창 단위가 아니라 페인 단위다 (ADR-018).
+/// </summary>
+public sealed record PaneTabsState(IReadOnlyList<TabState> Tabs, int ActiveIndex = 0)
+{
+    private readonly IReadOnlyList<TabState> tabs = [.. Tabs ?? throw new ArgumentNullException(nameof(Tabs))];
+    private readonly int activeIndex = Clamp(ActiveIndex, Tabs?.Count ?? 0);
+
+    /// <summary>탭 하나짜리 목록. 구버전 저장 파일의 단수 필드가 이 모양으로 들어온다.</summary>
+    public static PaneTabsState Single(Locations.LocationId folder) => new([new TabState(folder)]);
+
+    /// <summary>호출자가 넘긴 리스트를 나중에 바꿔도 상태가 흔들리지 않게 복사한다.</summary>
+    public IReadOnlyList<TabState> Tabs
+    {
+        get => tabs;
+        init
+        {
+            tabs = [.. value ?? throw new ArgumentNullException(nameof(Tabs))];
+
+            // 목록을 갈아 끼우면 번호가 그 목록 밖일 수 있다. 아래 init 과 순서가 갈리지
+            // 않도록 여기서 다시 자른다 — 'with' 는 어느 쪽이 먼저 돌지 보장하지 않는다.
+            activeIndex = Clamp(activeIndex, tabs.Count);
+        }
+    }
+
+    /// <summary>
+    /// 활성 탭의 번호. <b>범위를 벗어난 값은 던지지 않고 가장 가까운 자리로 잘린다</b> —
+    /// 손상된 저장 파일 하나가 전역 상태 전체를 기본값으로 접으면 창 배치까지 잃는다
+    /// (<see cref="GlobalViewState.TreeWidth"/> 와 같은 판단).
+    /// </summary>
+    public int ActiveIndex
+    {
+        get => activeIndex;
+        init => activeIndex = Clamp(value, tabs.Count);
+    }
+
+    // 리스트 내용을 비교한다. 저장·복원 왕복은 다른 인스턴스를 내므로 참조 비교로는
+    // "탭이 바뀌었는가" 를 판정할 수 없다 (FolderViewState 와 같은 이유).
+    public bool Equals(PaneTabsState? other)
+        => other is not null && ActiveIndex == other.ActiveIndex && Tabs.SequenceEqual(other.Tabs);
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(activeIndex);
+
+        foreach (var tab in tabs)
+        {
+            hash.Add(tab);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    private static int Clamp(int index, int count)
+        => count == 0 ? 0 : index < 0 ? 0 : index >= count ? count - 1 : index;
+}
+
+/// <summary>
 /// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율, 트리의 모양 (docs/ARCHITECTURE.md §4).
 /// </summary>
+/// <param name="LeftTabs">
+/// 좌 페인의 탭 목록 (docs/PRD-v2.md §17). <c>null</c> 은 <b>기억이 없다</b>는 뜻이고
+/// 그때 시작 폴더 규칙이 자리를 채운다 — 탭 0개짜리 목록과는 다른 사건이다.
+/// </param>
 /// <param name="TreeVisible">
 /// 폴더 트리를 보이는가 (docs/PRD-v2.md §10). 처음 켠 사람에게는 보인다 — 토글은 트리를
 /// 보고 나서야 찾는다.
@@ -146,8 +219,8 @@ public sealed record PaneColumns(double Name, double Size, double Type, double M
 public sealed record GlobalViewState(
     double SplitterRatio,
     WindowPlacement? Window,
-    Locations.LocationId? LeftFolder = null,
-    Locations.LocationId? RightFolder = null,
+    PaneTabsState? LeftTabs = null,
+    PaneTabsState? RightTabs = null,
     bool TreeVisible = true,
     double TreeWidth = GlobalViewState.DefaultTreeWidth,
     PaneColumns? LeftColumns = null,

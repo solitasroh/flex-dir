@@ -497,6 +497,114 @@ public class PaneWatcherTests
         Assert.Equal(StatusSummary.Empty, pane.StatusText);
     }
 
+    // ── 감시 놓기 (docs/PRD-v2.md §17 · ADR-018) ──────────────────
+    // 배경 탭은 살아 있되 감시를 놓는다. 근거는 docs/PRD-v2.md §13 전체다 — 감시 오버플로
+    // 폭주가 탭 수만큼 곱해지면 화면에 없는 탭에서 폭주가 뜬다.
+
+    [Fact]
+    public async Task SuspendWatch_CancelsTheWatchButKeepsTheList()
+    {
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
+        await using var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Assert.Equal(1, watcher.CancellationsObserved);
+
+        // 이것이 "살아 있다" 의 내용이다 — 목록과 폴더를 그대로 들고 있어야 탭 전환이
+        // 즉시가 된다 (ADR-018). 놓는 것은 감시 하나뿐이다.
+        Assert.Equal(2, pane.Items.Count);
+        Assert.Equal(folder, pane.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task SuspendWatch_ThenAnExternalChange_DoesNotReachTheList()
+    {
+        // 대가를 명시하는 테스트다 (docs/PRD-v2.md §17): 배경 탭은 외부 변경을 즉시 모른다.
+        var folder = Folder(@"C:\Temp", "a.txt");
+        await using var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Add(folder, "b.txt");
+        watcher.Push(new FolderChange(FolderChangeKind.Added, "b.txt"));
+
+        // 감시를 놓았으므로 알림이 목록에 닿지 않는다. 기다릴 신호가 없어 짧게 재운다 —
+        // 이 테스트만 그렇다 (일어나지 않는 일을 알림으로 기다릴 수는 없다).
+        await Task.Delay(50);
+
+        Assert.Single(pane.Items);
+    }
+
+    [Fact]
+    public async Task SuspendWatch_ThenRefresh_PicksTheChangeUpAndWatchesAgain()
+    {
+        // 다시 활성이 될 때의 경로다 — 새로 고침 한 번이 놓친 변경을 메우고 감시를 다시 건다.
+        var folder = Folder(@"C:\Temp", "a.txt");
+        await using var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Add(folder, "b.txt");
+        await pane.RefreshAsync();
+
+        Assert.Equal(2, pane.Items.Count);
+
+        // 감시가 <b>걸리기를 먼저 기다린다.</b> 거는 것은 Task.Run 으로 떼어져 있어
+        // (StartWatching — 감시를 거는 것 자체가 shell 호출이다) 새로 고침을 기다린 시점에
+        // WatchAsync 는 아직 안 불렸을 수 있다. 그때 Push 는 <b>취소된 세대</b>의 채널로
+        // 들어가 잃는다 — 첫 감시와 달리 staged 로 새지 않기 때문이다.
+        await WaitForAsync(() => watcher.WatchCalls.Count == 2, "새로 고침이 감시를 다시 건다");
+
+        // 감시가 다시 걸렸는가 — 새로 고침 뒤의 변경은 알림만으로 들어와야 한다.
+        Add(folder, "c.txt");
+        watcher.Push(new FolderChange(FolderChangeKind.Added, "c.txt"));
+
+        await WaitAsync(pane, () => pane.Items.Count == 3, "다시 건 감시가 변경을 나른다");
+    }
+
+    [Fact]
+    public async Task SuspendWatch_KeepsTheSelection()
+    {
+        // 탭을 오갈 때 선택이 풀리면 페인 간 복사의 출발점이 사라진다 (CLAUDE.md §4).
+        var folder = Folder(@"C:\Temp", "a.txt", "b.txt");
+        await using var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+        pane.Selection.SelectSingle("b.txt");
+
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Assert.Equal(["b.txt"], pane.Selection.SelectedNames);
+    }
+
+    [Fact]
+    public async Task SuspendWatch_Twice_IsHarmless()
+    {
+        // 전환이 겹치면 같은 탭에 두 번 들어올 수 있다. 두 번째가 던지면 그 전환이 통째로
+        // 깨진다.
+        var folder = Folder(@"C:\Temp", "a.txt");
+        await using var pane = CreatePane();
+        await pane.NavigateAsync(folder);
+
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Assert.Equal(1, watcher.CancellationsObserved);
+    }
+
+    [Fact]
+    public async Task SuspendWatch_OnAPaneThatNeverOpenedAnything_IsHarmless()
+    {
+        // 복원된 배경 탭이 한 번도 활성이 된 적 없이 다시 놓기를 지날 수 있다.
+        await using var pane = CreatePane();
+
+        await pane.SuspendWatchAsync().WaitAsync(Limit);
+
+        Assert.Equal(0, watcher.CancellationsObserved);
+    }
+
     // ── 정리 ──────────────────────────────────────────────────────
 
     [Fact]

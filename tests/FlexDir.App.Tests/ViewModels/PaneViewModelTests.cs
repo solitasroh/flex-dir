@@ -863,6 +863,95 @@ public class PaneViewModelTests
         Assert.Equal(reason, pane.StatusText);
     }
 
+    // ── 탭으로서의 페인 (docs/PRD-v2.md §17) ───────────────────────
+    // 탭 하나가 페인 하나다 (ADR-018). 그래서 탭 줄이 그릴 것 — 제목·고정 — 이 여기 산다.
+
+    [Fact]
+    public async Task Title_IsTheFolderName()
+    {
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+
+        Assert.Equal("Docs", pane.Title);
+    }
+
+    [Fact]
+    public void Title_BeforeAnyFolder_IsEmpty()
+    {
+        // 조립 직후의 페인이다. 탭 줄이 아직 그릴 것이 없다.
+        Assert.Equal(string.Empty, CreatePane().Title);
+    }
+
+    [Fact]
+    public async Task Title_WhenTheUserRenamedTheTab_KeepsTheUserName()
+    {
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+
+        pane.CustomTitle = "일감";
+
+        Assert.Equal("일감", pane.Title);
+    }
+
+    [Fact]
+    public async Task Title_WithAUserNameAndANewFolder_StillKeepsTheUserName()
+    {
+        // 사용자가 바꿨으면 그것이 이긴다 (docs/PRD-v2.md §17). 폴더를 옮겼다고 되돌아가면
+        // 이름을 바꾼 뜻이 사라진다.
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+        pane.CustomTitle = "일감";
+
+        await pane.NavigateAsync(Folder(@"C:\Temp\Pics"));
+
+        Assert.Equal("일감", pane.Title);
+    }
+
+    [Fact]
+    public async Task Title_FollowsTheFolder()
+    {
+        var pane = CreatePane();
+        var changed = 0;
+        pane.PropertyChanged += (_, args) => changed += args.PropertyName == nameof(PaneViewModel.Title) ? 1 : 0;
+
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+
+        Assert.Equal("Docs", pane.Title);
+        Assert.True(changed > 0, "탭 줄이 제목을 다시 그릴 근거가 있어야 한다");
+    }
+
+    [Fact]
+    public void Title_OfABackgroundTab_ComesFromTheLocationItHasNotOpenedYet()
+    {
+        // 복원된 배경 탭은 위치만 들고 있다 (docs/PRD-v2.md §17) — 열지 않았다고 탭 줄에
+        // 빈 이름이 서면 어느 탭인지 고를 수 없다.
+        var pane = CreatePane();
+
+        pane.PendingLocation = Loc(@"C:\Temp\Docs");
+
+        Assert.Equal("Docs", pane.Title);
+        Assert.Null(pane.CurrentLocation);
+    }
+
+    [Fact]
+    public void PendingLocation_DoesNotEnumerate()
+    {
+        // 이것이 cold start 를 지키는 자리다 (ADR-018) — 위치를 실었다고 열거가 나가면
+        // 시작할 때 탭 수만큼 저장소를 두드린다.
+        var pane = CreatePane();
+
+        pane.PendingLocation = Folder(@"C:\Temp\Docs", "a.txt");
+
+        Assert.Empty(source.EnumerateCalls);
+        Assert.Empty(pane.Items);
+    }
+
+    [Fact]
+    public void IsPinned_DefaultsToFalse()
+    {
+        Assert.False(CreatePane().IsPinned);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()

@@ -96,6 +96,6 @@ public class ResidentWindowTests
             new FakeItemActivator(), new InlineUiDispatcher(), CultureInfo.InvariantCulture, TimeZoneInfo.Utc,
             new FakeContextMenuProvider());
 
-        return new WorkspaceViewModel(Pane(), Pane(), viewStates);
+        return new WorkspaceViewModel(Pane, viewStates);
     }
 }

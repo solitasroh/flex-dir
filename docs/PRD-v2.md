@@ -1232,10 +1232,13 @@ _ = router.RunAsync(gate.ActivationsAsync(lifetime.Token), lifetime.Token);   //
 ```
 지금:  WorkspaceViewModel ──> PaneViewModel  ×2   (Left · Right)
 
-이후:  WorkspaceViewModel ──> PaneTabsViewModel ×2   (Left · Right)
+이후:  WorkspaceViewModel ──> PaneTabsViewModel ×2   (LeftTabs · RightTabs)
                                     │
                                     ├─ Tabs: PaneViewModel ×N   (살아 있다)
                                     └─ Active: PaneViewModel     (이 중 하나)
+
+       Left  == LeftTabs.Active     ← XAML 이 물고 있는 자리. 파생 속성으로 남는다
+       Right == RightTabs.Active
 ```
 
 **`ActivePane` 을 지나는 배선이 이미 일곱이다** — 트리 따라가기(양방향) · 즐겨찾기 고정 ·
@@ -1347,6 +1350,53 @@ _ = router.RunAsync(gate.ActivationsAsync(lifetime.Token), lifetime.Token);   //
 | **세로 탭** | 페인 폭이 320 이 최소다. 세로 탭은 그 폭을 더 깎는다 |
 | **탭별 뷰 모드 고정** | 폴더별 뷰 상태가 정본이라는 규칙과 충돌한다 (위 §자명하게) |
 | **4분할 · 세 번째 페인** | v2+ 그대로다 (`PRD.md` §3 · ADR-004) |
+
+### 값을 치르고 배운 것 (1단계 · 2026-08-11 · ViewModel·Core 만)
+
+1단계는 **소유 구조와 저장 포맷**이다. 탭 줄 화면은 다음 단계다 (ADR-009: 자동 채점되는
+것만 자율 실행에 맡긴다).
+
+**`Left`·`Right` 는 이름을 지켰다 — 타입만 뒤로 물러났다.** 기획은 *"`Left`/`Right` 를
+`PaneTabsViewModel` 로 바꾼다"* 였는데 `MainWindow.xaml` 의 `ContentControl` 둘이
+`Content="{Binding Left}"` 로 `PaneTemplate` 을 물고 있다. 타입을 바꾸면 그 템플릿 안의
+바인딩 수십 개가 **컴파일 에러 없이 조용히 죽는다** — WPF 바인딩은 런타임 조회다. 그래서
+`LeftTabs`/`RightTabs` 를 새로 두고 `Left`/`Right` 는 *"그 페인의 활성 탭"* 을 내는 파생
+속성으로 남겼다 (사용자 결정 2026-08-11). **XAML 변경 0 으로 1단계가 끝났고 앱은 그 사이에도
+지금처럼 돈다.** 탭 줄 단계에서 `LeftTabs.Tabs` 에 바인딩을 붙이면 된다.
+
+**놓기는 취소하지 않는다.** 전환이 겹치면 앞선 작업을 취소하는데(구조 렌즈가 잡은 것),
+취소가 **감시 놓기까지** 끊으면 버려진 전환이 감시를 든 탭을 배경에 남긴다 — 막으려던 §13
+폭주가 화면 밖에서 도는 정확히 그 모양이다. `SuspendWatchAsync` 는 토큰을 받지 않고 항상
+끝나며, 취소는 **뒤따르는 새로 고침만** 막는다. 탭을 겹쳐 오가는 테스트가 이것을 잡는다.
+
+**`DisposeAsync` 에서 취소를 삼키지 않으면 STA 워커가 남는다.** 이 저장소의 관용구
+(`catch (Exception error) when (error is not OperationCanceledException)`)를 그대로 옮겼더니
+종료가 **자기가 방금 일으킨 취소**에 터졌고, `AppComposition` 이 shell 구현체를 닫기 전에
+빠져나갔다. 상주 프로세스라 그것이 곧 스레드 누수다 (`FlexDir.Host.Tests` 가 잡았다).
+관용구가 아니라 *"이 예외를 밖으로 내면 누가 무엇을 못 하게 되는가"* 를 물어야 하는 자리다.
+
+**활성 탭은 번호가 아니라 인스턴스로 센다.** 저장 파일의 탭 경로 하나가 깨져 빠지면 그 뒤
+탭들의 번호가 전부 하나씩 당겨지는데, 저장된 `activeIndex` 를 그대로 쓰면 **범위 안의 엉뚱한
+탭**이 활성이 된다. 범위를 벗어나는 값과 달리 클램프가 잡아 주지 못한다 — 값이 유효해
+보이기 때문이다. `JsonViewStateStore.ToTabs` 와 `PaneTabsViewModel.Capture` 가 같은 수를 쓴다.
+
+**"기억이 없다" 와 "탭 0개" 는 다른 사건이다.** 탭이 전부 깨진 페인을 빈 목록으로 내면
+복원이 그것을 *기억된 상태*로 받아 시작 폴더 규칙을 지나지 못하고, 페인이 빈 채로 뜬다.
+저장소는 그때 `null` 을 낸다.
+
+**닫은 탭은 기록만 남긴다** (사용자 결정 2026-08-11). 인스턴스를 살려 두면 ADR-018 이 대가로
+적은 *"항목 수 × 탭 수"* 메모리에 닫힌 탭 10개만큼이 더 붙고, 그 탭들의 썸네일 스케줄러와
+열거 세션이 종료 순서에 하나씩 얹힌다. 되살린 탭은 폴더를 다시 열고 히스토리·선택을
+잃는다 — 브라우저도 그렇다.
+
+**활성 탭을 닫으면 왼쪽으로 간다** (사용자 결정 2026-08-11). `Ctrl+T` 가 오른쪽에 세우므로
+둘이 짝이다 — 잠깐 다녀온 탭을 닫으면 출발한 탭으로 돌아온다. 브라우저·탐색기는 오른쪽으로
+가지만 그쪽은 새 탭이 맨 뒤에 서는 전제다.
+
+**1단계에 넣지 않은 것**: 페인 간 탭 이동('반대편 페인으로 보내기')·고정 토글 커맨드.
+전자는 1단계 범위 밖이고 (기획은 *"메뉴가 먼저"* 로 두었다), 후자는 고정이 목록 순서를
+옮기는지가 §17 에 `줄 맨 왼쪽에 모이고`(그리는 자리)로만 적혀 있어 아직 정해지지 않았다.
+1단계는 고정을 **저장·복원하고 닫기를 거부**하는 것까지다.
 
 ### 겹치는 자리를 적어 둔다 — 탭 고정 vs 즐겨찾기
 

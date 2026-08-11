@@ -159,6 +159,64 @@ public class AppCompositionTests : IDisposable
     }
 
     [Fact]
+    public async Task Create_GivesTheWorkspaceAPaneFactoryThatKeepsWorkingAtRuntime()
+    {
+        // 탭은 런타임에 늘어난다 (docs/PRD-v2.md §17) — 조립이 인스턴스 둘만 넘기던 시절에는
+        // 여기서 만들 길이 없었다. 팩토리가 실제로 포트 열두 개를 묶는지는 <b>새 탭이 실물
+        // 폴더를 여는가</b>로만 확인된다. 조립이 팩토리를 잘못 묶으면 창은 뜨고 새 탭만
+        // 조용히 빈다.
+        var folder = Path.Combine(root, "tab-folder");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
+
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
+        var tabs = composition.Workspace.LeftTabs;
+
+        // 복원을 지나지 않았으므로 첫 탭은 아무 곳도 열지 않았다 — 그래서 새 탭이 복제할
+        // 폴더도 없고, 배경에서 도는 열기와 아래 이동이 겹치지 않는다.
+        var created = tabs.NewTab();
+        await created.NavigateAsync(Loc(folder));
+
+        Assert.Equal(2, tabs.Tabs.Count);
+        Assert.Same(created, composition.Workspace.Left);
+        Assert.Equal(["a.txt"], created.Items.Select(row => row.Name));
+    }
+
+    [Fact]
+    public async Task DisposeAsync_FoldsEveryTabBeforeClosingTheShellImplementations()
+    {
+        // 탭이 살아 있으므로 접는 대상이 페인 둘이 아니라 <b>탭 전부</b>다 (ADR-018 대가).
+        // 순서를 뒤집으면 진행 중인 썸네일·유형 이름 요청이 닫힌 STA 큐에 들어간다.
+        //
+        // 여기서 재는 것은 <b>순서</b>다: 배경 탭까지 접힌 뒤에야 shell 구현체가 닫혀야
+        // 하므로, 탭을 넷 열어 두고 종료가 끝난 뒤 구현체가 실제로 닫혔는지를 본다. 접는
+        // 쪽에서 예외가 나면 아래 두 단정문이 나오기 전에 이 테스트가 터진다.
+        var folder = Path.Combine(root, "dispose-folder");
+        Directory.CreateDirectory(folder);
+        await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
+
+        var composition = AppComposition.Create(dispatcher, State(), () => 0);
+        var thumbnails = composition.ShellServices.OfType<ShellThumbnailSource>().Single();
+
+        foreach (var tabs in new[] { composition.Workspace.LeftTabs, composition.Workspace.RightTabs })
+        {
+            await tabs.Active.NavigateAsync(Loc(folder));
+
+            // 기다리지 않는다 — 새 탭이 폴더를 여는 중에 종료가 들어오는 것이 실물에서
+            // 일어나는 모양이고, DisposeAsync 가 그 전환을 먼저 끊어야 한다.
+            tabs.NewTab();
+        }
+
+        Assert.Equal(2, composition.Workspace.LeftTabs.Tabs.Count);
+        Assert.Equal(2, composition.Workspace.RightTabs.Tabs.Count);
+
+        await composition.DisposeAsync();
+
+        Assert.Throws<ObjectDisposedException>(
+            () => { _ = thumbnails.GetTypeIconAsync("txt", isDirectory: false, 16, default); });
+    }
+
+    [Fact]
     public async Task Create_OwnsEveryShellImplementationThatHoldsAnStaThread()
     {
         // 일곱이다 — HANDOFF 가 한동안 넷이라고 적었고 빠진 것은 ShellTypeNameProvider 였다.

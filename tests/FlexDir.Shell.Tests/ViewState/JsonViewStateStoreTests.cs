@@ -140,9 +140,99 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
         Assert.Equal(0.4, loaded.SplitterRatio);
-        Assert.NotNull(loaded.LeftFolder);
+        Assert.NotNull(loaded.LeftTabs);
         Assert.True(loaded.TreeVisible);
         Assert.Equal(GlobalViewState.DefaultTreeWidth, loaded.TreeWidth);
+    }
+
+    // 탭이 들어오기 전에 쓴 파일에는 leftFolder·rightFolder 가 단수다. 그 변환은 여기서
+    // 끝나고 ViewModel 은 모른다 (docs/PRD-v2.md §17 저장 호환) — 못 읽으면 도그푸딩 중인
+    // 기계가 다음 실행에 빈 페인으로 뜬다.
+    [Fact]
+    public async Task FileWrittenBeforeTabs_ReadsEachFolderAsASingleTab()
+    {
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4, "leftFolder": "C:\\Temp", "rightFolder": "D:\\" } }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        var left = Assert.Single(loaded.LeftTabs!.Tabs);
+        Assert.Equal(Folder(@"C:\Temp"), left.Folder);
+        Assert.False(left.IsPinned);
+        Assert.Null(left.Title);
+        Assert.Equal(0, loaded.LeftTabs.ActiveIndex);
+
+        Assert.Equal(Folder(@"D:\"), Assert.Single(loaded.RightTabs!.Tabs).Folder);
+    }
+
+    // 한쪽만 기억이 있는 파일. 없는 쪽을 "탭 0개" 로 읽으면 그 페인이 시작 폴더 규칙을
+    // 지나지 못하고 빈 채로 뜬다 — 기억이 없는 것은 null 이다.
+    [Fact]
+    public async Task FileWrittenBeforeTabs_WithOnlyOneFolder_LeavesTheOtherPaneUnremembered()
+    {
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4, "leftFolder": "C:\\Temp" } }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.NotNull(loaded.LeftTabs);
+        Assert.Null(loaded.RightTabs);
+    }
+
+    // 새 형식과 옛 형식이 한 파일에 같이 있으면 새 것이 이긴다 — 옛 필드는 우리가 더 이상
+    // 쓰지 않으므로 남아 있다면 그것이 낡은 값이다.
+    [Fact]
+    public async Task FileWithBothShapes_PrefersTheTabList()
+    {
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "leftFolder": "C:\\Old",
+                "leftTabs": { "tabs": [ { "folder": "C:\\New" } ], "activeIndex": 0 }
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(Folder(@"C:\New"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
+    }
+
+    // 경로 하나가 깨졌다고 나머지 탭까지 잃으면 안 된다 — 폴더별 기억을 한 폴더의 손상으로
+    // 통째로 버리지 않는 것과 같은 판단이다.
+    [Fact]
+    public async Task FileWithOneUnparsableTabPath_KeepsTheOtherTabs()
+    {
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "leftTabs": { "tabs": [ { "folder": "" }, { "folder": "C:\\Good" } ], "activeIndex": 1 }
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(Folder(@"C:\Good"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
+
+        // 앞의 탭이 빠졌으니 번호도 함께 당겨져야 한다. 그대로 두면 활성 탭이 목록 밖이다.
+        Assert.Equal(0, loaded.LeftTabs.ActiveIndex);
+    }
+
+    // 탭이 전부 깨진 페인은 "기억이 없다" 로 간다 — 탭 0개짜리 목록을 내면 ViewModel 이
+    // 그것을 복원된 상태로 받아 시작 폴더 규칙을 지나지 못한다.
+    [Fact]
+    public async Task FileWithOnlyUnparsableTabPaths_LeavesThePaneUnremembered()
+    {
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4, "leftTabs": { "tabs": [ { "folder": "" } ] } } }
+            """);
+
+        Assert.Null((await CreateStore().LoadGlobalAsync(CancellationToken.None)).LeftTabs);
     }
 
     // 저장 파일이 손상돼 -3 이 들어와도 페인이 사라지면 안 된다 (GlobalViewState 가 거부한다).

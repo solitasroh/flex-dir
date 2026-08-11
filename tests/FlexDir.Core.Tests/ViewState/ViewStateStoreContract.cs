@@ -112,13 +112,16 @@ public abstract class ViewStateStoreContract
         // 시작 폴더 복원의 근거다 — 다음 실행이 여기서 마지막 폴더를 읽는다 (phase B-2).
         var store = CreateStore();
         var state = new GlobalViewState(
-            0.5, null, Folder(@"C:\Temp\Left"), Folder(@"C:\Temp\Right"));
+            0.5,
+            null,
+            PaneTabsState.Single(Folder(@"C:\Temp\Left")),
+            PaneTabsState.Single(Folder(@"C:\Temp\Right")));
 
         await store.SaveGlobalAsync(state, CancellationToken.None);
 
         var loaded = await store.LoadGlobalAsync(CancellationToken.None);
-        Assert.Equal(Folder(@"C:\Temp\Left"), loaded.LeftFolder);
-        Assert.Equal(Folder(@"C:\Temp\Right"), loaded.RightFolder);
+        Assert.Equal(Folder(@"C:\Temp\Left"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
+        Assert.Equal(Folder(@"C:\Temp\Right"), Assert.Single(loaded.RightTabs!.Tabs).Folder);
     }
 
     [Fact]
@@ -130,8 +133,32 @@ public abstract class ViewStateStoreContract
         await store.SaveGlobalAsync(new GlobalViewState(0.4, null), CancellationToken.None);
 
         var loaded = await store.LoadGlobalAsync(CancellationToken.None);
-        Assert.Null(loaded.LeftFolder);
-        Assert.Null(loaded.RightFolder);
+        Assert.Null(loaded.LeftTabs);
+        Assert.Null(loaded.RightTabs);
+    }
+
+    // 세션 복원은 탭 목록 전부다 — 순서·활성 탭·고정·사용자 제목까지 (docs/PRD-v2.md §17).
+    // 하나라도 왕복에서 빠지면 매일 같은 자리로 돌아온다는 이 앱의 전제가 깨진다.
+    [Fact]
+    public async Task SavedGlobalState_KeepsEveryTabWithItsPinAndTitle()
+    {
+        var store = CreateStore();
+        var left = new PaneTabsState(
+            [
+                new TabState(Folder(@"C:\Temp\Pinned"), IsPinned: true),
+                new TabState(Folder(@"C:\Temp\Named"), Title: "일감"),
+                new TabState(Folder(@"C:\Temp\Plain")),
+            ],
+            ActiveIndex: 2);
+
+        await store.SaveGlobalAsync(
+            GlobalViewState.Default with { LeftTabs = left, RightTabs = PaneTabsState.Single(Folder(@"D:\")) },
+            CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(left, loaded.LeftTabs);
+        Assert.Single(loaded.RightTabs!.Tabs);
     }
 
     // ── 기억이 없는 경우 ────────────────────────────────────────────

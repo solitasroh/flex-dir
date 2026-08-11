@@ -52,7 +52,7 @@ public class WorkspaceSettingsTests
 
         var settings = new SettingsViewModel(settingsStore, dispatcher, "0.3.1", StateDirectory);
 
-        return (new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, null, tree, settings), settings, tree);
+        return (new WorkspaceViewModel(CreatePane, viewStates, null, tree, settings), settings, tree);
     }
 
     private static LocationId Loc(string path)
@@ -86,7 +86,8 @@ public class WorkspaceSettingsTests
         var last = Folder(@"C:\last", ("a.txt", FileItemFlags.None));
         var chosen = Folder(@"C:\work", ("b.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, last, last), CancellationToken.None);
+            new GlobalViewState(0.5, null, PaneTabsState.Single(last), PaneTabsState.Single(last)),
+            CancellationToken.None);
         settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.Fixed, StartFolder = chosen });
 
         var (workspace, _, _) = Create();
@@ -103,7 +104,8 @@ public class WorkspaceSettingsTests
         var left = Folder(@"C:\left", ("a.txt", FileItemFlags.None));
         var right = Folder(@"C:\right", ("b.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, left, right), CancellationToken.None);
+            new GlobalViewState(0.5, null, PaneTabsState.Single(left), PaneTabsState.Single(right)),
+            CancellationToken.None);
 
         var (workspace, _, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
@@ -118,9 +120,10 @@ public class WorkspaceSettingsTests
         // 조립이 설정 없이 서는 경우가 있다 (트리·업데이트와 같은 이유로 선택 인자다).
         var last = Folder(@"C:\last", ("a.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, last, last), CancellationToken.None);
+            new GlobalViewState(0.5, null, PaneTabsState.Single(last), PaneTabsState.Single(last)),
+            CancellationToken.None);
 
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
         await workspace.RestoreAsync(null, CancellationToken.None);
 
         Assert.Equal(last, workspace.Left.CurrentLocation);
@@ -254,7 +257,7 @@ public class WorkspaceSettingsTests
     [Fact]
     public void UseCurrentFolderAsStart_WithNoSettingsWired_DoesNothing()
     {
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
 
         workspace.UseCurrentFolderAsStartCommand.Execute(null);
 

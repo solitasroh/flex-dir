@@ -729,7 +729,7 @@ public class FileOperationCommandsTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
 
     private PaneViewModel CreatePane()
         => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);

@@ -175,7 +175,10 @@ public sealed class AppComposition : IAsyncDisposable
             stateDirectory,
             update);
 
-        var workspace = new WorkspaceViewModel(Pane(), Pane(), viewStates, update, tree, settings);
+        // 팩토리를 넘긴다 (docs/PRD-v2.md §17). 탭이 런타임에 늘어나므로 조립 시점에
+        // 인스턴스를 다 알 수 없다 — 여기 이미 나 있던 길이다. App 은 여전히 Shell 을
+        // 모른다 (CLAUDE.md §1): 이 지역 함수만 포트 열두 개를 안다.
+        var workspace = new WorkspaceViewModel(Pane, viewStates, update, tree, settings);
 
         return new AppComposition(
             workspace,
@@ -184,8 +187,12 @@ public sealed class AppComposition : IAsyncDisposable
     }
 
     /// <summary>
-    /// 완전 종료. <b>페인을 먼저 접고 shell 구현체를 닫는다</b> — 순서를 뒤집으면 진행 중인
-    /// 썸네일·유형 이름 요청이 닫힌 STA 큐에 들어가 관측되지 않는 예외가 된다.
+    /// 완전 종료. <b>모든 탭을 먼저 접고 shell 구현체를 닫는다</b> — 순서를 뒤집으면 진행
+    /// 중인 썸네일·유형 이름 요청이 닫힌 STA 큐에 들어가 관측되지 않는 예외가 된다.
+    /// <para>
+    /// <b>페인 둘이 아니라 탭 전부다</b> (docs/PRD-v2.md §17 · ADR-018 대가). 탭은 살아
+    /// 있으므로 — 배경 탭이 감시는 놓았어도 썸네일 스케줄러와 열거 세션은 탭마다 산다.
+    /// </para>
     /// <para>
     /// 창이 닫힐 때 부르지 않는다. 상주 프로세스는 창 없이 살아 있고(ADR-003), 그때
     /// STA 워커까지 접으면 다음 창이 그 비용을 다시 낸다.
@@ -200,8 +207,8 @@ public sealed class AppComposition : IAsyncDisposable
 
         disposed = true;
 
-        await Workspace.Left.DisposeAsync().ConfigureAwait(false);
-        await Workspace.Right.DisposeAsync().ConfigureAwait(false);
+        await Workspace.LeftTabs.DisposeAsync().ConfigureAwait(false);
+        await Workspace.RightTabs.DisposeAsync().ConfigureAwait(false);
 
         foreach (var service in shellServices)
         {

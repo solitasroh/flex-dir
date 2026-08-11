@@ -96,11 +96,19 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 ### 탭이 소유 구조를 한 단 깊게 한다 (docs/PRD-v2.md §17 · ADR-018)
 
 ```
-WorkspaceViewModel ──> PaneTabsViewModel ×2      (Left · Right)
+WorkspaceViewModel ──> PaneTabsViewModel ×2      (LeftTabs · RightTabs)
                               │
                               ├─ Tabs   : PaneViewModel ×N   전부 살아 있다
                               └─ Active : PaneViewModel      이 중 하나
+
+WorkspaceViewModel.Left  == LeftTabs.Active      (파생 속성 — View 가 이것을 문다)
+WorkspaceViewModel.Right == RightTabs.Active
 ```
+
+**`Left`·`Right` 가 이름을 지킨 이유**: `MainWindow.xaml` 이 `Content="{Binding Left}"` 로
+`PaneTemplate` 을 물고 있고 WPF 바인딩은 런타임 조회라, 타입을 바꾸면 템플릿 안의 바인딩이
+컴파일 에러 없이 조용히 죽는다 (docs/PRD-v2.md §17 값을 치르고 배운 것). 활성 탭이 바뀌면
+이 파생 속성들이 알림을 내고 `ContentControl` 이 따라온다.
 
 **`ActivePane` 을 지나는 배선 일곱이 "활성 페인의 활성 탭" 으로 한 단 깊어진다** — 트리
 따라가기(양방향) · 즐겨찾기 고정 · 설정의 시작 폴더 지정 · 페인 간 복사 · 이동 · 반대편

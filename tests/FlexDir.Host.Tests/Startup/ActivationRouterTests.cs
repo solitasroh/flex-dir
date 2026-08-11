@@ -56,7 +56,12 @@ public class ActivationRouterTests
         var left = Folder(@"C:\Temp\Left", "a.txt");
         var right = Folder(@"C:\Temp\Right", "b.txt");
         await viewStates.SaveGlobalAsync(
-            new FlexDir.Core.ViewState.GlobalViewState(0.5, null, left, right), CancellationToken.None);
+            new FlexDir.Core.ViewState.GlobalViewState(
+                0.5,
+                null,
+                FlexDir.Core.ViewState.PaneTabsState.Single(left),
+                FlexDir.Core.ViewState.PaneTabsState.Single(right)),
+            CancellationToken.None);
         var workspace = CreateWorkspace();
         var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
 
@@ -87,7 +92,9 @@ public class ActivationRouterTests
         var last = Folder(@"C:\Temp\Left", "a.txt");
         var requested = Folder(@"C:\Windows", "w.txt");
         await viewStates.SaveGlobalAsync(
-            new FlexDir.Core.ViewState.GlobalViewState(0.5, null, last, null), CancellationToken.None);
+            new FlexDir.Core.ViewState.GlobalViewState(
+                0.5, null, FlexDir.Core.ViewState.PaneTabsState.Single(last), null),
+            CancellationToken.None);
         var workspace = CreateWorkspace();
         var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
 
@@ -261,7 +268,7 @@ public class ActivationRouterTests
 
     // ── 헬퍼 ─────────────────────────────────────────────────────
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
 
     private PaneViewModel CreatePane() => new(
         source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator,

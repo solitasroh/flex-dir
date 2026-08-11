@@ -76,12 +76,8 @@ public class WorkspaceViewModelTests
     [Fact]
     public void Ctor_NullArguments_Throw()
     {
-        Assert.Throws<ArgumentNullException>(
-            () => new WorkspaceViewModel(null!, CreatePane(), viewStates));
-        Assert.Throws<ArgumentNullException>(
-            () => new WorkspaceViewModel(CreatePane(), null!, viewStates));
-        Assert.Throws<ArgumentNullException>(
-            () => new WorkspaceViewModel(CreatePane(), CreatePane(), null!));
+        Assert.Throws<ArgumentNullException>(() => new WorkspaceViewModel(null!, viewStates));
+        Assert.Throws<ArgumentNullException>(() => new WorkspaceViewModel(CreatePane, null!));
     }
 
     // ── 활성 페인 ─────────────────────────────────────────────────
@@ -370,7 +366,7 @@ public class WorkspaceViewModelTests
     public async Task RestoreAsync_WithAFailingStore_UsesTheDefault()
     {
         // 전역 뷰 상태는 캐시다 (CLAUDE.md §4). 읽지 못해도 창은 떠야 한다.
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), new FailingViewStateStore());
+        var workspace = new WorkspaceViewModel(CreatePane, new FailingViewStateStore());
 
         await workspace.RestoreAsync(null);
 
@@ -403,7 +399,7 @@ public class WorkspaceViewModelTests
     public async Task PersistAsync_WithAFailingStore_DoesNotThrow()
     {
         // 저장 실패가 창을 닫는 길을 막으면 안 된다.
-        var workspace = new WorkspaceViewModel(CreatePane(), CreatePane(), new FailingViewStateStore());
+        var workspace = new WorkspaceViewModel(CreatePane, new FailingViewStateStore());
         workspace.SplitterRatio = 0.3;
 
         await workspace.PersistAsync();
@@ -735,7 +731,9 @@ public class WorkspaceViewModelTests
         var left = Folder(@"C:\Temp\Left", ("a.txt", 100));
         var right = Folder(@"C:\Temp\Right", ("b.txt", 100));
         var fallback = Folder(@"C:\Users\Me", ("c.txt", 100));
-        await viewStates.SaveGlobalAsync(new GlobalViewState(0.5, null, left, right), CancellationToken.None);
+        await viewStates.SaveGlobalAsync(
+            new GlobalViewState(0.5, null, PaneTabsState.Single(left), PaneTabsState.Single(right)),
+            CancellationToken.None);
         var workspace = CreateWorkspace();
 
         await workspace.RestoreAsync(fallback);
@@ -780,8 +778,8 @@ public class WorkspaceViewModelTests
         await workspace.PersistAsync();
 
         var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
-        Assert.Equal(left, state.LeftFolder);
-        Assert.Equal(right, state.RightFolder);
+        Assert.Equal(left, Assert.Single(state.LeftTabs!.Tabs).Folder);
+        Assert.Equal(right, Assert.Single(state.RightTabs!.Tabs).Folder);
     }
 
     // ── 클릭에 의한 활성 전환 ─────────────────────────────────────
@@ -801,7 +799,7 @@ public class WorkspaceViewModelTests
         Assert.Equal(["a.txt"], workspace.Right.Selection.SelectedNames);
     }
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane(), CreatePane(), viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
 
     /// <summary>트리를 물린 워크스페이스. 트리를 보는 테스트만 이것을 쓴다.</summary>
     private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree) CreateWorkspaceWithTree()
@@ -809,7 +807,7 @@ public class WorkspaceViewModelTests
         var tree = new FolderTreeViewModel(
             drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
-        return (new WorkspaceViewModel(CreatePane(), CreatePane(), viewStates, update: null, tree), tree);
+        return (new WorkspaceViewModel(CreatePane, viewStates, update: null, tree), tree);
     }
 
     /// <summary>
