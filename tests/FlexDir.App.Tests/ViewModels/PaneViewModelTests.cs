@@ -952,6 +952,32 @@ public class PaneViewModelTests
         Assert.False(CreatePane().IsPinned);
     }
 
+    [Fact]
+    public async Task CustomTitle_ClearedToBlank_FallsBackToTheFolderName()
+    {
+        // 이름 바꾸기에서 다 지우고 확정하는 것이 "폴더 이름으로 되돌린다" 다
+        // (docs/PRD-v2.md §17). 빈 제목을 그대로 두면 이름 없는 탭이 서고 되돌릴 길이 없다.
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+        pane.CustomTitle = "일감";
+
+        pane.CustomTitle = "   ";
+
+        Assert.Null(pane.CustomTitle);
+        Assert.Equal("Docs", pane.Title);
+    }
+
+    [Fact]
+    public async Task CustomTitle_WithSurroundingSpace_IsTrimmed()
+    {
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+
+        pane.CustomTitle = "  일감  ";
+
+        Assert.Equal("일감", pane.Title);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()

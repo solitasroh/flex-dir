@@ -441,13 +441,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// <summary>
     /// 사용자가 바꾼 탭 제목. <see langword="null"/> 이면 폴더 이름을 쓴다
     /// (docs/PRD-v2.md §17).
+    /// <para>
+    /// <b>빈 이름은 <see langword="null"/> 로 접는다.</b> 이름 바꾸기에서 다 지우고 확정하는
+    /// 것이 "폴더 이름으로 되돌린다" 이고, 그러지 않으면 제목 없는 탭이 서서 어느 폴더인지
+    /// 알 수 없다 — 되돌릴 별도의 길을 두지 않기 위한 정규화다.
+    /// </para>
     /// </summary>
     public string? CustomTitle
     {
         get => customTitle;
         set
         {
-            if (SetProperty(ref customTitle, value))
+            if (SetProperty(ref customTitle, string.IsNullOrWhiteSpace(value) ? null : value.Trim()))
             {
                 OnPropertyChanged(nameof(Title));
             }

@@ -128,6 +128,12 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         LeftTabs.PropertyChanged += OnPaneTabsChanged;
         RightTabs.PropertyChanged += OnPaneTabsChanged;
 
+        // 되살리기 스택은 창 전체에 하나다 (docs/PRD-v2.md §17). <b>어느 경로로 닫혔든</b>
+        // 여기로 모인다 — Ctrl+W · 가운데 버튼 · 컨텍스트 메뉴의 닫기 셋이 각자 쌓으면
+        // 하나를 빼먹는 순간 그 탭만 되살아나지 않는다.
+        LeftTabs.TabClosed += (_, closed) => Remember(PaneSide.Left, closed);
+        RightTabs.TabClosed += (_, closed) => Remember(PaneSide.Right, closed);
+
         if (tree is not null)
         {
             // 어느 페인이 갈지는 트리가 아니라 여기서 정한다 (사용자 결정 2026-08-10:
@@ -372,17 +378,34 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private void NewTab() => ActiveTabs.NewTab();
 
     /// <summary>
-    /// 활성 탭 닫기 (<c>Ctrl+W</c>). 탭이 1개거나 고정 탭이면 무시된다 — 그 판정은
-    /// 페인이 하고, 여기서는 되살리기 스택에 쌓는 일만 한다.
+    /// 활성 탭 닫기 (<c>Ctrl+W</c>). 탭이 1개거나 고정 탭이면 무시된다 — 그 판정은 페인이
+    /// 하고, 되살리기 스택은 <c>TabClosed</c> 를 타고 저절로 채워진다 (위 조립 참조).
     /// </summary>
     [RelayCommand]
-    private async Task CloseTabAsync()
-    {
-        var side = activeSide;
+    private Task CloseTabAsync() => ActiveTabs.CloseAsync(ActivePane);
 
-        if (await ActiveTabs.CloseAsync(ActivePane).ConfigureAwait(false) is { } closed)
+    /// <summary>
+    /// 활성 탭을 반대편 페인으로 보낸다 (컨텍스트 메뉴 '반대편 페인으로 보내기' ·
+    /// docs/PRD-v2.md §17). <b>살아 있는 인스턴스의 소유권이 페인을 건너간다</b> — 감시
+    /// 구독·썸네일 스케줄러·열거 세션·히스토리·선택이 전부 따라온다.
+    /// <para>
+    /// <b>활성 페인은 따라가지 않는다</b> (사용자 결정 2026-08-11). 보내는 것은 정리
+    /// 동작이라 하던 일이 있는 페인에 남는 편이 연속으로 정리하기 쉽다 — 되살리기가 페인을
+    /// 옮기는 것과 갈리는 지점이고, 그쪽은 "방금 그것을 원해서 누른 키" 다.
+    /// </para>
+    /// <para>
+    /// 마지막 탭은 보낼 수 없다 — 그러면 그 페인이 탭 0개가 된다. 그 판정은 페인이 한다.
+    /// </para>
+    /// </summary>
+    [RelayCommand]
+    private async Task SendTabToOtherPaneAsync()
+    {
+        // 떼어내는 사이에 활성 페인이 바뀌면 도착지가 달라진다. 지금의 반대편을 붙잡아 둔다.
+        var destination = InactiveTabs;
+
+        if (await ActiveTabs.DetachAsync(ActivePane).ConfigureAwait(false) is { } moved)
         {
-            Remember(side, closed);
+            destination.Receive(moved);
         }
     }
 

@@ -467,6 +467,114 @@ public class WorkspaceTabsTests
         Assert.Equal(2, workspace.LeftTabs.Tabs.Count);
     }
 
+    // ── 반대편 페인으로 보내기 (docs/PRD-v2.md §17) ────────────────
+
+    [Fact]
+    public async Task SendTabToOtherPane_MovesTheSameInstanceAndKeepsTheActivePane()
+    {
+        // 살아 있는 인스턴스의 소유권이 페인을 건너간다 — 히스토리·선택이 따라오는 것이
+        // "새로 만들고 상태를 복사" 가 아니라는 증거다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        var (leftKept, leftMoving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
+        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+
+        leftMoving.Selection.SelectSingle("a.txt");
+        var folder = leftMoving.CurrentLocation;
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+
+        // 같은 인스턴스가 반대편에 서 있다.
+        Assert.DoesNotContain(leftMoving, workspace.LeftTabs.Tabs);
+        Assert.Contains(leftMoving, workspace.RightTabs.Tabs);
+        Assert.Same(leftMoving, workspace.RightTabs.Active);
+        Assert.Equal(folder, leftMoving.CurrentLocation);
+        Assert.Equal(["a.txt"], leftMoving.Selection.SelectedNames);
+
+        // 활성 페인은 따라가지 않는다 (사용자 결정 2026-08-11) — 보내는 것은 정리 동작이다.
+        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
+        Assert.Same(leftKept, workspace.ActivePane);
+    }
+
+    [Fact]
+    public async Task SendTabToOtherPane_StandsRightAfterTheDestinationsActiveTab()
+    {
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
+        var (rightFirst, rightSecond) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+
+        // 도착 페인의 활성 탭을 첫 번째로 되돌린다 — 착지가 "맨 뒤" 가 아님을 보려면 활성
+        // 탭이 맨 뒤가 아니어야 한다.
+        workspace.RightTabs.Activate(rightFirst);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal([rightFirst, moving, rightSecond], workspace.RightTabs.Tabs);
+    }
+
+    [Fact]
+    public async Task SendTabToOtherPane_TheLastTab_DoesNothing()
+    {
+        // 보내면 그 페인이 탭 0개가 된다 — "페인은 항상 둘" 전제가 깨진다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+        var only = workspace.Left;
+        await only.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
+
+        Assert.Same(only, Assert.Single(workspace.LeftTabs.Tabs));
+        Assert.Single(workspace.RightTabs.Tabs);
+    }
+
+    [Fact]
+    public async Task SendTabToOtherPane_APinnedTab_StillMoves()
+    {
+        // 고정은 "닫히지 않는다" 이지 "움직이지 않는다" 가 아니다. 고정 여부는 인스턴스에
+        // 붙어 있어 건너간 뒤에도 그대로다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
+        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        moving.IsPinned = true;
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Contains(moving, workspace.RightTabs.Tabs);
+        Assert.True(moving.IsPinned);
+    }
+
+    [Fact]
+    public async Task SendTabToOtherPane_ThenPersist_RecordsTheTabOnItsNewSide()
+    {
+        // 소유권이 건너갔다는 것은 저장 포맷에서도 보여야 한다 — 안 그러면 다음 실행에
+        // 원래 페인으로 돌아간다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
+        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var folder = moving.CurrentLocation;
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.PersistAsync();
+
+        var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.DoesNotContain(folder, state.LeftTabs!.Tabs.Select(tab => tab.Folder));
+        Assert.Contains(folder, state.RightTabs!.Tabs.Select(tab => tab.Folder));
+    }
+
     // ── 닫은 탭 되살리기 (Ctrl+Shift+T) ───────────────────────────
 
     [Fact]
@@ -576,6 +684,34 @@ public class WorkspaceTabsTests
         workspace.ReopenClosedTabCommand.Execute(null);
 
         Assert.Equal(before, workspace.LeftTabs.Tabs.Count);
+    }
+
+    [Fact]
+    public async Task ReopenClosedTab_AfterCloseOthers_BringsThemAllBackToTheirPlaces()
+    {
+        // 닫는 길이 다섯이라 되살리기 스택은 <b>한 신호</b>로 채워져야 한다. 컨텍스트 메뉴로
+        // 닫은 것이 스택에 안 들어가면 그 탭만 조용히 되살아나지 않는다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+
+        var kept = workspace.Left;
+        await AddTabAsync(workspace, Folder(@"C:\First"));
+        await AddTabAsync(workspace, Folder(@"C:\Second"));
+
+        await workspace.LeftTabs.CloseOthersAsync(kept).WaitAsync(Limit);
+        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Single(workspace.LeftTabs.Tabs);
+
+        workspace.ReopenClosedTabCommand.Execute(null);
+        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        workspace.ReopenClosedTabCommand.Execute(null);
+        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(
+            [@"C:\L0", @"C:\First", @"C:\Second"],
+            workspace.LeftTabs.Tabs.Select(tab => tab.CurrentLocation!.DisplayPath));
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 
 using FlexDir.Core.Locations;
 using FlexDir.Core.ViewState;
@@ -50,6 +51,11 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     private PaneColumns columns = PaneColumns.Default;
     private bool showHiddenItems;
     private bool disposed;
+
+    /// <summary>
+    /// 그릴 순서. 목록이나 고정이 바뀌면 버린다 — <c>PaneViewModel.Rows</c> 와 같은 수다.
+    /// </summary>
+    private IReadOnlyList<PaneViewModel>? stripTabs;
 
     /// <summary>
     /// 컬럼 폭을 탭들에 미는 중. 페인이 값을 밀면 탭마다 알림이 넷 오는데, 그것을 다시
@@ -111,6 +117,21 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
     /// <summary>활성 탭의 자리. 저장 포맷이 이 번호를 기억한다 (docs/PRD-v2.md §17).</summary>
     public int ActiveIndex => tabs.IndexOf(active);
+
+    /// <summary>
+    /// <b>탭 줄이 그릴 순서</b> — 고정 탭이 앞에 모이고, 그 안에서는 목록 순서다
+    /// (docs/DESIGN.md §1-1 · 사용자 결정 2026-08-11).
+    /// <para>
+    /// <b>고정은 <see cref="Tabs"/> 를 건드리지 않는다.</b> 그래서 고정을 풀면 원래 자리로
+    /// 돌아가고 저장 포맷의 순서도 흔들리지 않는다 — 대가는 "그릴 순서" 와 "목록 순서" 가
+    /// 갈리는 것이고, 그 변환이 여기 한 곳에 있다.
+    /// </para>
+    /// <para>
+    /// 정렬을 XAML 에 두지 않는 이유: 같은 규칙이 두 계층으로 갈린다. 자리를 판정하는
+    /// 동작(<see cref="CloseToTheRightAsync"/>)도 이 순서를 봐야 한다.
+    /// </para>
+    /// </summary>
+    public IReadOnlyList<PaneViewModel> StripTabs => stripTabs ??= BuildStripTabs();
 
     /// <summary>
     /// 활성 탭을 닫을 수 있는가. 마지막 탭과 고정 탭은 닫히지 않는다
@@ -184,6 +205,16 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
     /// <summary>목록 우클릭의 '즐겨찾기에 추가' (docs/PRD-v2.md §10-2). 탭에서 그대로 나른다.</summary>
     public event EventHandler<IReadOnlyList<string>>? PinRequested;
+
+    /// <summary>
+    /// 탭 하나가 닫혔다 — 되살리기 스택이 이 신호로 채워진다 (docs/PRD-v2.md §17).
+    /// <para>
+    /// <b>닫는 길이 다섯이라 신호가 하나여야 한다</b> — <c>Ctrl+W</c> · 가운데 버튼 ·
+    /// 컨텍스트 메뉴의 닫기 셋. 각 경로가 스택에 직접 쌓으면 하나를 빼먹는 순간 그 탭은
+    /// 되살아나지 않고, 어느 경로가 빠졌는지는 실물에서만 드러난다.
+    /// </para>
+    /// </summary>
+    public event EventHandler<ClosedTab>? TabClosed;
 
     /// <summary>
     /// 이 페인이 보는 폴더가 바뀌었다 — <b>활성 탭의 이동과 탭 전환 둘 다</b>다. 트리가
@@ -288,6 +319,7 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         tabs.RemoveAt(index);
         Abandon(tab);
 
+        InvalidateStrip();
         OnPropertyChanged(nameof(ActiveIndex));
         OnPropertyChanged(nameof(CanCloseActive));
 
@@ -296,7 +328,176 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         await tab.DisposeAsync().ConfigureAwait(false);
 
         // 폴더를 한 번도 열지 못한 탭은 되살릴 것이 없다.
-        return state is null ? null : new ClosedTab(index, state);
+        if (state is null)
+        {
+            return null;
+        }
+
+        var closed = new ClosedTab(index, state);
+
+        TabClosed?.Invoke(this, closed);
+
+        return closed;
+    }
+
+    /// <summary>
+    /// 고정을 켜고 끈다 (컨텍스트 메뉴 · docs/PRD-v2.md §17). <b>목록 순서는 건드리지
+    /// 않는다</b> (사용자 결정 2026-08-11) — 모이는 것은 그릴 때뿐이다
+    /// (<see cref="StripTabs"/>).
+    /// </summary>
+    public void TogglePin(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        if (tabs.Contains(tab))
+        {
+            // 알림은 탭이 낸다. 그것을 받아 그릴 순서를 버리는 것은 OnTabPropertyChanged 다.
+            tab.IsPinned = !tab.IsPinned;
+        }
+    }
+
+    /// <summary>
+    /// 탭을 복제한다 (컨텍스트 메뉴). <b>복제한 탭 바로 오른쪽</b>에 서고 활성이 된다 —
+    /// 기준이 활성 탭이 아니라 우클릭한 탭이라는 점만 <see cref="NewTab"/> 과 다르다.
+    /// <para>
+    /// <b>따라오는 것은 폴더뿐이다.</b> 고정과 사용자 제목은 따라오지 않는다 — <c>Ctrl+T</c>
+    /// 가 복제하는 것도 폴더이고 (docs/PRD-v2.md §17), 제목까지 따라오면 같은 이름 둘이 서서
+    /// 어느 쪽이 원본인지 알 수 없다.
+    /// </para>
+    /// </summary>
+    public PaneViewModel Duplicate(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        var index = tabs.IndexOf(tab);
+        var copy = Add(index < 0 ? tabs.Count : index + 1);
+
+        copy.PendingLocation = tab.CurrentLocation ?? tab.PendingLocation;
+
+        Activate(copy);
+
+        return copy;
+    }
+
+    /// <summary>
+    /// 그 탭만 남기고 닫는다 (컨텍스트 메뉴). <b>고정 탭은 남는다</b> —
+    /// <see cref="CanClose"/> 가 그것을 거부한다.
+    /// <para>
+    /// 남는 탭이 활성이 된다. 나머지가 전부 사라지므로 다른 결말이 없다.
+    /// </para>
+    /// </summary>
+    public Task CloseOthersAsync(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        if (!tabs.Contains(tab))
+        {
+            return Task.CompletedTask;
+        }
+
+        Activate(tab);
+
+        return CloseAllAsync([.. tabs.Where(candidate => !ReferenceEquals(candidate, tab))]);
+    }
+
+    /// <summary>
+    /// 그 탭 오른쪽을 모두 닫는다 (컨텍스트 메뉴).
+    /// <para>
+    /// <b>"오른쪽" 은 <see cref="StripTabs"/> 기준이다</b> — 사용자가 보는 것이 그 순서다.
+    /// 목록 기준과 갈리는 경우는 하나뿐이지만 실재한다: 고정 탭을 우클릭하면 그 왼쪽에
+    /// 그려진 탭이 목록에서는 앞에 있어 "오른쪽" 판정이 뒤집힌다.
+    /// </para>
+    /// </summary>
+    public Task CloseToTheRightAsync(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        var order = StripTabs;
+        var at = -1;
+
+        for (var index = 0; index < order.Count; index++)
+        {
+            if (ReferenceEquals(order[index], tab))
+            {
+                at = index;
+
+                break;
+            }
+        }
+
+        return at < 0 ? Task.CompletedTask : CloseAllAsync([.. order.Skip(at + 1)]);
+    }
+
+    /// <summary>
+    /// 탭을 이 페인에서 떼어낸다 — <b>접지 않는다</b>. 반대편 페인이 이 인스턴스를 그대로
+    /// 받는다 (docs/PRD-v2.md §17 페인 간 이동 · <see cref="Receive"/>).
+    /// <para>
+    /// <b>마지막 탭은 떼어낼 수 없다</b> — 그러면 이 페인이 탭 0개가 되어 "페인은 항상 둘"
+    /// 이라는 v1 전제가 깨진다. 마지막 탭이 닫히지 않는 것과 같은 이유다. 그때
+    /// <see langword="null"/> 을 낸다.
+    /// </para>
+    /// <para>
+    /// <b>고정 탭은 떼어낼 수 있다</b> — 고정은 "닫히지 않는다" 이지 "움직이지 않는다" 가
+    /// 아니고, 고정 여부는 인스턴스에 붙어 있어 건너간 뒤에도 그대로다.
+    /// </para>
+    /// <para>
+    /// 감시는 여기서 놓는다. 도착한 페인에서 활성이 될 때 다시 걸린다.
+    /// </para>
+    /// </summary>
+    public async Task<PaneViewModel?> DetachAsync(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        var index = tabs.IndexOf(tab);
+
+        if (index < 0 || tabs.Count < 2)
+        {
+            return null;
+        }
+
+        await tab.SuspendWatchAsync().ConfigureAwait(false);
+
+        // 활성 탭이면 이웃으로 먼저 옮긴다 — 닫기와 같은 규칙(왼쪽)이다.
+        if (ReferenceEquals(tab, active))
+        {
+            Activate(tabs[index == 0 ? 1 : index - 1]);
+        }
+
+        tabs.RemoveAt(index);
+        Abandon(tab);
+
+        InvalidateStrip();
+        OnPropertyChanged(nameof(ActiveIndex));
+        OnPropertyChanged(nameof(CanCloseActive));
+
+        return tab;
+    }
+
+    /// <summary>
+    /// 반대편 페인에서 건너온 탭을 받는다 (docs/PRD-v2.md §17). <b>활성 탭 바로 오른쪽</b>에
+    /// 서고 <b>이 페인의 활성 탭이 된다</b> (사용자 결정 2026-08-11) — 그러면서 감시가 다시
+    /// 걸린다.
+    /// <para>
+    /// <b>정책은 이 페인 것으로 갈아입는다.</b> 컬럼 폭과 숨김 정책의 소유자가 페인이므로
+    /// (docs/PRD-v2.md §17 구조 렌즈), 갈아입히지 않으면 건너온 탭만 반대편 페인의 폭으로
+    /// 그려진다.
+    /// </para>
+    /// <para>
+    /// 히스토리·선택·열거 세션·썸네일 스케줄러는 인스턴스에 붙어 있어 <b>손대지 않아도</b>
+    /// 따라온다. 그것이 "새로 만들고 상태를 복사" 가 아니라 인스턴스를 옮기는 근거다.
+    /// </para>
+    /// </summary>
+    public void Receive(PaneViewModel tab)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        if (tabs.Contains(tab))
+        {
+            return;
+        }
+
+        Adopt(tab, ActiveIndex + 1);
+        Activate(tab);
     }
 
     /// <summary>다음 탭 (<c>Ctrl+Tab</c> · <c>Ctrl+PageDown</c>). 이 페인 안에서 순환한다.</summary>
@@ -380,6 +581,7 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         {
             tabs.Move(0, activeIndex);
 
+            InvalidateStrip();
             OnPropertyChanged(nameof(ActiveIndex));
         }
 
@@ -465,6 +667,55 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         }
     }
 
+    // 아래 얇은 커맨드들은 탭 줄의 클릭·가운데 버튼·컨텍스트 메뉴가 문다 — 그 자리는
+    // ICommand 만 받는다 (PaneViewModel 의 커맨드들과 같은 자리). 판단은 전부 위의 메서드
+    // 안에 있고, 여기서 하는 일은 <c>null</c> 을 걸러내는 것뿐이다: 커맨드 매개변수는
+    // 바인딩이 아직 서지 않은 순간에 <c>null</c> 로 온다.
+
+    [RelayCommand]
+    private void ActivateTab(PaneViewModel? tab)
+    {
+        if (tab is not null)
+        {
+            Activate(tab);
+        }
+    }
+
+    /// <summary>탭 줄의 <c>+</c> 와 빈 곳 더블클릭 (docs/PRD-v2.md §17 마우스).</summary>
+    [RelayCommand]
+    private void AddTab() => NewTab();
+
+    [RelayCommand]
+    private void TogglePinOnTab(PaneViewModel? tab)
+    {
+        if (tab is not null)
+        {
+            TogglePin(tab);
+        }
+    }
+
+    [RelayCommand]
+    private void DuplicateTab(PaneViewModel? tab)
+    {
+        if (tab is not null)
+        {
+            Duplicate(tab);
+        }
+    }
+
+    /// <summary>탭 가운데 버튼과 컨텍스트 메뉴의 '닫기'.</summary>
+    [RelayCommand]
+    private Task CloseTabAsync(PaneViewModel? tab)
+        => tab is null ? Task.CompletedTask : CloseAsync(tab);
+
+    [RelayCommand]
+    private Task CloseOtherTabsAsync(PaneViewModel? tab)
+        => tab is null ? Task.CompletedTask : CloseOthersAsync(tab);
+
+    [RelayCommand]
+    private Task CloseTabsToTheRightAsync(PaneViewModel? tab)
+        => tab is null ? Task.CompletedTask : CloseToTheRightAsync(tab);
+
     /// <summary>마지막 탭과 고정 탭은 닫히지 않는다 (docs/PRD-v2.md §17).</summary>
     private bool CanClose(PaneViewModel tab) => tabs.Count > 1 && !tab.IsPinned;
 
@@ -500,13 +751,20 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         await arriving.RefreshAsync(ct).ConfigureAwait(false);
     }
 
-    /// <summary>탭 하나를 만들어 목록에 끼우고 이 페인의 상태를 입힌다.</summary>
-    private PaneViewModel Add(int index)
-    {
-        var tab = createPane();
+    /// <summary>탭 하나를 만들어 목록에 끼운다.</summary>
+    private PaneViewModel Add(int index) => Adopt(createPane(), index);
 
-        // 정책을 폴더 <b>보다 먼저</b> 입힌다. 나중에 밀면 새 탭이 한 번은 옛 정책으로
-        // 그려지고 아무도 다시 읽지 않는다 (docs/PRD-v2.md §17 구조 렌즈).
+    /// <summary>
+    /// 탭을 이 페인의 것으로 만든다 — 만든 탭과 건너온 탭이 같은 길을 지난다
+    /// (<see cref="Add"/> · <see cref="Receive"/>).
+    /// </summary>
+    private PaneViewModel Adopt(PaneViewModel tab, int index)
+    {
+        // 정책을 구독 <b>보다 먼저</b> 입힌다. 뒤집으면 이 대입이 컬럼 알림으로 돌아와
+        // "사용자가 경계를 끌었다" 로 읽힌다 (OnTabPropertyChanged).
+        //
+        // 폴더보다 먼저이기도 하다 — 나중에 밀면 새 탭이 한 번은 옛 정책으로 그려지고
+        // 아무도 다시 읽지 않는다 (docs/PRD-v2.md §17 구조 렌즈).
         tab.ShowHiddenItems = showHiddenItems;
         tab.Columns = columns;
 
@@ -514,12 +772,37 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         tab.PinRequested += OnTabPinRequested;
         tab.PropertyChanged += OnTabPropertyChanged;
 
-        tabs.Insert(index, tab);
+        tabs.Insert(index < 0 ? 0 : index > tabs.Count ? tabs.Count : index, tab);
 
+        InvalidateStrip();
         OnPropertyChanged(nameof(ActiveIndex));
         OnPropertyChanged(nameof(CanCloseActive));
 
         return tab;
+    }
+
+    /// <summary>
+    /// 여러 탭을 닫는다. <b>오른쪽부터</b> 닫는 이유: 되살리기가 최근 것부터 꺼내므로
+    /// 그 순서로 쌓이면 원래 자리가 그대로 복원된다.
+    /// </summary>
+    private async Task CloseAllAsync(IReadOnlyList<PaneViewModel> targets)
+    {
+        for (var index = targets.Count - 1; index >= 0; index--)
+        {
+            // CanClose 가 고정 탭과 마지막 탭을 거부한다 — 여기서 다시 가리지 않는다.
+            await CloseAsync(targets[index]).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>고정 탭이 앞에 모인 순서. 그 안에서는 목록 순서를 지킨다.</summary>
+    private IReadOnlyList<PaneViewModel> BuildStripTabs()
+        => [.. tabs.Where(tab => tab.IsPinned), .. tabs.Where(tab => !tab.IsPinned)];
+
+    private void InvalidateStrip()
+    {
+        stripTabs = null;
+
+        OnPropertyChanged(nameof(StripTabs));
     }
 
     /// <summary>구독을 끊는다. 접는 것은 부르는 쪽이 한다 — 순서가 거기서 정해진다.</summary>
@@ -593,6 +876,8 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
         if (args.PropertyName == nameof(PaneViewModel.IsPinned))
         {
+            // 고정은 목록을 건드리지 않는다. 바뀌는 것은 그릴 순서와 닫힘 여부뿐이다.
+            InvalidateStrip();
             OnPropertyChanged(nameof(CanCloseActive));
 
             return;

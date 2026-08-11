@@ -322,6 +322,398 @@ public class PaneTabsViewModelTests
         Assert.Equal(2, watcher.CancellationsObserved);
     }
 
+    // ── 그릴 순서 (docs/DESIGN.md §1-1 고정 탭) ────────────────────
+    // 고정 탭은 줄 맨 왼쪽에 모인다. **목록 순서는 건드리지 않는다** (사용자 결정
+    // 2026-08-11) — 그래야 고정을 풀 때 원래 자리로 돌아가고 저장 포맷이 흔들리지 않는다.
+    // 그 결정이 표현되는 자리가 여기 하나뿐이라, XAML 이 정렬을 알지 않아도 된다.
+
+    [Fact]
+    public async Task StripTabs_WithoutAnyPin_IsTheListItself()
+    {
+        await using var tabs = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+        tabs.NewTab();
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(tabs.Tabs, tabs.StripTabs);
+    }
+
+    [Fact]
+    public async Task StripTabs_GathersPinnedTabsFirstWithoutMovingThemInTheList()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        second.IsPinned = true;
+
+        // 그리는 순서만 바뀐다.
+        Assert.Equal([second, first, third], tabs.StripTabs);
+
+        // 목록은 제자리다 — 저장 포맷이 이 순서다.
+        Assert.Equal([first, second, third], tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StripTabs_KeepsTheListOrderInsideEachGroup()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        third.IsPinned = true;
+        first.IsPinned = true;
+
+        // 고정끼리도 목록 순서다 — 고정한 순서가 아니다. 뒤엣것을 먼저 고정했다고 화면이
+        // 뒤집히면 어느 탭이 어디로 갔는지 알 수 없다.
+        Assert.Equal([first, third, second], tabs.StripTabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task StripTabs_AnnouncesAPinToggle()
+    {
+        // 탭 줄이 다시 그릴 근거다. 파생 속성이라 값 비교로 걸러낼 수 없다.
+        var (tabs, first, second, _) = await ThreeTabsAsync();
+        var announced = 0;
+        tabs.PropertyChanged += (_, args)
+            => announced += args.PropertyName == nameof(PaneTabsViewModel.StripTabs) ? 1 : 0;
+
+        second.IsPinned = true;
+
+        Assert.True(announced > 0);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task TogglePin_FlipsThePinWithoutMovingTheTab()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        tabs.TogglePin(second);
+        Assert.True(second.IsPinned);
+        Assert.Equal([first, second, third], tabs.Tabs);
+
+        tabs.TogglePin(second);
+        Assert.False(second.IsPinned);
+
+        // 고정을 풀면 그리는 순서도 원래대로다.
+        Assert.Equal([first, second, third], tabs.StripTabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    // ── 복제 (컨텍스트 메뉴) ───────────────────────────────────────
+
+    [Fact]
+    public async Task Duplicate_StandsRightAfterTheTabItCopiedAndOpensTheSameFolder()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        var copy = tabs.Duplicate(first);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        // 활성 탭 오른쪽이 아니라 <b>복제한 탭</b> 오른쪽이다 — 우클릭한 탭이 기준이다.
+        Assert.Equal([first, copy, second, third], tabs.Tabs);
+        Assert.Same(copy, tabs.Active);
+        Assert.Equal(first.CurrentLocation, copy.CurrentLocation);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Duplicate_DoesNotCarryThePinOrTheUserTitle()
+    {
+        // Ctrl+T 와 같은 규칙이다 (docs/PRD-v2.md §17: 복제하는 것은 <b>폴더</b>다).
+        // 제목까지 따라오면 같은 이름 둘이 서고 어느 쪽이 원본인지 알 수 없다.
+        var (tabs, first, _, _) = await ThreeTabsAsync();
+        first.IsPinned = true;
+        first.CustomTitle = "일감";
+
+        var copy = tabs.Duplicate(first);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.False(copy.IsPinned);
+        Assert.Null(copy.CustomTitle);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Duplicate_ABackgroundTab_CopiesThatTabsFolderNotTheActiveOnes()
+    {
+        var (tabs, first, _, third) = await ThreeTabsAsync();
+
+        // third 가 활성이다 (ThreeTabsAsync). 배경에 있는 first 를 복제한다.
+        Assert.Same(third, tabs.Active);
+
+        var copy = tabs.Duplicate(first);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(first.CurrentLocation, copy.CurrentLocation);
+        Assert.NotEqual(third.CurrentLocation, copy.CurrentLocation);
+
+        await tabs.DisposeAsync();
+    }
+
+    // ── 여러 개 닫기 (컨텍스트 메뉴) ───────────────────────────────
+
+    [Fact]
+    public async Task CloseOthers_KeepsTheChosenTabAndActivatesIt()
+    {
+        var (tabs, first, _, _) = await ThreeTabsAsync();
+
+        await tabs.CloseOthersAsync(first).WaitAsync(Limit);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Same(first, Assert.Single(tabs.Tabs));
+        Assert.Same(first, tabs.Active);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CloseOthers_KeepsPinnedTabs()
+    {
+        // 고정 탭은 닫히지 않는다 — 먼저 고정을 풀어야 한다 (docs/PRD-v2.md §17).
+        var (tabs, first, second, _) = await ThreeTabsAsync();
+        second.IsPinned = true;
+
+        await tabs.CloseOthersAsync(first).WaitAsync(Limit);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal([first, second], tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CloseToTheRight_ClosesEverythingAfterItOnTheStrip()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        await tabs.CloseToTheRightAsync(second).WaitAsync(Limit);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal([first, second], tabs.Tabs);
+        Assert.False(third.IsPinned);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CloseToTheRight_JudgesByTheStripOrderNotTheList()
+    {
+        // 여기서만 둘이 갈린다: 고정 탭을 우클릭할 때다. 사용자가 보는 것이 그릴 순서이므로
+        // 그것을 기준으로 판정해야 한다 — 목록 기준이면 고정 탭 왼쪽에 그려진 탭이
+        // "오른쪽" 으로 잡혀 함께 닫힌다.
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        second.IsPinned = true;
+
+        // 그릴 순서: [second☉] [first] [third]
+        Assert.Equal([second, first, third], tabs.StripTabs);
+
+        await tabs.CloseToTheRightAsync(second).WaitAsync(Limit);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        // second 오른쪽에 그려진 것은 first·third 둘 다다.
+        Assert.Same(second, Assert.Single(tabs.Tabs));
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task CloseToTheRight_OnTheRightmostTab_ClosesNothing()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        await tabs.CloseToTheRightAsync(third).WaitAsync(Limit);
+
+        Assert.Equal([first, second, third], tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task ClosingTabs_ReportsEachOneOnce()
+    {
+        // 되살리기 스택이 이 신호로 채워진다 — 어느 경로로 닫혔든 (Ctrl+W · 가운데 버튼 ·
+        // 메뉴 셋) 한 자리로 모여야 스택이 새지 않는다.
+        var (tabs, first, _, _) = await ThreeTabsAsync();
+        var reported = new List<ClosedTab>();
+        tabs.TabClosed += (_, closed) => reported.Add(closed);
+
+        await tabs.CloseOthersAsync(first).WaitAsync(Limit);
+
+        Assert.Equal(2, reported.Count);
+
+        // 오른쪽부터 닫는다 — 되살리기가 최근 것부터 꺼내면 원래 자리가 그대로 복원된다.
+        Assert.Equal([2, 1], reported.Select(closed => closed.Index));
+
+        await tabs.DisposeAsync();
+    }
+
+    // ── 페인 간 이동 (docs/PRD-v2.md §17 페인 간 이동) ─────────────
+    // 살아 있는 인스턴스의 소유권이 페인을 건너간다. 감시 구독·썸네일 스케줄러·열거 세션·
+    // 히스토리·선택이 <b>전부 따라온다</b> — 그것이 "새로 만들고 상태를 복사" 가 아니라
+    // "목록에서 빼서 반대편 목록에 넣는다" 로 두는 근거다.
+
+    [Fact]
+    public async Task Detach_TakesTheTabOutOfTheListWithoutFoldingIt()
+    {
+        var (tabs, first, second, _) = await ThreeTabsAsync();
+        var folder = second.CurrentLocation;
+
+        var detached = await tabs.DetachAsync(second).WaitAsync(Limit);
+
+        Assert.Same(second, detached);
+        Assert.DoesNotContain(second, tabs.Tabs);
+
+        // 접히지 않았다 — 반대편 페인이 이 인스턴스를 그대로 받는다.
+        Assert.Equal(folder, second.CurrentLocation);
+        Assert.NotEmpty(second.Items);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Detach_DropsTheWatchBecauseTheTabIsLeaving()
+    {
+        // 도착해서 활성이 될 때 다시 건다 (docs/PRD-v2.md §17). 놓지 않으면 떠난 페인의
+        // 감시가 남는다.
+        var (tabs, first, _, third) = await ThreeTabsAsync();
+        var before = watcher.CancellationsObserved;
+
+        await tabs.DetachAsync(third).WaitAsync(Limit);
+
+        Assert.True(watcher.CancellationsObserved > before);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Detach_TheLastTab_IsRefused()
+    {
+        // 보내면 그 페인이 탭 0개가 된다 — "페인은 항상 둘" 이라는 v1 전제가 깨진다.
+        // 마지막 탭은 닫히지도 않는다는 규칙과 같은 이유다.
+        await using var tabs = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+
+        Assert.Null(await tabs.DetachAsync(tabs.Active).WaitAsync(Limit));
+        Assert.Single(tabs.Tabs);
+    }
+
+    [Fact]
+    public async Task Detach_TheActiveTab_ActivatesTheOneToItsLeft()
+    {
+        // 닫기와 같은 규칙이다.
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        await tabs.DetachAsync(third).WaitAsync(Limit);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Same(second, tabs.Active);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Receive_StandsRightAfterTheActiveTabAndBecomesActiveInThisPane()
+    {
+        // 사용자 결정 2026-08-11: 착지는 활성 탭 바로 오른쪽이고 그 페인의 활성 탭이 된다.
+        var (origin, sourceFirst, _, sourceThird) = await ThreeTabsAsync();
+
+        await using var destination = CreateTabs();
+        await OpenAsync(destination, Folder(@"C:\D0", "d.txt"));
+        var kept = destination.Active;
+        var last = destination.NewTab();
+        await destination.SwitchWork.WaitAsync(Limit);
+        destination.Activate(kept);
+        await destination.SwitchWork.WaitAsync(Limit);
+
+        var moved = await origin.DetachAsync(sourceThird).WaitAsync(Limit);
+        destination.Receive(moved!);
+        await destination.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal([kept, moved, last], destination.Tabs);
+        Assert.Same(moved, destination.Active);
+
+        await origin.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Receive_PutsTheTabUnderThisPanesColumnsAndHiddenPolicy()
+    {
+        // 소유자가 바뀌었다 — 컬럼 폭과 숨김 정책은 페인의 것이다 (docs/PRD-v2.md §17).
+        // 갈아입히지 않으면 건너온 탭만 반대편 페인의 폭으로 그려진다.
+        var (origin, sourceFirst, _, sourceThird) = await ThreeTabsAsync();
+        origin.Columns = new PaneColumns(200, 90, 120, 140);
+        origin.ShowHiddenItems = false;
+
+        await using var destination = CreateTabs();
+        destination.Columns = new PaneColumns(400, 100, 130, 150);
+        destination.ShowHiddenItems = true;
+        await OpenAsync(destination, Folder(@"C:\D0", "d.txt"));
+
+        var moved = await origin.DetachAsync(sourceThird).WaitAsync(Limit);
+        destination.Receive(moved!);
+        await destination.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(400, moved!.NameColumnWidth);
+        Assert.True(moved.ShowHiddenItems);
+
+        await origin.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Receive_KeepsTheTabsHistoryAndSelection()
+    {
+        // 인스턴스를 그대로 옮기는 이유가 이것이다 — "새로 만들고 상태를 복사" 는 이 둘을
+        // 하나씩 옮겨야 한다.
+        var (origin, sourceFirst, _, sourceThird) = await ThreeTabsAsync();
+
+        await sourceThird.NavigateAsync(Folder(@"C:\Deep", "x.txt"));
+        sourceThird.Selection.SelectSingle("x.txt");
+        Assert.True(sourceThird.CanGoBack);
+
+        await using var destination = CreateTabs();
+        await OpenAsync(destination, Folder(@"C:\D0", "d.txt"));
+
+        var moved = await origin.DetachAsync(sourceThird).WaitAsync(Limit);
+        destination.Receive(moved!);
+        await destination.SwitchWork.WaitAsync(Limit);
+
+        Assert.True(moved!.CanGoBack);
+        Assert.Equal(["x.txt"], moved.Selection.SelectedNames);
+
+        await origin.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Receive_ArmsTheWatchOnTheArrivedTab()
+    {
+        // 옮긴 탭이 도착한 페인에서 활성이 되면 그때 감시를 건다 (docs/PRD-v2.md §17).
+        var (origin, sourceFirst, _, sourceThird) = await ThreeTabsAsync();
+        var folder = sourceThird.CurrentLocation!;
+
+        await using var destination = CreateTabs();
+        await OpenAsync(destination, Folder(@"C:\D0", "d.txt"));
+
+        var moved = await origin.DetachAsync(sourceThird).WaitAsync(Limit);
+        destination.Receive(moved!);
+        await destination.SwitchWork.WaitAsync(Limit);
+
+        var watching = await WatchingAsync(folder);
+
+        source.Folders[folder] = [.. source.Folders[folder], Entry(folder, "n.txt")];
+        watching.Push(new FolderChange(FolderChangeKind.Added, "n.txt"));
+
+        await WaitForAsync(() => moved!.Items.Count == 2, "건너온 탭이 감시를 든다");
+
+        await origin.DisposeAsync();
+    }
+
     // ── 감시는 활성 탭만 든다 (ADR-018) ────────────────────────────
 
     [Fact]
@@ -847,6 +1239,32 @@ public class PaneTabsViewModelTests
     /// <summary>활성 탭으로 폴더를 연다. 복원을 지나지 않는 짧은 길이다.</summary>
     private static Task OpenAsync(PaneTabsViewModel tabs, LocationId folder)
         => tabs.Active.NavigateAsync(folder);
+
+    /// <summary>
+    /// 탭 셋을 세우고 <b>각자 다른 폴더</b>를 열어 둔다. 세 번째가 활성이다 — 새 탭이 활성
+    /// 탭 오른쪽에 서므로 순서는 목록 그대로다.
+    /// <para>
+    /// 셋이 필요한 이유: 자리(왼쪽·가운데·오른쪽)가 판정에 들어가는 동작이 넷이다 —
+    /// 오른쪽 탭 닫기 · 다른 탭 모두 닫기 · 닫은 뒤의 활성 · 그릴 순서.
+    /// </para>
+    /// </summary>
+    private async Task<(PaneTabsViewModel Tabs, PaneViewModel First, PaneViewModel Second, PaneViewModel Third)>
+        ThreeTabsAsync()
+    {
+        var tabs = CreateTabs();
+        var first = tabs.Active;
+        await first.NavigateAsync(Folder(@"C:\T0", "t0.txt"));
+
+        var second = tabs.NewTab();
+        await tabs.SwitchWork.WaitAsync(Limit);
+        await second.NavigateAsync(Folder(@"C:\T1", "t1.txt"));
+
+        var third = tabs.NewTab();
+        await tabs.SwitchWork.WaitAsync(Limit);
+        await third.NavigateAsync(Folder(@"C:\T2", "t2.txt"));
+
+        return (tabs, first, second, third);
+    }
 
     private LocationId Folder(string path, params string[] names)
     {
