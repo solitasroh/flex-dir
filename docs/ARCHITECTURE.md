@@ -101,14 +101,26 @@ WorkspaceViewModel ──> PaneTabsViewModel ×2      (LeftTabs · RightTabs)
                               ├─ Tabs   : PaneViewModel ×N   전부 살아 있다
                               └─ Active : PaneViewModel      이 중 하나
 
-WorkspaceViewModel.Left  == LeftTabs.Active      (파생 속성 — View 가 이것을 문다)
+WorkspaceViewModel.Left  == LeftTabs.Active      (파생 속성 — 아래 참조)
 WorkspaceViewModel.Right == RightTabs.Active
 ```
 
-**`Left`·`Right` 가 이름을 지킨 이유**: `MainWindow.xaml` 이 `Content="{Binding Left}"` 로
-`PaneTemplate` 을 물고 있고 WPF 바인딩은 런타임 조회라, 타입을 바꾸면 템플릿 안의 바인딩이
-컴파일 에러 없이 조용히 죽는다 (docs/PRD-v2.md §17 값을 치르고 배운 것). 활성 탭이 바뀌면
-이 파생 속성들이 알림을 내고 `ContentControl` 이 따라온다.
+**View 가 무는 자리는 2단이다** (탭 줄이 선 2026-08-11에 이렇게 됐다):
+
+```
+ContentControl  Content={Binding LeftTabs}  Template=PaneWithTabs   ← 탭 줄 + 페인 크롬
+  └ ContentControl  Content={Binding Active}  Template=PaneTemplate ← 페인 하나
+```
+
+**`PaneTemplate` 의 계약은 그대로다** — 여전히 `PaneViewModel` 을 물고, 그 안의 바인딩 수십
+개가 손대지 않은 채 산다. `Left`·`Right` 도 타입을 지켰다: WPF 바인딩은 런타임 조회라 타입을
+바꾸면 템플릿 안 바인딩이 **컴파일 에러 없이 조용히 죽는다**
+(docs/PRD-v2.md §17 값을 치르고 배운 것).
+
+**바깥이 한 겹 늘어난 이유는 수명이다.** 활성 탭이 바뀌면 안쪽 `ContentControl` 이 무는
+`PaneViewModel` 이 바뀌어 **페인 트리가 통째로 다시 선다.** 탭 줄을 `PaneTemplate` 안에 두면
+지금 누르고 있는 그것이 매 전환마다 새로 서고 가로 스크롤 위치와 드래그 상태가 함께 사라진다
+— 그래서 줄은 탭보다 오래 사는 바깥 층에 있다.
 
 **`ActivePane` 을 지나는 배선 일곱이 "활성 페인의 활성 탭" 으로 한 단 깊어진다** — 트리
 따라가기(양방향) · 즐겨찾기 고정 · 설정의 시작 폴더 지정 · 페인 간 복사 · 이동 · 반대편
