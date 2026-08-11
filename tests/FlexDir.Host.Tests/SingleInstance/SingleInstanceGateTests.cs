@@ -1,3 +1,5 @@
+using System.IO.Pipes;
+
 using FlexDir.Host.SingleInstance;
 
 using Xunit;
@@ -123,6 +125,54 @@ public class SingleInstanceGateTests
 
         Assert.Equal([@"C:\A"], received[0]);
         Assert.Equal([@"C:\B"], received[1]);
+    }
+
+    [Fact]
+    public async Task ActivationsAsync_ClientsThatConnectAndLeaveAtOnce_DoNotKillTheLoop()
+    {
+        // 인자 없는 두 번째 실행이 가장 빠르게 이 모양이 된다 — 붙고, 아무것도 쓰지 않고,
+        // 곧 끊는다. 그때 서버의 WaitForConnectionAsync 가 '파이프가 닫히는 중'(IOException)
+        // 으로 깨지면 상주 프로세스는 그 뒤의 활성화를 통째로 잃는다 — 아이콘을 눌러도
+        // 아무 일이 없고, 되살릴 길은 프로세스 재시작뿐이다.
+        const int rounds = 50;
+
+        using var primary = SingleInstanceGate.Acquire(name);
+        using var cts = new CancellationTokenSource(Timeout);
+
+        var received = 0;
+        var reading = Task.Run(
+            async () =>
+            {
+                await foreach (var _ in primary.ActivationsAsync(cts.Token))
+                {
+                    if (Interlocked.Increment(ref received) == rounds)
+                    {
+                        return;
+                    }
+                }
+            },
+            CancellationToken.None);
+
+        for (var round = 0; round < rounds; round++)
+        {
+            await using var client = new NamedPipeClientStream(
+                ".", name, PipeDirection.Out, PipeOptions.Asynchronous);
+
+            // 붙지 못하는 것 자체가 증상이다 — 듣는 쪽이 죽으면 그렇게 보인다. 그때는
+            // 클라이언트의 시한이 아니라 <b>서버가 무엇으로 깨졌는지</b>가 진짜 사유다.
+            try
+            {
+                await client.ConnectAsync((int)ShortConnect.TotalMilliseconds, cts.Token);
+            }
+            catch (Exception) when (reading.IsFaulted)
+            {
+                await reading;
+            }
+        }
+
+        await reading.WaitAsync(Timeout);
+
+        Assert.Equal(rounds, received);
     }
 
     [Fact]

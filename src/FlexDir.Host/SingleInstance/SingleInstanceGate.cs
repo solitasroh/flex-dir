@@ -82,10 +82,29 @@ public sealed class SingleInstanceGate : IDisposable
                 PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous))
             {
-                await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+                try
+                {
+                    await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
 
-                using var reader = new StreamReader(server, Encoding.UTF8);
-                payload = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+                    using var reader = new StreamReader(server, Encoding.UTF8);
+                    payload = await reader.ReadToEndAsync(ct).ConfigureAwait(false);
+                }
+                catch (IOException)
+                {
+                    // 붙었다가 곧 끊은 상대다. **인자 없는 두 번째 실행이 가장 빠르게 이
+                    // 모양이 된다** — 붙고, 아무것도 쓰지 않고, 끊는다. 그때 Windows 는
+                    // 기다리던 쪽을 '파이프가 닫히는 중'(IOException)으로 깨우는데, 그것은
+                    // 실패가 아니라 **이미 지나간 연결**이다.
+                    //
+                    // 여기서 던지면 이 반복자가 끝나고 상주 프로세스는 그 뒤의 활성화를
+                    // 통째로 잃는다 — 아이콘을 눌러도 아무 일이 없고 되살릴 길은 재시작뿐이다
+                    // (소비자 ActivationRouter.RunAsync 가 "귀를 닫지 않는다" 고 적어 둔 것을
+                    // 생산자가 깨뜨리고 있었다).
+                    //
+                    // 인자는 읽지 못했으므로 **빈 활성화**로 낸다 — 그것이 곧 "창을 다오" 이고,
+                    // 창을 한 번 보이는 쪽이 조용히 사라지는 것보다 낫다.
+                    payload = string.Empty;
+                }
             }
 
             yield return Parse(payload);
