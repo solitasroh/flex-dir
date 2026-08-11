@@ -7,7 +7,12 @@ using FlexDir.Core.ViewState;
 namespace FlexDir.App.ViewModels;
 
 /// <summary>
-/// 페인의 자리. 좌/우 둘뿐이다 — 탭·4분할·세 번째 페인은 v2+ 다 (docs/PRD.md §3 · ADR-004).
+/// 페인의 자리. 좌/우 둘뿐이다 — 4분할과 세 번째 페인은 v2+ 다 (docs/PRD.md §3 · ADR-004).
+/// <para>
+/// <b>탭은 이 열거형을 늘리지 않는다</b> (docs/PRD-v2.md §17 · ADR-018). 탭은 자리마다
+/// <see cref="PaneTabsViewModel"/> 하나가 목록으로 갖는다 — 창 단위가 아니라 페인 단위라
+/// 좌·우가 각자의 탭 목록을 든다.
+/// </para>
 /// </summary>
 public enum PaneSide
 {
@@ -397,16 +402,24 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// 마지막 탭은 보낼 수 없다 — 그러면 그 페인이 탭 0개가 된다. 그 판정은 페인이 한다.
     /// </para>
     /// </summary>
+    /// <param name="tab">
+    /// 보낼 탭. <see langword="null"/> 이면 활성 탭이다 — <b>컨텍스트 메뉴는 우클릭한 탭을
+    /// 싣는다.</b> 활성 탭으로만 받으면 활성이 아닌 탭을 우클릭해 보냈을 때 엉뚱한 것이
+    /// 건너간다 (우클릭은 탭을 활성으로 만들지 않는다 — 브라우저·탐색기와 같다).
+    /// </param>
     [RelayCommand]
-    private async Task SendTabToOtherPaneAsync()
+    private Task SendTabToOtherPaneAsync(PaneViewModel? tab)
     {
-        // 떼어내는 사이에 활성 페인이 바뀌면 도착지가 달라진다. 지금의 반대편을 붙잡아 둔다.
-        var destination = InactiveTabs;
+        // 어느 페인의 것인가는 목록이 안다. 떼기와 받기의 짝은 페인이 쥔다 — 탭 드래그가
+        // 같은 짝을 쓴다 (PaneTabsViewModel.SendAsync).
+        var target = tab ?? ActivePane;
 
-        if (await ActiveTabs.DetachAsync(ActivePane).ConfigureAwait(false) is { } moved)
+        if (LeftTabs.Tabs.Contains(target))
         {
-            destination.Receive(moved);
+            return LeftTabs.SendAsync(target, RightTabs);
         }
+
+        return RightTabs.Tabs.Contains(target) ? RightTabs.SendAsync(target, LeftTabs) : Task.CompletedTask;
     }
 
     /// <summary>다음 탭 (<c>Ctrl+Tab</c> · <c>Ctrl+PageDown</c>). 활성 페인 안에서 순환한다.</summary>

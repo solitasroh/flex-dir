@@ -255,6 +255,8 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private LocationId? pendingLocation;
     private bool isPinned;
     private string? customTitle;
+
+    private bool isTitleEditing;
     private PaneStatus status = PaneStatus.Idle;
     private string statusText = string.Empty;
 
@@ -468,6 +470,22 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </para>
     /// </summary>
     public string Title => CustomTitle ?? (CurrentLocation ?? PendingLocation)?.Name ?? string.Empty;
+
+    /// <summary>
+    /// 탭 제목을 고치는 중인가 (docs/PRD-v2.md §17). 편집기는 목록·트리와 같은 것을 쓴다
+    /// (<c>Views/RenameEditor.cs</c>) — 그래서 담을 상태가 이 하나뿐이다: 고치는 글자는
+    /// 편집기가 들고 있다가 확정할 때 <see cref="CommitTitleRename"/> 으로 넘긴다.
+    /// <para>
+    /// <b>진입은 컨텍스트 메뉴 하나뿐이다.</b> <c>F2</c> 는 파일 이름 바꾸기라 쓸 수 없고,
+    /// 탭 줄 빈 곳 더블클릭은 이미 '새 탭' 이다 — 탭 자체 더블클릭을 열어 두면 그 둘이 몇 px
+    /// 차이로 갈려 의도하지 않은 편집이 열린다.
+    /// </para>
+    /// </summary>
+    public bool IsTitleEditing
+    {
+        get => isTitleEditing;
+        private set => SetProperty(ref isTitleEditing, value);
+    }
 
     /// <summary>주소창에 보이는 경로. 확장 접두사(<c>\\?\</c>)는 사용자에게 보이지 않는다.</summary>
     public string AddressText => CurrentLocation?.DisplayPath ?? string.Empty;
@@ -1700,6 +1718,33 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             },
             ct);
     }
+
+    /// <summary>
+    /// 탭 제목 편집을 시작한다 (컨텍스트 메뉴 '이름 바꾸기' · docs/PRD-v2.md §17).
+    /// <b>파일 이름 바꾸기와는 다른 편집이다</b> — 대상이 선택 항목이 아니라 이 탭이고,
+    /// 확정해도 저장소에 닿지 않는다.
+    /// </summary>
+    [RelayCommand]
+    private void BeginTitleRename() => IsTitleEditing = true;
+
+    /// <summary>
+    /// 탭 제목을 확정한다. <b>다 지우고 확정하면 폴더 이름으로 돌아간다</b> —
+    /// <see cref="CustomTitle"/> 이 공백을 <see langword="null"/> 로 접는 것이 그 규칙이고,
+    /// 되돌릴 별도의 메뉴 항목을 두지 않기 위한 정규화다.
+    /// </summary>
+    [RelayCommand]
+    private void CommitTitleRename(string? title)
+    {
+        CustomTitle = title;
+        IsTitleEditing = false;
+    }
+
+    /// <summary>
+    /// 탭 제목 편집을 접는다. <b>멱등이다</b> — 확정으로 접힌 편집기가 포커스를 잃으면서
+    /// 이 경로를 한 번 더 지난다 (<c>Views/RenameEditor.OnLostFocus</c>).
+    /// </summary>
+    [RelayCommand]
+    private void CancelTitleRename() => IsTitleEditing = false;
 
     /// <summary>이름 편집을 시작한다. 선택이 정확히 하나일 때만.</summary>
     [RelayCommand(CanExecute = nameof(HasSingleSelection))]

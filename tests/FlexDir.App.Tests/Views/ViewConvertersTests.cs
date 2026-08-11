@@ -68,6 +68,33 @@ public class ViewConvertersTests
         Assert.Equal(expected, result);
     }
 
+    // ── 활성 탭 판정 (docs/DESIGN.md §1-1) ─────────────────────────
+
+    [Fact]
+    public void SameInstance_TellsTheActiveTabFromTheRest()
+    {
+        // 탭 줄이 활성 탭을 가리는 유일한 길이다. 탭은 자기가 활성인지 모르고 (그 상태의
+        // 소유자는 페인이다) 이름·폴더로는 가릴 수 없다 — 같은 폴더를 여러 탭에 열 수 있다
+        // (docs/PRD-v2.md §17 자명하게).
+        var converter = new SameInstanceConverter();
+        var one = new object();
+        var other = new object();
+
+        Assert.Equal(true, converter.Convert([one, one], typeof(bool), null, Culture));
+        Assert.Equal(false, converter.Convert([one, other], typeof(bool), null, Culture));
+    }
+
+    [Fact]
+    public void SameInstance_WhileBindingsAreStillComingUp_IsFalse()
+    {
+        // 컨테이너가 만들어지는 사이에 값이 하나만 와 있는 순간이 있다. 그때 둘 다 null 이면
+        // 참조가 같다는 이유로 <b>모든 탭이 활성으로</b> 그려진다.
+        var converter = new SameInstanceConverter();
+
+        Assert.Equal(false, converter.Convert([null!, null!], typeof(bool), null, Culture));
+        Assert.Equal(false, converter.Convert([new object()], typeof(bool), null, Culture));
+    }
+
     // ── 활성 페인 판정 ────────────────────────────────────────────
 
     [Fact]

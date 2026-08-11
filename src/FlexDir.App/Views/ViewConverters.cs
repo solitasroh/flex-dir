@@ -59,6 +59,28 @@ public sealed class NameEqualityConverter : IMultiValueConverter
 }
 
 /// <summary>
+/// 두 값이 <b>같은 인스턴스</b>인가 — <c>[이 탭, 페인의 활성 탭]</c> 을 받아 bool 을 낸다
+/// (docs/DESIGN.md §1-1 활성 탭 색).
+/// <para>
+/// 탭은 자기가 활성인지 모른다 — 그 상태의 소유자는 페인(<c>PaneTabsViewModel.Active</c>)
+/// 이고, 탭에 <c>IsActive</c> 를 따로 두면 진실이 둘이 된다. 이름이나 폴더로 가릴 수도 없다:
+/// 같은 폴더를 여러 탭에 열 수 있다 (docs/PRD-v2.md §17).
+/// </para>
+/// </summary>
+public sealed class SameInstanceConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object? parameter, CultureInfo culture)
+    {
+        // 컨테이너가 만들어지는 사이에 한쪽만 와 있는 순간이 있다. 둘 다 null 인 것을 "같다"
+        // 로 읽으면 그 순간 모든 탭이 활성으로 그려진다.
+        return values is [{ } left, { } right] && ReferenceEquals(left, right);
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("표시 전용이다 — 역방향 동기화가 생기면 ADR-011 위반이다.");
+}
+
+/// <summary>
 /// 값이 매개변수와 같은가. 활성 페인 판정(<c>ActiveSide</c> = <c>PaneSide</c>)과 정렬
 /// 화살표 표시(<c>Sort[0].Key</c> = 컬럼 키)가 쓴다. 대상이 <c>Visibility</c> 면 그대로
 /// 매핑한다 — WPF 는 bool→Visibility 를 자동 변환하지 않는다.

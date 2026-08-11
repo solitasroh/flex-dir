@@ -978,6 +978,67 @@ public class PaneViewModelTests
         Assert.Equal("일감", pane.Title);
     }
 
+    // ── 탭 이름 바꾸기 (docs/PRD-v2.md §17) ────────────────────────
+    // 진입은 <b>컨텍스트 메뉴 하나뿐</b>이다 — F2 는 파일 이름 바꾸기라 쓸 수 없고, 탭 줄
+    // 빈 곳 더블클릭은 이미 '새 탭' 이다. 편집기 자체는 목록·트리와 같은 것을 쓴다
+    // (Views/RenameEditor.cs) — 여기 있는 것은 그 편집기가 물 상태 셋뿐이다.
+
+    [Fact]
+    public void BeginTitleRename_OpensTheEditor()
+    {
+        var pane = CreatePane();
+
+        Assert.False(pane.IsTitleEditing);
+
+        pane.BeginTitleRenameCommand.Execute(null);
+
+        Assert.True(pane.IsTitleEditing);
+    }
+
+    [Fact]
+    public async Task CommitTitleRename_TakesTheNameAndClosesTheEditor()
+    {
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+        pane.BeginTitleRenameCommand.Execute(null);
+
+        pane.CommitTitleRenameCommand.Execute("일감");
+
+        Assert.Equal("일감", pane.Title);
+        Assert.False(pane.IsTitleEditing);
+    }
+
+    [Fact]
+    public async Task CommitTitleRename_WithNothingTyped_GoesBackToTheFolderName()
+    {
+        // 다 지우고 확정하는 것이 "폴더 이름으로 되돌린다" 다 — 되돌릴 별도의 메뉴 항목을
+        // 두지 않기 위한 규칙이고, 정규화는 CustomTitle 이 이미 한다.
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp\Docs"));
+        pane.CommitTitleRenameCommand.Execute("일감");
+
+        pane.CommitTitleRenameCommand.Execute("   ");
+
+        Assert.Null(pane.CustomTitle);
+        Assert.Equal("Docs", pane.Title);
+    }
+
+    [Fact]
+    public void CancelTitleRename_KeepsTheOldNameAndIsIdempotent()
+    {
+        // 편집기가 접히면서 포커스를 잃고, 그 경로도 취소를 부른다
+        // (RenameEditor.OnLostFocus) — 확정 직후 한 번 더 들어와도 아무 일이 없어야 한다.
+        var pane = CreatePane();
+        pane.CommitTitleRenameCommand.Execute("일감");
+        pane.BeginTitleRenameCommand.Execute(null);
+
+        pane.CancelTitleRenameCommand.Execute(null);
+        pane.CancelTitleRenameCommand.Execute(null);
+
+        Assert.Equal("일감", pane.CustomTitle);
+        Assert.False(pane.IsTitleEditing);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     private PaneViewModel CreatePane()

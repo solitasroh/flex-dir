@@ -519,6 +519,43 @@ public class WorkspaceTabsTests
     }
 
     [Fact]
+    public async Task SendTabToOtherPane_WithATab_SendsThatOneNotTheActiveOne()
+    {
+        // 컨텍스트 메뉴가 싣는 것은 우클릭한 탭이다 — 우클릭은 탭을 활성으로 만들지 않으므로
+        // (브라우저·탐색기와 같다) 활성 탭으로만 받으면 엉뚱한 것이 건너간다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        var (background, active) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
+        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+
+        Assert.Same(active, workspace.LeftTabs.Active);
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(background);
+        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Contains(background, workspace.RightTabs.Tabs);
+        Assert.Same(active, Assert.Single(workspace.LeftTabs.Tabs));
+    }
+
+    [Fact]
+    public async Task SendTabToOtherPane_WithATabFromTheRightPane_SendsItLeft()
+    {
+        // 드래그는 어느 페인에서든 시작한다. 어느 쪽의 탭인지는 목록이 안다.
+        var workspace = CreateWorkspace();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+
+        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        var (_, moving) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+
+        await workspace.SendTabToOtherPaneCommand.ExecuteAsync(moving);
+        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Contains(moving, workspace.LeftTabs.Tabs);
+        Assert.DoesNotContain(moving, workspace.RightTabs.Tabs);
+    }
+
+    [Fact]
     public async Task SendTabToOtherPane_TheLastTab_DoesNothing()
     {
         // 보내면 그 페인이 탭 0개가 된다 — "페인은 항상 둘" 전제가 깨진다.

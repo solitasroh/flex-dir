@@ -403,6 +403,147 @@ public class PaneTabsViewModelTests
         await tabs.DisposeAsync();
     }
 
+    // ── 떼기와 받기는 한 쌍이다 (docs/PRD-v2.md §17 페인 간 이동) ──
+    // 부르는 곳이 둘로 늘었다 — 컨텍스트 메뉴('반대편 페인으로 보내기')와 탭 드래그.
+    // 순서를 각자 쓰면 한쪽이 <c>DetachAsync</c> 의 null(마지막 탭)을 빠뜨리는 순간 그 탭이
+    // 어느 페인에도 없는 채로 사라진다.
+
+    [Fact]
+    public async Task SendAsync_HandsTheLivingInstanceToTheOtherPane()
+    {
+        var (tabs, first, _, third) = await ThreeTabsAsync();
+        await using var other = CreateTabs();
+
+        await tabs.SendAsync(third, other);
+        await other.SwitchWork.WaitAsync(Limit);
+
+        Assert.DoesNotContain(third, tabs.Tabs);
+        Assert.Contains(third, other.Tabs);
+        Assert.Same(third, other.Active);
+
+        // 보낸 쪽의 활성은 왼쪽 이웃으로 간다 — 닫기와 같은 규칙이다.
+        Assert.Same(tabs.Tabs[^1], tabs.Active);
+        Assert.Contains(first, tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task SendAsync_TheLastTab_MovesNothing()
+    {
+        // 보내면 이 페인이 탭 0개가 되어 "페인은 항상 둘" 이 깨진다. 떼기가 거부하므로
+        // 받는 쪽도 아무 일이 없어야 한다 — 여기가 갈리면 탭이 양쪽에 하나씩 생긴다.
+        await using var tabs = CreateTabs();
+        await using var other = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+        var only = tabs.Active;
+
+        await tabs.SendAsync(only, other);
+
+        Assert.Same(only, Assert.Single(tabs.Tabs));
+        Assert.Single(other.Tabs);
+    }
+
+    // ── 순서 바꾸기 (탭 드래그 · docs/PRD-v2.md §17) ───────────────
+    // 자리는 <b>StripTabs 기준</b>이다 — 사용자가 끌어다 놓는 자리가 그것이다. 목록 기준으로
+    // 받으면 고정 탭이 있는 페인에서 손이 놓은 곳과 다른 자리에 선다.
+
+    [Fact]
+    public async Task MoveTab_PutsTheTabAtThatPlaceInTheStrip()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        tabs.MoveTab(first, 2);
+
+        Assert.Equal([second, third, first], tabs.StripTabs);
+        Assert.Equal([second, third, first], tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveTab_Backwards_PutsTheTabAtThatPlaceToo()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        tabs.MoveTab(third, 0);
+
+        Assert.Equal([third, first, second], tabs.Tabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveTab_AnUnpinnedTab_CannotJumpAheadOfThePinnedOnes()
+    {
+        // 고정 탭은 줄 맨 왼쪽에 모인다 (docs/DESIGN.md §1-1). 그 앞으로 끌어다 놓아도
+        // 그려지는 자리는 고정 탭 뒤이므로, 목록만 바뀌고 화면은 그대로면 "놓은 자리에
+        // 안 간다" 로 보인다. 자기 무리 안으로 자른다 — 결정이 아니라 그 규칙의 적용이다.
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        second.IsPinned = true;
+        Assert.Equal([second, first, third], tabs.StripTabs);
+
+        tabs.MoveTab(third, 0);
+
+        // 고정 탭 바로 뒤 = 비고정 무리의 맨 앞이다.
+        Assert.Equal([second, third, first], tabs.StripTabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveTab_APinnedTab_StaysAmongThePinnedOnes()
+    {
+        var (tabs, first, second, third) = await ThreeTabsAsync();
+
+        first.IsPinned = true;
+        second.IsPinned = true;
+        Assert.Equal([first, second, third], tabs.StripTabs);
+
+        tabs.MoveTab(first, 2);
+
+        // 고정끼리의 순서만 바뀌고 비고정 앞을 지키다.
+        Assert.Equal([second, first, third], tabs.StripTabs);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveTab_KeepsTheActiveTabAndAnnouncesItsNewIndex()
+    {
+        // 활성은 인스턴스로 따라간다. 번호만 바뀌므로 저장 포맷이 그것을 다시 읽어야 한다.
+        var (tabs, first, _, third) = await ThreeTabsAsync();
+        var announced = 0;
+        tabs.PropertyChanged += (_, args)
+            => announced += args.PropertyName == nameof(PaneTabsViewModel.ActiveIndex) ? 1 : 0;
+
+        Assert.Same(third, tabs.Active);
+
+        tabs.MoveTab(third, 0);
+
+        Assert.Same(third, tabs.Active);
+        Assert.Equal(0, tabs.ActiveIndex);
+        Assert.True(announced > 0);
+
+        await tabs.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task MoveTab_ATabFromAnotherPane_DoesNothing()
+    {
+        // 드롭 대상이 반대편 페인이면 그것은 소유권 이동(DetachAsync/Receive)이고 이 길이
+        // 아니다. 던지지 않는다 — 드래그가 두 경로를 지나는 동안 순서가 뒤집힐 수 있다.
+        var (tabs, _, _, _) = await ThreeTabsAsync();
+        await using var other = CreateTabs();
+
+        tabs.MoveTab(other.Active, 0);
+
+        Assert.Equal(3, tabs.Tabs.Count);
+
+        await tabs.DisposeAsync();
+    }
+
     // ── 복제 (컨텍스트 메뉴) ───────────────────────────────────────
 
     [Fact]
@@ -1120,6 +1261,69 @@ public class PaneTabsViewModelTests
         tabs.Active.SelectItemCommand.Execute(tabs.Active.Items[0]);
 
         Assert.Equal(1, asked);
+    }
+
+    [Fact]
+    public async Task ActivateTabCommand_MakesThePaneActiveBeforeItSwitches()
+    {
+        // 탭 클릭은 항목 클릭과 같은 규칙이다 — 그 페인이 활성이 된다 (docs/PRD-v2.md §17
+        // 마우스 · docs/DESIGN.md §1-1). 커맨드에만 둔다: Activate 자체에 두면 반대편으로
+        // 보내기(Receive)가 도착 페인을 활성으로 만들어 "원래 페인에 머문다" 가 깨진다.
+        //
+        // 전환보다 <b>먼저</b> 나가야 한다. 활성 탭이 바뀌면 XAML 이 무는 자리가 통째로 다시
+        // 서는데, 그때 이 페인이 아직 비활성이면 새로 선 목록이 포커스를 받지 못한다.
+        await using var tabs = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+
+        var second = tabs.NewTab();
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        var order = new List<string>();
+        tabs.ActivationRequested += (_, _) => order.Add("pane");
+        tabs.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(PaneTabsViewModel.Active))
+            {
+                order.Add("tab");
+            }
+        };
+
+        tabs.ActivateTabCommand.Execute(tabs.Tabs[0]);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(["pane", "tab"], order);
+        Assert.NotSame(second, tabs.Active);
+    }
+
+    [Fact]
+    public async Task ActivateTabCommand_OnTheTabAlreadyShowing_StillMakesThePaneActive()
+    {
+        // 반대편 페인의 활성 탭을 누른 경우다. 전환할 것이 없어도 클릭은 활성 전환이다.
+        await using var tabs = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+        var asked = 0;
+        tabs.ActivationRequested += (_, _) => asked++;
+
+        tabs.ActivateTabCommand.Execute(tabs.Active);
+
+        Assert.Equal(1, asked);
+    }
+
+    [Fact]
+    public async Task AddTabCommand_MakesThePaneActive()
+    {
+        // 탭 줄의 '+' 와 빈 곳 더블클릭이다. 새 탭이 곧 활성이 되므로 페인이 비활성인 채로
+        // 남으면 보고 있지 않은 페인에 탭이 생긴다.
+        await using var tabs = CreateTabs();
+        await OpenAsync(tabs, Folder(@"C:\A", "a.txt"));
+        var asked = 0;
+        tabs.ActivationRequested += (_, _) => asked++;
+
+        tabs.AddTabCommand.Execute(null);
+        await tabs.SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(1, asked);
+        Assert.Equal(2, tabs.Tabs.Count);
     }
 
     [Fact]

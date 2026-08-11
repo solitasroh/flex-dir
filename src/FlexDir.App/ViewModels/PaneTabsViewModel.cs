@@ -500,6 +500,72 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         Activate(tab);
     }
 
+    /// <summary>
+    /// 이 페인의 탭을 반대편 페인으로 넘긴다 — <see cref="DetachAsync"/> 와
+    /// <see cref="Receive"/> 를 한 쌍으로 묶는다 (docs/PRD-v2.md §17 페인 간 이동).
+    /// <para>
+    /// <b>부르는 곳이 둘이라 짝이 한 자리에 있어야 한다</b> — 컨텍스트 메뉴 '반대편 페인으로
+    /// 보내기'(<c>WorkspaceViewModel</c>)와 탭 드래그(<c>Views/TabDragInput.cs</c>). 각자
+    /// 순서를 쓰면 한쪽이 떼기의 <see langword="null"/>(마지막 탭)을 빠뜨리는 순간 그 탭이
+    /// 어느 페인에도 없는 채로 사라진다.
+    /// </para>
+    /// <para>
+    /// 마지막 탭이면 아무 일도 없다 — 그 판정은 <see cref="DetachAsync"/> 가 한다.
+    /// </para>
+    /// </summary>
+    public async Task SendAsync(PaneViewModel tab, PaneTabsViewModel destination)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+        ArgumentNullException.ThrowIfNull(destination);
+
+        if (await DetachAsync(tab).ConfigureAwait(false) is { } moved)
+        {
+            destination.Receive(moved);
+        }
+    }
+
+    /// <summary>
+    /// 같은 페인 안에서 탭 순서를 바꾼다 (탭 드래그 · docs/PRD-v2.md §17).
+    /// <para>
+    /// <b>자리는 <see cref="StripTabs"/> 기준이다</b> — 사용자가 끌어다 놓는 자리가 그것이다.
+    /// 목록 기준으로 받으면 고정 탭이 있는 페인에서 손이 놓은 곳과 다른 자리에 선다.
+    /// </para>
+    /// <para>
+    /// <b>무리를 건너뛰지 않는다.</b> 고정 탭은 줄 맨 왼쪽에 모이므로, 비고정 탭을 그 앞에
+    /// 놓아도 그려지는 자리는 고정 탭 뒤다 — 자르지 않으면 목록만 바뀌고 화면은 그대로여서
+    /// "놓은 자리에 안 간다" 로 보인다. 결정이 아니라 고정 규칙의 적용이다.
+    /// </para>
+    /// </summary>
+    public void MoveTab(PaneViewModel tab, int stripIndex)
+    {
+        ArgumentNullException.ThrowIfNull(tab);
+
+        var from = tabs.IndexOf(tab);
+
+        if (from < 0)
+        {
+            // 이 페인의 탭이 아니다 — 반대편에서 끌어온 것이면 그것은 소유권 이동이고
+            // (DetachAsync/Receive) 이 길이 아니다. 던지지 않는다.
+            return;
+        }
+
+        List<PaneViewModel> group = [.. tabs.Where(candidate => candidate.IsPinned == tab.IsPinned)];
+
+        // 비고정 무리는 고정 탭 개수만큼 뒤에서 시작한다 — 그것이 StripTabs 의 모양이다.
+        var start = tab.IsPinned ? 0 : tabs.Count - group.Count;
+        var to = tabs.IndexOf(group[Math.Clamp(stripIndex - start, 0, group.Count - 1)]);
+
+        if (from == to)
+        {
+            return;
+        }
+
+        tabs.Move(from, to);
+
+        InvalidateStrip();
+        OnPropertyChanged(nameof(ActiveIndex));
+    }
+
     /// <summary>다음 탭 (<c>Ctrl+Tab</c> · <c>Ctrl+PageDown</c>). 이 페인 안에서 순환한다.</summary>
     public void Next() => Step(1);
 
@@ -672,18 +738,44 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     // 안에 있고, 여기서 하는 일은 <c>null</c> 을 걸러내는 것뿐이다: 커맨드 매개변수는
     // 바인딩이 아직 서지 않은 순간에 <c>null</c> 로 온다.
 
+    /// <summary>
+    /// 탭 줄의 탭을 눌렀다. <b>그 페인이 활성이 된다</b> — 항목 클릭과 같은 규칙이다
+    /// (docs/PRD-v2.md §17 마우스 · docs/DESIGN.md §1-1).
+    /// <para>
+    /// 활성 전환을 <see cref="Activate"/> 가 아니라 <b>여기</b>에 두는 이유: 전환은 여러
+    /// 곳에서 불리고 그중 <see cref="Receive"/> 는 도착 페인이 활성이 되면 안 된다
+    /// (사용자 결정 2026-08-11 — 보내는 것은 정리 동작이라 하던 페인에 남는다).
+    /// </para>
+    /// <para>
+    /// 전환보다 <b>먼저</b> 낸다. 활성 탭이 바뀌면 XAML 이 무는 자리가 통째로 다시 서는데,
+    /// 그때 이 페인이 아직 비활성이면 새로 선 목록이 포커스를 받지 못한다
+    /// (<c>Views/TabFocus.cs</c>).
+    /// </para>
+    /// </summary>
     [RelayCommand]
     private void ActivateTab(PaneViewModel? tab)
     {
-        if (tab is not null)
+        if (tab is null)
         {
-            Activate(tab);
+            return;
         }
+
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+
+        Activate(tab);
     }
 
-    /// <summary>탭 줄의 <c>+</c> 와 빈 곳 더블클릭 (docs/PRD-v2.md §17 마우스).</summary>
+    /// <summary>
+    /// 탭 줄의 <c>+</c> 와 빈 곳 더블클릭 (docs/PRD-v2.md §17 마우스). 새 탭이 곧 활성이
+    /// 되므로 <b>그 페인도 활성이 된다</b> — 아니면 보고 있지 않은 페인에 탭이 생긴다.
+    /// </summary>
     [RelayCommand]
-    private void AddTab() => NewTab();
+    private void AddTab()
+    {
+        ActivationRequested?.Invoke(this, EventArgs.Empty);
+
+        NewTab();
+    }
 
     [RelayCommand]
     private void TogglePinOnTab(PaneViewModel? tab)

@@ -59,6 +59,17 @@
         <KeyBinding Key="C" Modifiers="Control+Alt" Command="{Binding CopyToOtherPaneCommand}" />
         <KeyBinding Key="M" Modifiers="Control+Alt" Command="{Binding MoveToOtherPaneCommand}" />
         <KeyBinding Key="O" Modifiers="Control+Alt" Command="{Binding OpenOtherPaneLocationCommand}" />
+        <!-- 탭 (docs/DESIGN.md §9 §탭 · docs/PRD-v2.md §17). **바꾸는 키가 0개다** — 일곱
+             조합이 전부 비어 있음을 이 목록 전수로 확인했다. Tab·F6 은 페인 전환 그대로이고
+             Ctrl+숫자는 정렬 그대로다. 전부 활성 페인으로 간다 -->
+        <KeyBinding Key="T" Modifiers="Control" Command="{Binding NewTabCommand}" />
+        <KeyBinding Key="W" Modifiers="Control" Command="{Binding CloseTabCommand}" />
+        <KeyBinding Key="Tab" Modifiers="Control" Command="{Binding NextTabCommand}" />
+        <KeyBinding Key="Tab" Modifiers="Control+Shift" Command="{Binding PreviousTabCommand}" />
+        <!-- 같은 동작의 두 번째 자리 — 탐색기·브라우저가 둘 다 이 쌍을 쓴다 -->
+        <KeyBinding Key="PageDown" Modifiers="Control" Command="{Binding NextTabCommand}" />
+        <KeyBinding Key="PageUp" Modifiers="Control" Command="{Binding PreviousTabCommand}" />
+        <KeyBinding Key="T" Modifiers="Control+Shift" Command="{Binding ReopenClosedTabCommand}" />
         <KeyBinding Key="D1" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Name}" />
         <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Size}" />
         <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Type}" />
@@ -92,6 +103,7 @@
         <v:NameMembershipConverter x:Key="NameMembership" />
         <v:NameEqualityConverter x:Key="NameEquality" />
         <v:EnumEqualityConverter x:Key="EnumEquality" />
+        <v:SameInstanceConverter x:Key="SameInstance" />
         <v:ViewSourceConverter x:Key="ViewSource" />
         <v:ThumbnailImageConverter x:Key="ThumbnailImage" />
 
@@ -754,11 +766,116 @@
             </Style.Triggers>
         </Style>
 
-        <!-- ═══ 페인 하나 (좌우가 공유한다) ═══ -->
+        <!-- ═══ 탭 (docs/DESIGN.md §1-1 · docs/PRD-v2.md §17) ═══ -->
+
+        <!-- 탭 하나 — 높이 24 · 모서리 4,4,0,0 (아래로 툴바에 붙는다). 폭은 줄이 정한다
+             (Views/TabStripPanel.cs: 최대 180 · 최소 90 균등 · 고정 28).
+             Focusable=False 인 것은 전환 직후 포커스가 목록으로 가야 하기 때문이다
+             (Views/TabFocus.cs) — 탭에 포커스가 남으면 방향키가 목록을 못 움직인다. -->
+        <Style x:Key="TabChrome" TargetType="Button">
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <!-- 활성 표시선의 색을 실어 나른다 — 비활성이면 투명이다. 템플릿 안의 요소는
+                 Style 트리거가 TargetName 으로 못 건드리므로 (그것은 ControlTemplate.Triggers
+                 의 몫이다) 속성 하나에 얹어 TemplateBinding 으로 내린다. 이 버튼은 테두리를
+                 쓰지 않아 BorderBrush 가 비어 있다. -->
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="4,4,0,0" Background="{TemplateBinding Background}">
+                            <DockPanel>
+                                <!-- 활성 탭 표시 — 위쪽 2px accent (docs/DESIGN.md §1-1).
+                                     비활성일 때도 <b>자리는 차지한다</b>: 색만 투명이라
+                                     전환할 때 글자가 2px 튀지 않는다. -->
+                                <Border DockPanel.Dock="Top" Height="2" CornerRadius="2,2,0,0"
+                                        Background="{TemplateBinding BorderBrush}" />
+                                <ContentPresenter />
+                            </DockPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <!-- 활성 탭 (docs/DESIGN.md §1-1 · 사용자 결정 2026-08-11).
+                     **구분은 상단 accent 라인이 한다.** 배경만으로는 갈리지 않는다 —
+                     pane-bg(#FFFFFF)와 활성 페인의 줄 배경 chrome-bg(#F9F9F9)의 차이가
+                     6/255 뿐이다. 원래 pane-bg 를 고른 근거는 "목록과 같은 색이라 아래로
+                     이어져 보인다" 였는데, 탭 아래에 오는 것은 목록이 아니라 툴바다.
+                     라인은 §6 이 활성 페인에 쓰는 관용구와 같은 것이다.
+
+                     탭은 자기가 활성인지 모른다: 그 상태의 소유자는 페인이고, 탭에 IsActive 를
+                     따로 두면 진실이 둘이 된다. 그래서 인스턴스를 맞춰 본다 —
+                     이름·폴더로는 가릴 수 없다 (같은 폴더를 여러 탭에 열 수 있다). -->
+                <DataTrigger Value="True">
+                    <DataTrigger.Binding>
+                        <MultiBinding Converter="{StaticResource SameInstance}">
+                            <Binding />
+                            <Binding Path="DataContext.Active" RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
+                        </MultiBinding>
+                    </DataTrigger.Binding>
+                    <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
+                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 닫기 16×16 (E8BB 8px). **항상 자리를 차지한다** — 호버할 때만 나타나게 하면
+             제목 폭이 그때마다 흔들린다. 최소 폭 90 은 이 16 을 이미 포함한 값이다.
+             고정 탭에는 없다 (먼저 고정을 풀어야 닫힌다 · docs/PRD-v2.md §17). -->
+        <Style x:Key="TabCloseButton" TargetType="Button">
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
+            <Setter Property="FontSize" Value="8" />
+            <Setter Property="Content" Value="&#xE8BB;" />
+            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="3" Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <!-- 마지막 탭과 고정 탭은 닫히지 않는다 — 누를 수 없는 버튼을 두는 대신
+                     자리째 접는다 (docs/PRD-v2.md §17). -->
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- 새 탭 24×24 (E710) — 줄 오른쪽 끝 고정이고 스크롤 영역 밖이다 -->
+        <Style x:Key="TabAddButton" TargetType="Button" BasedOn="{StaticResource ToolButton}">
+            <Setter Property="Width" Value="24" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="FontSize" Value="12" />
+        </Style>
+
+        <!-- ═══ 페인 하나 (좌우가 공유한다) ═══
+             **크롬(테두리·모서리)은 이 템플릿에 없다** — 탭 줄과 이 페인을 함께 감싸는
+             바깥 Border(PaneWithTabs)가 그린다. 여기 다시 두면 1px 이 둘이 되어 2px 로 보인다. -->
         <DataTemplate x:Key="PaneTemplate" DataType="{x:Type vm:PaneViewModel}">
             <!-- Ctrl+L·Alt+D 를 창이 아니라 여기서 받는다 — 키가 온 쪽이 곧 그 페인이다 -->
             <Border x:Name="PaneRoot" Background="{StaticResource PaneBgBrush}"
-                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0"
                     v:AddressFocus.Enabled="True"
                     v:AddressFocus.IsEditing="{Binding IsAddressEditing, Mode=TwoWay}">
                 <DockPanel>
@@ -961,6 +1078,7 @@
                             <!-- 소스가 둘이다 — Details 는 평평한 Items, wrap 뷰 3종은 합성 행 (ADR-016) -->
                             <ListBox Style="{StaticResource PaneList}"
                                      v:TypeAheadInput.Enabled="True"
+                                     v:TabFocus.Enabled="True"
                                      v:FocusScroll.FocusedName="{Binding FocusedName}"
                                      v:FocusScroll.RenamingName="{Binding RenamingName}"
                                      v:ListInput.SelectCommand="{Binding SelectItemCommand}"
@@ -1024,6 +1142,223 @@
                     <Setter TargetName="AddrChrome" Property="Background" Value="{StaticResource ChromeBgBrush}" />
                     <Setter TargetName="AddrBox" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
                     <Setter TargetName="AddrBox" Property="BorderThickness" Value="1,1,1,2" />
+                </DataTrigger>
+            </DataTemplate.Triggers>
+        </DataTemplate>
+
+        <!-- ═══ 탭 줄 + 페인 (docs/DESIGN.md §1-1 · docs/PRD-v2.md §17) ═══
+             페인마다 하나이고 페인 안 맨 위다 — 탭 줄 → 툴바 → 주소줄 → 목록.
+             좌·우가 <b>각자</b> 갖는다: 탭 전환에 반대편이 함께 바뀌면 페인 간 복사의 대상이
+             사라진다 (2분할의 존재 이유가 그 왕복이다).
+
+             **탭 줄이 PaneTemplate 밖인 것은 수명 때문이다.** 활성 탭이 바뀌면 아래
+             ContentControl 이 무는 PaneViewModel 이 바뀌어 페인 트리가 통째로 다시 선다 —
+             줄을 그 안에 두면 지금 누르고 있는 그것이 매 전환마다 새로 서고, 가로 스크롤
+             위치와 드래그 상태가 함께 사라진다. -->
+        <DataTemplate x:Key="PaneWithTabs" DataType="{x:Type vm:PaneTabsViewModel}">
+            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1"
+                    CornerRadius="6,6,0,0" Background="{StaticResource WinBgBrush}">
+                <DockPanel>
+                    <!-- 줄 28 = 탭 24 + 위 여백 4 (docs/DESIGN.md §1-1).
+                         탭이 1개여도 접히지 않는다 — '+' 진입점이 늘 같은 자리에 있어야 하고,
+                         줄이 생겼다 사라지면 목록이 위아래로 튄다. -->
+                    <Border x:Name="StripChrome" DockPanel.Dock="Top" Height="28" Padding="6,4,4,0"
+                            Background="{StaticResource WinBgBrush}" CornerRadius="6,6,0,0">
+                        <DockPanel>
+                            <!-- 새 탭 — 줄 오른쪽 끝 고정이고 스크롤 영역 밖이다 -->
+                            <!-- 글리프 버튼은 이름이 비어 UIA·화면 낭독기에 아무것도 주지
+                                 않는다. 캡션 버튼과 달리 여기는 관용 이름조차 없다 -->
+                            <Button DockPanel.Dock="Right" Style="{StaticResource TabAddButton}"
+                                    Content="&#xE710;" ToolTip="새 탭 (Ctrl+T)"
+                                    AutomationProperties.Name="새 탭"
+                                    Command="{Binding AddTabCommand}" />
+
+                            <!-- **ItemsSource 는 StripTabs 다. Tabs 가 아니다.**
+                                 이유가 둘이다. (1) 고정 탭을 앞에 모으는 것이 그 속성이고,
+                                 정렬을 여기서 다시 하면 같은 규칙이 두 계층으로 갈린다 —
+                                 '오른쪽 탭 닫기' 가 보는 순서와 화면이 어긋난다
+                                 (docs/PRD-v2.md §17 §값을 치르고 배운 것).
+                                 (2) StripTabs 는 평범한 리스트라 <b>바인딩 엔진이 스레드를
+                                 넘겨 준다</b>. 닫기·떼기는 감시를 놓느라 UI 스레드 밖에서
+                                 목록을 건드리므로 (PaneTabsViewModel.CloseAsync), 여기에
+                                 ObservableCollection 인 Tabs 를 물리면 CollectionView 가
+                                 그 자리에서 던진다. -->
+                            <!-- Tag 가 워크스페이스인 것은 탭 컨텍스트 메뉴 때문이다. 메뉴가
+                                 손에 쥐는 것은 PlacementTarget(탭 버튼) 하나뿐이라 거기서
+                                 셋을 다 꺼내야 하는데, 버튼의 자리는 DataContext(그 탭)와
+                                 Tag(이 ItemsControl) 둘뿐이다 — 세 번째인 워크스페이스가
+                                 여기 실린다 ('반대편 페인으로 보내기' 는 페인 둘을 알아야 한다). -->
+                            <ItemsControl ItemsSource="{Binding StripTabs}" Focusable="False"
+                                          Tag="{Binding DataContext, RelativeSource={RelativeSource AncestorType=Window}}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <!-- 폭 나누기·가로 스크롤·삽입선은 이 패널이 한다
+                                             (Views/TabStripPanel.cs). ScrollViewer 를 쓰지
+                                             않는 이유는 그 파일 주석에 있다. -->
+                                        <!-- ItemsPanelTemplate 안에서는 조상을 명시한다 —
+                                             DataContext 상속에만 기대면 이 자리에서 조용히
+                                             null 이 되고, 활성 탭이 스크롤로 끌려오지 않는 것이
+                                             유일한 증상이라 화면만 봐서는 원인이 안 보인다. -->
+                                        <v:TabStripPanel InsertionBrush="{StaticResource AccentBrush}"
+                                                         ActiveTab="{Binding DataContext.Active, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                         v:TabStripInput.Enabled="True"
+                                                         v:TabDragInput.Enabled="True">
+                                            <v:TabStripPanel.Style>
+                                                <Style TargetType="v:TabStripPanel">
+                                                    <!-- 투명이라도 배경이 있어야 빈 자리가 마우스를
+                                                         받는다 (빈 곳 더블클릭 = 새 탭 · 휠 = 가로).
+                                                         Setter 로 두는 것은 아래 트리거가 이기려면
+                                                         지역값이 아니어야 하기 때문이다. -->
+                                                    <Setter Property="Background" Value="Transparent" />
+                                                    <Style.Triggers>
+                                                        <!-- 반대편 페인에서 온 탭이 이 줄 위에 있다 —
+                                                             페인을 건너간다는 것이 줄 단위로 보여야 한다 -->
+                                                        <DataTrigger Value="True"
+                                                                     Binding="{Binding Path=(v:TabDragInput.IsDropTarget), RelativeSource={RelativeSource Self}}">
+                                                            <Setter Property="Background" Value="{StaticResource SelBrush}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </v:TabStripPanel.Style>
+                                        </v:TabStripPanel>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:PaneViewModel}">
+                                        <!-- Tag 가 ItemsControl 인 것은 컨텍스트 메뉴 때문이다.
+                                             메뉴는 시각 트리 밖이라 조상을 못 찾고 손에 쥐는 것이
+                                             PlacementTarget(이 버튼) 하나뿐이라, 거기서 셋을 다
+                                             꺼낸다: DataContext=이 탭 · Tag.DataContext=페인의 탭
+                                             목록 · Tag.Tag=워크스페이스. -->
+                                        <Button x:Name="TabChromeRoot"
+                                                AutomationProperties.Name="{Binding Title}"
+                                                Tag="{Binding RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                Command="{Binding DataContext.ActivateTabCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
+                                                CommandParameter="{Binding}">
+                                            <!-- 툴팁은 전체 경로다 — 제목이 말줄임되거나 사용자가
+                                                 바꿔 놓았을 때 어디인지 아는 길이 그것뿐이다.
+                                                 아직 열지 않은 배경 탭은 경로가 없어 툴팁도 없다. -->
+                                            <Button.Style>
+                                                <Style TargetType="Button" BasedOn="{StaticResource TabChrome}">
+                                                    <Setter Property="ToolTip" Value="{Binding AddressText}" />
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding AddressText}" Value="">
+                                                            <Setter Property="ToolTip" Value="{x:Null}" />
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Button.Style>
+
+                                            <Button.ContextMenu>
+                                                <ContextMenu DataContext="{Binding PlacementTarget, RelativeSource={RelativeSource Self}}">
+                                                    <MenuItem Header="닫기"
+                                                              Command="{Binding Tag.DataContext.CloseTabCommand}"
+                                                              CommandParameter="{Binding DataContext}" />
+                                                    <MenuItem Header="다른 탭 모두 닫기"
+                                                              Command="{Binding Tag.DataContext.CloseOtherTabsCommand}"
+                                                              CommandParameter="{Binding DataContext}" />
+                                                    <MenuItem Header="오른쪽 탭 닫기"
+                                                              Command="{Binding Tag.DataContext.CloseTabsToTheRightCommand}"
+                                                              CommandParameter="{Binding DataContext}" />
+                                                    <Separator />
+                                                    <MenuItem Header="복제"
+                                                              Command="{Binding Tag.DataContext.DuplicateTabCommand}"
+                                                              CommandParameter="{Binding DataContext}" />
+                                                    <!-- 체크 표시를 쓰지 않는다 — IsCheckable 인 항목은
+                                                         클릭이 IsChecked 를 지역값으로 덮어써 바인딩이
+                                                         끊긴다. 머리글이 다음 동작을 말하는 편이 낫다. -->
+                                                    <MenuItem Command="{Binding Tag.DataContext.TogglePinOnTabCommand}"
+                                                              CommandParameter="{Binding DataContext}">
+                                                        <MenuItem.Style>
+                                                            <Style TargetType="MenuItem">
+                                                                <Setter Property="Header" Value="탭 고정" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding DataContext.IsPinned}" Value="True">
+                                                                        <Setter Property="Header" Value="탭 고정 해제" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </MenuItem.Style>
+                                                    </MenuItem>
+                                                    <!-- 이름 바꾸기의 진입은 여기 하나뿐이다 (§17) -->
+                                                    <MenuItem Header="이름 바꾸기"
+                                                              Command="{Binding DataContext.BeginTitleRenameCommand}" />
+                                                    <Separator />
+                                                    <MenuItem Header="반대편 페인으로 보내기"
+                                                              Command="{Binding Tag.Tag.SendTabToOtherPaneCommand}"
+                                                              CommandParameter="{Binding DataContext}" />
+                                                </ContextMenu>
+                                            </Button.ContextMenu>
+
+                                            <!-- 안쪽 (좌→우): 패딩 8 · 아이콘 16 · 간격 6 · 제목 ·
+                                                 간격 4 · 닫기 16 · 패딩 4 (docs/DESIGN.md §1-1) -->
+                                            <DockPanel x:Name="TabBody" Margin="8,0,4,0">
+                                                <Button x:Name="TabClose" DockPanel.Dock="Right"
+                                                        Style="{StaticResource TabCloseButton}"
+                                                        VerticalAlignment="Center" Margin="4,0,0,0"
+                                                        AutomationProperties.Name="탭 닫기"
+                                                        ToolTip="탭 닫기 (Ctrl+W)"
+                                                        Command="{Binding Tag.DataContext.CloseTabCommand, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                        CommandParameter="{Binding}" />
+                                                <TextBlock x:Name="TabIcon" Text="&#xE8B7;"
+                                                           FontFamily="Segoe Fluent Icons" FontSize="16"
+                                                           VerticalAlignment="Center"
+                                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                                <TextBlock x:Name="TabTitle" Text="{Binding Title}"
+                                                           Margin="6,0,0,0" VerticalAlignment="Center"
+                                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}" />
+                                                <!-- 제목 편집 — 목록·트리와 같은 편집기다 -->
+                                                <TextBox x:Name="TabTitleEditor" Margin="6,0,0,0"
+                                                         VerticalContentAlignment="Center" FontSize="12"
+                                                         BorderThickness="0" Padding="0" Visibility="Collapsed"
+                                                         Foreground="{StaticResource TextBrush}"
+                                                         v:RenameEditor.Enabled="True"
+                                                         v:RenameEditor.CommitCommand="{Binding CommitTitleRenameCommand}"
+                                                         v:RenameEditor.CancelCommand="{Binding CancelTitleRenameCommand}" />
+                                            </DockPanel>
+                                        </Button>
+
+                                        <DataTemplate.Triggers>
+                                            <!-- 고정 탭 — 폭 28 은 줄이 준다. 여기서는 아이콘만
+                                                 남기고 가운데로 모은다 (docs/DESIGN.md §1-1).
+                                                 닫기가 없는 것은 "먼저 고정을 풀어야 닫힌다" 이다. -->
+                                            <DataTrigger Binding="{Binding IsPinned}" Value="True">
+                                                <Setter TargetName="TabTitle" Property="Visibility" Value="Collapsed" />
+                                                <Setter TargetName="TabClose" Property="Visibility" Value="Collapsed" />
+                                                <Setter TargetName="TabBody" Property="Margin" Value="0" />
+                                                <Setter TargetName="TabIcon" Property="HorizontalAlignment" Value="Center" />
+                                            </DataTrigger>
+                                            <!-- 마지막 탭은 닫히지 않는다 — 누를 수 없는 버튼을
+                                                 두는 대신 자리째 접는다 (docs/PRD-v2.md §17) -->
+                                            <DataTrigger Value="1"
+                                                         Binding="{Binding DataContext.Tabs.Count, RelativeSource={RelativeSource AncestorType=ItemsControl}}">
+                                                <Setter TargetName="TabClose" Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsTitleEditing}" Value="True">
+                                                <Setter TargetName="TabTitle" Property="Visibility" Value="Collapsed" />
+                                                <Setter TargetName="TabTitleEditor" Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- 활성 탭 하나가 페인을 그린다. 여기가 XAML 이 물고 있던 자리이고
+                         (Left == LeftTabs.Active) 1단계가 그것을 파생 속성으로 남긴 이유다. -->
+                    <ContentControl Content="{Binding Active}" Focusable="False"
+                                    ContentTemplate="{StaticResource PaneTemplate}" />
+                </DockPanel>
+            </Border>
+            <DataTemplate.Triggers>
+                <!-- 비활성 페인의 탭 줄은 크롬 배경 강등 규칙을 그대로 따른다 (docs/DESIGN.md §6).
+                     활성일 때만 chrome-bg 로 올라간다 — 툴바·주소줄과 같은 수다. -->
+                <DataTrigger Value="True"
+                             Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}">
+                    <Setter TargetName="StripChrome" Property="Background" Value="{StaticResource ChromeBgBrush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -1454,7 +1789,10 @@
                 <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" MinWidth="320" />
             </Grid.ColumnDefinitions>
-            <ContentControl Content="{Binding Left}" ContentTemplate="{StaticResource PaneTemplate}"
+            <!-- 무는 것이 활성 탭(Left)이 아니라 <b>탭 목록</b>이다 — 탭 줄이 탭보다 오래
+                 살아야 하기 때문이다 (PaneWithTabs 주석). PaneTemplate 은 그 안쪽
+                 ContentControl 이 활성 탭으로 다시 물리므로 템플릿 안 바인딩은 그대로다. -->
+            <ContentControl Content="{Binding LeftTabs}" ContentTemplate="{StaticResource PaneWithTabs}"
                             Focusable="False"
                             v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Left}}" />
             <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
@@ -1472,7 +1810,7 @@
                     </Style>
                 </GridSplitter.Style>
             </GridSplitter>
-            <ContentControl Grid.Column="2" Content="{Binding Right}" ContentTemplate="{StaticResource PaneTemplate}"
+            <ContentControl Grid.Column="2" Content="{Binding RightTabs}" ContentTemplate="{StaticResource PaneWithTabs}"
                             Focusable="False"
                             v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Right}}" />
         </Grid>

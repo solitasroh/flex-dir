@@ -142,6 +142,10 @@ public static class RenameEditor
     {
         FileItemViewModel item => (item.Name, item.IsDirectory),
         TreeNodeViewModel node => (node.EditingLabel, true),
+
+        // 탭 제목 (docs/PRD-v2.md §17). 지금 보이는 제목을 그대로 싣는다 — 사용자가 바꾼
+        // 이름이 있으면 그것이고 없으면 폴더 이름이다. 늘 전체가 선택된다: 확장자가 없다.
+        PaneViewModel tab => (tab.Title, true),
         _ => null,
     };
 
