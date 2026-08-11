@@ -82,15 +82,35 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 
 | 상태 | 소유자 | 수명 |
 |---|---|---|
-| 페인별 현재 경로·히스토리 | `PaneViewModel` | 프로세스 |
+| **탭별** 현재 경로·히스토리 | `PaneViewModel` (탭 하나가 인스턴스 하나다) | 프로세스 |
 | 항목 목록 · 선택 | `PaneViewModel` | 폴더 전환까지 |
-| 뷰 모드 · 정렬 | `IViewStateStore` | 영구 (폴더별) |
-| 스플리터 비율 · 창 위치 | `IViewStateStore` | 영구 (전역) |
+| **탭 목록 · 활성 탭** | `PaneTabsViewModel` (페인마다 하나) | 프로세스 (목록 자체는 영구 저장) |
+| 뷰 모드 · 정렬 | `IViewStateStore` | 영구 (**폴더별** — 탭이 갖지 않는다) |
+| 스플리터 비율 · 창 위치 · **탭 목록** | `IViewStateStore` | 영구 (전역) |
 | 썸네일 | shell 캐시 | **우리가 소유하지 않는다** |
 | 사용 로그 | `IUsageLog` | 영구 (append) |
 
 **진실원천은 파일시스템이다.** 위 항목 중 목록·썸네일은 캐시이며, 어긋나면
 파일시스템을 믿는다.
+
+### 탭이 소유 구조를 한 단 깊게 한다 (docs/PRD-v2.md §17 · ADR-018)
+
+```
+WorkspaceViewModel ──> PaneTabsViewModel ×2      (Left · Right)
+                              │
+                              ├─ Tabs   : PaneViewModel ×N   전부 살아 있다
+                              └─ Active : PaneViewModel      이 중 하나
+```
+
+**`ActivePane` 을 지나는 배선 일곱이 "활성 페인의 활성 탭" 으로 한 단 깊어진다** — 트리
+따라가기(양방향) · 즐겨찾기 고정 · 설정의 시작 폴더 지정 · 페인 간 복사 · 이동 · 반대편
+폴더 열기 · 마우스 뒤로/앞으로.
+
+**감시는 활성 탭만 든다.** 배경 탭은 목록을 메모리에 지닌 채 `IFolderWatcher` 를 놓고,
+다시 활성이 될 때 새로 고침 한 번을 돌린 뒤 감시를 건다 — 근거는 docs/PRD-v2.md §13
+(감시 오버플로 폭주)이다. **정리도 탭 수만큼 늘어난다**: `AppComposition.DisposeAsync` 가
+모든 탭을 접은 뒤에 shell 구현체를 닫는다 (순서를 뒤집으면 진행 중인 썸네일 요청이 닫힌
+STA 큐에 들어간다).
 
 저장 위치: `%APPDATA%\flex-dir\`
 
