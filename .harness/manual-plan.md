@@ -746,6 +746,31 @@ recipe 로 포그라운드를 잡고 `GetForegroundWindow()` 까지 확인한 �
 - **그림이 필요할 때만** `PrintWindow` 로 캡처한다. 그 캡처의 바깥 8px 은 창이 아니다
   (§시안 대조 참조).
 
+**트레이 아이콘도 UIA 로 읽힌다 — 다만 이 기계는 숨김 버킷에 둔다** (2026-08-11 · §14 확인).
+`Shell_TrayWnd` 를 훑으면 **보이는** 알림 아이콘만 나오고 `flex-dir` 은 거기 없다.
+숨겨진 것을 보려면 `숨겨진 아이콘 표시` 버튼을 `InvokePattern` 으로 누른 뒤 오버플로 창을
+읽고, 다시 눌러 접는다 (포그라운드 불필요).
+
+```powershell
+# 오버플로 창은 열려 있는 동안만 존재한다. 클래스는 TopLevelWindowForOverflowXamlIsland.
+# FindWindow 로는 놓쳤고 EnumWindows 로 잡았다 — 열고 나서 EnumWindows 로 클래스를 찾는다.
+$chev = $tray.FindFirst('Descendants', (New-Object System.Windows.Automation.PropertyCondition(
+    [System.Windows.Automation.AutomationElement]::NameProperty, '숨겨진 아이콘 표시')))
+$chev.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()
+# … EnumWindows 로 TopLevelWindowForOverflowXamlIsland 핸들 → FromHandle → Button 열거 …
+$chev.GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke()   # 접는다
+```
+
+**UI 스레드 예외는 임시 트리거로만 던질 수 있다** (2026-08-11 · docs/PRD-v2.md §14).
+밖에서 남의 프로세스 UI 스레드에 예외를 넣을 길이 없다. 던지는 `[RelayCommand]` 와 그것을
+부르는 툴바 버튼(`AutomationProperties.Name` 을 꼭 준다 — 없으면 UIA 에 글리프 문자가
+이름으로 잡힌다)을 임시로 붙였다가 확인 후 걷어낸다. **저장소 Debug 빌드로 해야 하므로
+설치본을 먼저 죽인다** (뮤텍스가 같다). 끝나면 `error.log` 를 지우고 설치본을 되살린다 —
+그 파일에 남은 스택은 걷어낸 메서드를 가리킨다.
+
+> **판정의 정본은 프로세스 생존이 아니라 `error.log` 다.** 프로세스는 `fatal` 을 적은
+> 뒤에도 잠깐 살아 있어서, 500ms 간격으로 생존을 보는 루프는 한 번 늦게 읽는다.
+
 ## 배포 — 사람 확인 항목
 
 정본은 `docs/PRD-v2.md` §9. 여기는 **사람이 봐야 하는 것**만이다.

@@ -75,6 +75,24 @@ internal static class Program
         // 계측이 쌓이는 파일은 하나다 (perf.log). 지점마다 만들면 같은 곳을 두 번 연다.
         var perf = new PerformanceLog(state);
 
+        // UI 스레드 예외 하나가 상주 프로세스와 트레이 아이콘까지 날리던 자리다
+        // (docs/PRD-v2.md §14 · 2026-08-10 의 XAML 크래시). 상주 앱이라 값이 다르다 —
+        // 창 하나짜리 앱이면 죽는 것이 정직하지만 여기서는 트레이까지 사라진다.
+        //
+        // 삼킬지는 CrashNoticeViewModel 이 정한다. 판정이 먼저인 것은 그 결과를 줄에 적기
+        // 때문이고, 기록이 동기라서 순서가 유실을 만들지 않는다 — 포기(fatal)면 이 핸들러가
+        // 끝나는 대로 프로세스가 죽으므로 비동기였다면 정확히 그 줄을 잃는다 (ErrorLog).
+        var errors = new ErrorLog(state);
+
+        application.DispatcherUnhandledException += (_, unhandled) =>
+        {
+            var recovered = composition.Workspace.Crash.Report(unhandled.Exception);
+
+            errors.Record(unhandled.Exception, recovered, DateTimeOffset.Now);
+
+            unhandled.Handled = recovered;
+        };
+
         var presenter = new WindowPresenter(
             _ => uiDispatcher.InvokeAsync(() =>
             {

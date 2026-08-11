@@ -1343,6 +1343,8 @@
             <RowDefinition Height="*" />
             <!-- 업데이트 알림. 받아 둔 것이 없으면 접혀서 자리를 차지하지 않는다. -->
             <RowDefinition Height="Auto" />
+            <!-- 사고 알림. 위와 같이 접히고, 둘이 함께 뜰 수 있다. -->
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="24" />
         </Grid.RowDefinitions>
 
@@ -1499,8 +1501,32 @@
             </DockPanel>
         </Border>
 
+        <!-- 사고 알림 (docs/PRD-v2.md §14 · 사용자 결정 2026-08-11: 알림 바).
+             업데이트 알림 바로 아래, 상태표시줄 바로 위다 — 오류 문구가 이미 사는 자리
+             옆이라 눈이 가는 곳이 하나로 모인다.
+
+             크롬은 업데이트 알림과 같고 글자만 ErrorBrush 다. 배경 토큰을 새로 만들지
+             않는 이유: docs/DESIGN.md §5 는 그 색을 '오류 텍스트' 로 정의한다. 같은 종류의
+             바인데 심각도만 다르다는 것이 이 모양으로 읽혀야 한다. -->
+        <Border Grid.Row="3" Background="{StaticResource SelBrush}"
+                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0"
+                Padding="12,6"
+                Visibility="{Binding Crash.IsVisible, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
+            <DockPanel LastChildFill="False">
+                <!-- 한 줄로 잘린다. 문구가 길어져 바가 두 줄이 되면 목록이 그만큼 밀린다 —
+                     자세한 것은 error.log 에 있고 바는 그리로 가리키기만 한다. -->
+                <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
+                           Text="{Binding Crash.Message}"
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource ErrorBrush}" />
+
+                <Button DockPanel.Dock="Right" Style="{StaticResource CrumbButton}"
+                        Content="닫기" Command="{Binding Crash.DismissCommand}" />
+            </DockPanel>
+        </Border>
+
         <!-- 상태표시줄 24 — 활성 페인의 문구 (docs/DESIGN.md §1·§6) -->
-        <Border Grid.Row="3" Background="{StaticResource WinBgBrush}"
+        <Border Grid.Row="4" Background="{StaticResource WinBgBrush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
           <Grid>
             <!-- 여유 용량은 오른쪽 끝이다 (목업 .free 의 margin-left:auto). 활성 페인의
@@ -1536,7 +1562,7 @@
              FallbackValue 가 있어야 한다: Settings 가 배선되지 않은 조립에서는 바인딩이
              UnsetValue 를 내고, 그러면 변환기가 아예 불리지 않아 Visibility 가 기본값
              (Visible)로 남는다 — 설정 없이 조립한 창이 설정 패널에 덮인다. -->
-        <Grid Grid.Row="1" Grid.RowSpan="3"
+        <Grid Grid.Row="1" Grid.RowSpan="4"
               Visibility="{Binding Settings.IsOpen, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
 
             <!-- 바깥을 눌러도 닫힌다. Button 인 이유는 코드비하인드 없이 클릭을 받는 길이

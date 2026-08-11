@@ -144,6 +144,17 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// </summary>
     public SettingsViewModel? Settings { get; }
 
+    /// <summary>
+    /// UI 스레드 사고 알림 (docs/PRD-v2.md §14). 페인이 둘인데 알림은 하나라 위의 셋과
+    /// 같은 자리에 산다.
+    /// <para>
+    /// <b>다만 이것만 선택이 아니다.</b> 포트를 들지 않아 조립이 실패할 자리가 없고,
+    /// 예외를 살아남는 것은 어느 조립에서도 꺼져 있으면 안 된다 — <c>Host/Program</c> 이
+    /// 여기에 <c>DispatcherUnhandledException</c> 을 건다.
+    /// </para>
+    /// </summary>
+    public CrashNoticeViewModel Crash { get; } = new();
+
     /// <summary>숨김 정책 변경에 이어지는 재열거. 테스트가 "끝났는가" 를 보는 자리다.</summary>
     internal Task HiddenItemsWork => hiddenItemsWork;
 

@@ -50,6 +50,18 @@ public class WorkspaceViewModelTests
     // ── 초기 상태 ─────────────────────────────────────────────────
 
     [Fact]
+    public void New_AlwaysHasACrashNotice()
+    {
+        // Update·Tree·Settings 와 달리 선택이 아니다. Host/Program 이 여기에
+        // DispatcherUnhandledException 을 거는데, 조립에 따라 없어질 수 있으면 그 배선이
+        // 조용히 안 걸리고 앱은 예전처럼 예외 하나에 죽는다.
+        var workspace = CreateWorkspace();
+
+        Assert.NotNull(workspace.Crash);
+        Assert.False(workspace.Crash.IsVisible);
+    }
+
+    [Fact]
     public void New_ActivatesTheLeftPane()
     {
         var workspace = CreateWorkspace();
