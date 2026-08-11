@@ -590,6 +590,9 @@ InvalidOperationException: '{DependencyProperty.UnsetValue}' 은 'ContextMenu' �
 UI 스레드의 예외 하나가 트레이 아이콘까지 통째로 날린다 —
 `Application.DispatcherUnhandledException` 핸들러가 없다. 이번 범위 밖이라 손대지 않았다.
 
+> **→ §14 에서 닫혔다** (2026-08-11 · v0.4.2). 위 문단은 2026-08-10 의 사실로 남긴다 —
+> **지금은 핸들러가 있다.** 여기만 읽고 "핸들러가 없다" 로 판단하지 않는다.
+
 ### 10-3. 트리가 페인을 따라간다 (2026-08-10 · 사용자 요청)
 
 **§10 이 반대로 정해 둔 것을 뒤집었다.** 그 표의 *"페인이 움직이면 → 트리는 따라가지
