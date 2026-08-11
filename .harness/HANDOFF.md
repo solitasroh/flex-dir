@@ -48,9 +48,10 @@
 (§14 의 핸들러도 UI 스레드가 아니라 못 본다). 재현 테스트를 먼저 세우고 고쳤다.
 **이 수정은 아직 배포되지 않았다 — 0.4.3 에는 없다.**
 
-**탭 1단계가 들어왔다** (2026-08-11 · `docs/PRD-v2.md` §17). 소유 구조(`PaneTabsViewModel`)와
-저장 포맷(`GlobalViewState` 의 탭 목록)까지다 — **화면은 아직 없고 `*.xaml` 은 한 줄도
-바뀌지 않았다.** 다음은 탭 줄이다. 아래 §다음 작업 0 참조.
+**탭의 ViewModel·Core 가 전부 들어왔다** (2026-08-11 · `docs/PRD-v2.md` §17). 소유 구조 ·
+저장 포맷 · 컨텍스트 메뉴 7개의 로직 · 페인 간 소유권 이동까지 — **자동 채점되는 것은
+끝났고 `*.xaml` 은 한 줄도 바뀌지 않았다.** 남은 것은 탭 줄 화면과 드래그다.
+아래 §다음 작업 0 참조.
 
 **진단 도구가 하나 늘었다**: `dotnet-stack report -p <pid>` (전역 도구, 이번에 설치).
 UI 스레드가 무엇을 하는지 관리 스택으로 보여준다 — §13 의 범인을 이것이 좁혔다.
@@ -92,10 +93,9 @@ breadcrumb · 여유 용량 · 페인 테두리)에서 **앞의 셋을 채웠다
                  ⚠ **§16 수정(활성화 채널)은 커밋만 됐고 릴리스에 없다.** 사용자 결정:
                  **탭 작업이 끝나면 그것과 함께 낸다** (2026-08-11). 그때까지 설치본은 인자
                  없는 두 번째 실행 한 번에 귀를 닫을 수 있다 — 밟으면 앱을 다시 켜면 된다
-테스트   1812 통과   Core 545 · App 874 · Shell 299 · Host 94
-                 (탭 1단계가 +105: PaneTabsViewModel 46 · WorkspaceTabs 26 ·
-                  페인의 탭 상태 8 · 감시 놓기 6 · GlobalViewState 11 ·
-                  구버전 파일 읽기 6 · 조립 2)
+테스트   1842 통과   Core 545 · App 904 · Shell 299 · Host 94
+                 (탭이 +135. 소유 구조·저장 포맷 105, 컨텍스트 메뉴 로직과
+                  페인 간 소유권 이동 30)
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
          full (Release build -warnaserror) ✅ **0.4.3 배포 뒤에 둘 다 다시 돌렸다** —
          상주 프로세스가 죽어 있는 동안이라 잠금이 없었다 (아래 §0.4.1 배포)
@@ -257,19 +257,20 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 ## 다음 작업 (2026-08-11 오후 갱신)
 
-### 0. 탭 — 1단계(소유 구조·저장 포맷)가 끝났다. 다음은 탭 줄 화면이다 (2026-08-11)
+### 0. 탭 — ViewModel·Core 는 끝났다. 남은 것은 화면과 드래그다 (2026-08-11)
 
-**정본은 `docs/PRD-v2.md` §17 이다** (갈림 16개가 전부 닫혀 있다 · `docs/ADR.md` ADR-018 ·
-`docs/ARCHITECTURE.md` §4). 1단계에서 **값을 치르고 배운 것 일곱**이 §17 에 들어갔다 —
-2단계를 시작하기 전에 그것을 먼저 읽는다.
+**정본은 `docs/PRD-v2.md` §17 이다** (`docs/ADR.md` ADR-018 · `docs/ARCHITECTURE.md` §4 ·
+픽셀은 `docs/DESIGN.md` §1-1). §17 의 **값을 치르고 배운 것**과 **§페인 간 이동의 결정 표**가
+이 구간에서 채워졌다 — 화면 작업을 시작하기 전에 그 둘을 먼저 읽는다.
 
-**1단계에서 실제로 세운 것** (커밋 안 됨 — 사용자 요청 대기 중):
+**자동 채점되는 것은 전부 끝났다. 실제로 세운 것:**
 
 | 자리 | 무엇 |
 |---|---|
 | `src/FlexDir.App/ViewModels/PaneTabsViewModel.cs` **(신규)** | 탭 목록 · 활성 탭 · `Func<PaneViewModel>` 팩토리. `PaneColumns`·`ShowHiddenItems` 의 소유자. 감시 놓기/걸기와 전환 취소가 여기 산다 |
-| `PaneViewModel` | `IsPinned` · `CustomTitle` · `Title` · `PendingLocation`(아직 안 연 폴더) · `SuspendWatchAsync()` |
-| `WorkspaceViewModel` | ctor 가 `Func<PaneViewModel>` 하나를 받는다. `LeftTabs`/`RightTabs` 신규. **`Left`/`Right` 는 "그 페인의 활성 탭" 을 내는 파생 속성으로 남았다** (아래 ⚠) . 탭 커맨드 다섯 + 되살리기 스택(창 전체 하나, 깊이 10) |
+| 〃 | `StripTabs`(탭 줄이 그릴 순서 — 고정 먼저) · `TogglePin` · `Duplicate` · `CloseOthersAsync` · `CloseToTheRightAsync` · `DetachAsync`/`Receive`(페인 간 소유권 이동) · `TabClosed` 이벤트 · 얇은 커맨드 7개 |
+| `PaneViewModel` | `IsPinned` · `CustomTitle`(공백은 `null` 로 접는다) · `Title` · `PendingLocation`(아직 안 연 폴더) · `SuspendWatchAsync()` |
+| `WorkspaceViewModel` | ctor 가 `Func<PaneViewModel>` 하나를 받는다. `LeftTabs`/`RightTabs` 신규. **`Left`/`Right` 는 "그 페인의 활성 탭" 을 내는 파생 속성으로 남았다** (아래 ⚠) . 탭 커맨드 여섯(`SendTabToOtherPane` 포함) + 되살리기 스택(창 전체 하나, 깊이 10) |
 | `GlobalViewState` | `LeftFolder`/`RightFolder` 단수 → `LeftTabs`/`RightTabs`(`PaneTabsState`). `TabState`(폴더·고정·제목) 신규 |
 | `JsonViewStateStore` | 구버전 단수 필드를 "탭 1개짜리 목록" 으로 읽는다. 단수 필드는 **더 이상 쓰지 않는다** |
 | `AppComposition` | `Pane` 을 팩토리로 넘긴다. `DisposeAsync` 가 `LeftTabs`/`RightTabs` 를 접은 뒤 shell 구현체를 닫는다 |
@@ -280,20 +281,27 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 2026-08-11: `LeftTabs`/`RightTabs` 를 새로 두고 `Left`/`Right` 는 활성 탭을 내는 파생 속성으로
 남긴다 → **`*.xaml` 변경 0 으로 1단계가 끝났고 앱은 지금처럼 돈다.**
 
-**2단계(탭 줄 화면)가 첫 5분에 알아야 할 것**
+**남은 것은 셋이다 — 전부 사람이 판정하는 자리다** (`CLAUDE.md` §5)
 
-- **바인딩할 자리는 `LeftTabs.Tabs`·`RightTabs.Tabs`** (`ReadOnlyObservableCollection`).
-  탭 하나는 `PaneViewModel` 이고 `Title`·`IsPinned` 를 그대로 낸다.
-- **픽셀은 `docs/DESIGN.md` §1-1 에 있다** (탭 줄 28px · 최대 180 / 최소 90 · 고정 탭 28).
-  1단계는 그 문서를 읽지 않았다.
-- **키보드 커맨드는 이미 서 있다** — `NewTabCommand` · `CloseTabCommand` ·
-  `NextTabCommand` · `PreviousTabCommand` · `ReopenClosedTabCommand`. `MainWindow.xaml` 의
-  `KeyBinding` 일곱 줄만 더하면 손에 붙는다 (§17 표면의 키 표가 정본 · **바꾸는 키 0개**).
-- **전환 직후 포커스는 그 탭의 목록으로** 가야 한다 (§17 사용자 렌즈). ViewModel 은 그것을
-  모른다 — `Views/FocusScroll.cs`·`AddressFocus.cs` 와 같은 층위의 일이다.
-- **1단계에 안 넣은 것 둘**: 페인 간 탭 이동('반대편 페인으로 보내기' — §17 은 *"메뉴가
-  먼저"* 로 두었다) · 고정 토글 커맨드(고정이 목록 순서를 옮기는지가 아직 안 정해졌다.
-  §17 은 `줄 맨 왼쪽에 모이고` 로만 적혀 있고 그것은 그리는 자리로 읽힌다).
+1. **탭 줄 XAML** — `docs/DESIGN.md` §1-1 이 픽셀까지 정본이다 (줄 28 · 탭 24 · 폭 180~90 ·
+   고정 탭 28 · 글리프 `E710`/`E8BB` · 상태별 색). **`StripTabs` 에 바인딩한다** — `Tabs` 가
+   아니다: 고정 탭을 앞에 모으는 것이 그 속성이고, 정렬을 XAML 이 다시 하면 규칙이 두 계층에
+   갈린다. `KeyBinding` 일곱 줄과 컨텍스트 메뉴 7개는 커맨드가 이미 다 있다.
+2. **View 배선** — 균등 축소(180~90) · 가로 스크롤(활성 탭을 보이는 자리로 끌어온다 ·
+   스크롤 버튼 없음, 휠이 가로) · **전환 직후 포커스를 그 탭의 목록으로**
+   (§17 사용자 렌즈 · `Views/FocusScroll.cs`·`AddressFocus.cs` 와 같은 층위).
+3. **드래그** — 같은 페인 순서 변경 + 반대편 페인으로 끌기. §17 이 *"드래그는 그 위에 입력만
+   얹는다"* 로 두었고 **소유권 이동(`DetachAsync`/`Receive`)은 이미 서서 채점됐다** — 남은
+   것은 입력과 표시 넷(`docs/DESIGN.md` §1-1 §탭 드래그 중)뿐이다.
+
+**커맨드 이름표** (XAML 이 물 자리):
+
+| 자리 | 커맨드 | 어디에 |
+|---|---|---|
+| 탭 클릭 · `+` · 빈 곳 더블클릭 | `ActivateTabCommand` · `AddTabCommand` | `PaneTabsViewModel` |
+| 컨텍스트 메뉴 6 | `CloseTabCommand` · `CloseOtherTabsCommand` · `CloseTabsToTheRightCommand` · `DuplicateTabCommand` · `TogglePinOnTabCommand` | 〃 (매개변수는 그 탭) |
+| 컨텍스트 메뉴 '반대편 페인으로 보내기' | `SendTabToOtherPaneCommand` | `WorkspaceViewModel` (페인 둘을 알아야 한다) |
+| `KeyBinding` 일곱 | `NewTab` · `CloseTab` · `NextTab` · `PreviousTab` · `ReopenClosedTab` | 〃 (활성 페인으로 라우팅) |
 - **이 저장소에서 가장 위험한 기능이다.** §2 가 탭을 *"전작이 갖추고도 실패한 6개"* 의 **첫
   항목**으로 적어 두었고, ADR-004 의 결론이 *"기능 부족은 원인이 아니었다"* 다.
   근거는 규칙이 아니라 사람이 판정한다 — 그러나 **그 문단을 읽지 않은 채 시작하지 않는다.**
@@ -301,8 +309,11 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
   main 에만 있고 0.4.3 에는 없다 — 탭 배포 때 함께 나간다는 뜻이고, **그때까지 별도 릴리스는
   하지 않는다.**
 - **실물에서만 판정되는 것 여섯**은 §17 §아직 사람이 봐야 하는 것에 그대로 있다. 그중
-  **배경 탭 활성화 시 새로 고침이 눈에 걸리는가**는 1단계가 만든 동작이라 2단계에서 화면이
-  서는 순간 처음 보인다.
+  **배경 탭 활성화 시 새로 고침이 눈에 걸리는가**는 이 구간이 만든 동작이라 화면이 서는
+  순간 처음 보인다.
+- **이름 바꾸기 UI 의 진입은 컨텍스트 메뉴 하나뿐이다** (§17). `F2` 는 파일 이름 바꾸기라
+  쓸 수 없고, 탭 줄 빈 곳 더블클릭은 이미 '새 탭' 이다. ViewModel 쪽은 `CustomTitle` 대입
+  하나로 끝나 있다 — 공백을 넣으면 폴더 이름으로 돌아간다.
 
 ### 1. 0.4.1 배포 — 끝났다 (위 §0.4.1 배포)
 
