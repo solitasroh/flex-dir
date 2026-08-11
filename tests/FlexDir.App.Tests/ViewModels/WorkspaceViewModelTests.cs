@@ -162,6 +162,74 @@ public class WorkspaceViewModelTests
         Assert.Equal("p2.jpg", workspace.Right.Selection.Anchor);
     }
 
+    // ── 마우스 보조 버튼의 뒤로·앞으로 (docs/PRD-v2.md §15) ───────
+
+    [Fact]
+    public async Task GoBackAt_ThePaneUnderThePointer_MovesThatPaneAndMakesItActive()
+    {
+        // 키보드(Alt+←)와 다른 점이 여기다 — 마우스에는 자리가 있다. 오른쪽 페인 위에서
+        // 누르면 왼쪽이 활성이어도 오른쪽이 움직이고, 그 페인이 활성이 된다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
+        var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
+        var workspace = CreateWorkspace();
+        await workspace.Right.NavigateAsync(docs);
+        await workspace.Right.NavigateAsync(pics);
+
+        await workspace.GoBackAtAsync(workspace.Right);
+
+        Assert.Equal(docs, workspace.Right.CurrentLocation);
+        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Null(workspace.Left.CurrentLocation);
+    }
+
+    [Fact]
+    public async Task GoForwardAt_ThePaneUnderThePointer_MovesThatPane()
+    {
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
+        var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
+        var workspace = CreateWorkspace();
+        await workspace.Right.NavigateAsync(docs);
+        await workspace.Right.NavigateAsync(pics);
+        await workspace.Right.GoBackAsync();
+
+        await workspace.GoForwardAtAsync(workspace.Right);
+
+        Assert.Equal(pics, workspace.Right.CurrentLocation);
+        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+    }
+
+    [Fact]
+    public async Task GoBackAt_OutsideBothPanes_MovesTheActivePane()
+    {
+        // 트리·툴바 위에서 누른 것이 이것이다 (커서 아래 페인이 없다). 창 안에서 누른
+        // 버튼이 아무 일도 하지 않으면 고장으로 보인다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
+        var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
+        var workspace = CreateWorkspace();
+        await workspace.Left.NavigateAsync(docs);
+        await workspace.Left.NavigateAsync(pics);
+
+        await workspace.GoBackAtAsync(null);
+
+        Assert.Equal(docs, workspace.Left.CurrentLocation);
+        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
+    }
+
+    [Fact]
+    public async Task GoBackAt_APaneWithNothingToGoBackTo_StillMakesItActive()
+    {
+        // 겨냥한 페인이 화면에 보이는 편이 낫다 — 아무 반응이 없으면 버튼이 죽은 것과
+        // 구분되지 않는다. 갈 곳이 없는 것은 PaneHistory 가 조용히 판정한다.
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
+        var workspace = CreateWorkspace();
+        await workspace.Right.NavigateAsync(docs);
+
+        await workspace.GoBackAtAsync(workspace.Right);
+
+        Assert.Equal(docs, workspace.Right.CurrentLocation);
+        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+    }
+
     // ── 두 페인의 독립 ────────────────────────────────────────────
 
     [Fact]

@@ -304,6 +304,52 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         => Activate(activeSide == PaneSide.Left ? PaneSide.Right : PaneSide.Left);
 
     /// <summary>
+    /// 마우스 보조 버튼의 뒤로 (docs/PRD-v2.md §15 · 사용자 결정 2026-08-11).
+    /// <para>
+    /// <b>키보드와 대상 규칙이 다르다.</b> <c>Alt+←</c> 는 활성 페인 하나로 가지만
+    /// (docs/DESIGN.md §9) 마우스에는 <b>자리가 있다</b> — 누른 자리의 페인이 움직이고
+    /// 그 페인이 활성이 된다. 항목 클릭과 같은 규칙이다
+    /// (<see cref="PaneViewModel.ActivationRequested"/>).
+    /// </para>
+    /// </summary>
+    public Task GoBackAtAsync(PaneViewModel? under, CancellationToken ct = default)
+        => Target(under).GoBackAsync(ct);
+
+    /// <inheritdoc cref="GoBackAtAsync"/>
+    public Task GoForwardAtAsync(PaneViewModel? under, CancellationToken ct = default)
+        => Target(under).GoForwardAsync(ct);
+
+    /// <summary>
+    /// 마우스 조작이 향하는 페인. 그 페인을 활성으로 만들고 돌려준다.
+    /// <para>
+    /// 페인 밖(트리·툴바·상태표시줄)에서 누른 것은 <c>null</c> 로 오고 <b>활성 페인</b>으로
+    /// 간다 — 창 안에서 누른 버튼이 아무 일도 하지 않으면 고장으로 보인다.
+    /// </para>
+    /// <para>
+    /// 갈 곳이 없는 페인도 활성이 된다. 겨냥한 쪽이 화면에 보이는 편이 낫다 — 아무 반응이
+    /// 없으면 버튼이 죽은 것과 구분되지 않는다.
+    /// </para>
+    /// </summary>
+    private PaneViewModel Target(PaneViewModel? under)
+    {
+        if (ReferenceEquals(under, Left))
+        {
+            ActiveSide = PaneSide.Left;
+
+            return Left;
+        }
+
+        if (ReferenceEquals(under, Right))
+        {
+            ActiveSide = PaneSide.Right;
+
+            return Right;
+        }
+
+        return ActivePane;
+    }
+
+    /// <summary>
     /// 트리를 접거나 편다. 좁은 화면에서 가로 공간을 되찾는 길이고, 접어 둔 것은 기억된다
     /// (<see cref="PersistAsync"/>). 트리가 없으면 아무 일도 하지 않는다 — 툴바 버튼은
     /// 트리 없이 조립돼도 눌린다.

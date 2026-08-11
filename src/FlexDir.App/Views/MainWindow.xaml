@@ -11,7 +11,8 @@
         UseLayoutRounding="True" SnapsToDevicePixels="True"
         Background="#F3F3F3"
         Foreground="#1B1B1B"
-        v:WindowCaption.Enabled="True">
+        v:WindowCaption.Enabled="True"
+        v:MouseNavigationInput.Enabled="True">
 
     <!-- ═══ 커스텀 크롬 32 (docs/DESIGN.md §1) ═══
          CaptionHeight 가 위 32px 띠를 OS 캡션으로 넘긴다. 그래서 끌어서 옮기기 ·
