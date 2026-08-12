@@ -568,3 +568,100 @@ WPF 에서 `CollectionView.GroupDescriptions` + `GroupStyle` 로 묶는 길이 �
   폭도 함께 빠진다 — 아무 폴더도 열지 않은 페인이라 기억할 것이 없는 경우다.
 - **`FirstItemMeter` 가 0번 페인 하나만 잰다.** 페인이 런타임에 생기므로 조립 시점에 다 걸
   수 없다. 분할 이전에도 이 관찰자는 조립 시점의 활성 탭만 봤다.
+
+## ADR-020 — 다크모드는 브러시를 갈아 끼우지 않고 `Color` 만 바꾼다
+
+**맥락.** `.harness/ui-design-request.md` 는 *"다크모드는 전부 제외입니다. 넣지 마세요"* 라고
+적었고 `PRD.md` §3 도 v2+ 로 미뤘다. **사용자가 뒤집었다** (2026-08-12) — 탭·분할이 지난
+자리와 같다. 같은 요청서가 대비도 해 뒀다: *"색은 CSS 변수로 토큰화해 주세요 — 나중에
+다크로 갈아끼울 수 있어야 합니다."* `DESIGN.md` §5 의 브러시 16개가 그것이고, 실제로
+`MainWindow.xaml` 의 264곳이 전부 그 키를 참조한 채 지켜졌다.
+
+**결정.**
+
+1. **테마는 시스템·라이트·다크 3택, 기본은 시스템이다.** `Core.Settings.ThemeMode` +
+   `AppSettings.ResolveIsDarkMode(bool systemIsDark)`.
+2. **OS 값을 묻는 포트를 하나 늘린다 — `ISystemThemeSource`** (16/16). 구현체
+   `RegistrySystemThemeSource` 는 `AppsUseLightTheme` 레지스트리 값을 읽는다. COM 이 아니라
+   STA·정리가 필요 없지만, 다른 시스템 조회 포트(`IDriveList`)와 같은 이유로 비동기다.
+3. **색을 입히는 방법은 리소스 항목 교체 + `DynamicResource` 다.**
+   `Views/ThemePalette.Apply(ResourceDictionary, bool)` 가 16개 항목을 새
+   `SolidColorBrush` 로 갈아 끼우고, `MainWindow.xaml` 의 브러시 참조 153곳이
+   `DynamicResource` 로 그것을 따라간다.
+   > ⚠ **이 항목은 2026-08-12 에 정정됐다.** 처음에는 정반대로 결정했다 — 아래
+   > §고친 것: `Color` 변경은 실물에서 불가능했다.
+4. **OS 설정 변경은 `WM_SETTINGCHANGE`(`ImmersiveColorSet`) 로 감지한다.**
+   `Views/SystemThemeWatcher` 가 창에 훅을 걸고 `SettingsViewModel.RefreshSystemTheme` 을
+   부른다 — 포트 자신은 이벤트를 내지 않는다, 값을 읽기만 한다.
+
+## §고친 것 — `Color` 변경으로 가려다 실물에서 뒤집혔다 (2026-08-12, 같은 날)
+
+**처음의 결정은 "`StaticResource` 264곳을 그대로 두고 브러시의 `Color` 만 바꾼다" 였다.**
+근거는 *"XAML 의 `<SolidColorBrush x:Key="..."/>` 리소스는 자동으로 `Freeze()` 되지
+않는다"* 였고, **그것이 틀렸다.** BAML 로더는 모든 속성이 정적 값인 Freezable 을 로드할 때
+freeze 한다. 실물에서 첫 전환이 이렇게 죽었다:
+
+```
+System.InvalidOperationException: '#FF0067C0' 개체는 읽기 전용 상태이므로
+    at FlexDir.App.Views.ThemePalette.Apply(...)
+```
+
+**게이트 4종이 이것을 통과시켰다.** `ThemePaletteTests` 가 seed 를 `new SolidColorBrush(...)`
+로 만들었고 — **코드로 만든 브러시는 frozen 이 아니다** — 실물과 다른 조건을 채점했다.
+`§규칙 2`(*"계약 기반 클래스가 경로를 박아두면 실물이 만족할 수 없다 … fake 만 상속하는
+동안에는 안 드러난다"*)와 같은 계열이다. 지금 그 테스트는 seed 를 **`Freeze()` 해서** 실물
+조건을 재현하고, `Apply_OverFrozenBrushes_DoesNotThrow` 가 이 자리를 지킨다.
+
+**그리고 §14 가 이 결함을 조용하게 만들었다.** UI 스레드 예외를 `recovered` 로 삼켜서 —
+설계대로 동작한 것이지만 — 프로세스는 살고 화면만 라이트로 남았다. 판정의 정본이
+`error.log` 라는 §14 의 문장이 여기서 값을 했다: 그 파일이 없었으면 "왜 색이 안 바뀌지" 에서
+한참 헤맸다.
+
+> **일반화**: **"프레임워크가 이렇게 동작할 것이다" 를 근거로 결정을 내렸으면, 그 전제를
+> 실물에서 확인하기 전까지 결정은 잠정이다.** 여기서는 전제가 ADR 의 §결정 3번 전체를
+> 떠받치고 있었고, 그것이 무너지자 기각했던 대안이 정답이 됐다.
+
+**왜 포트를 비동기로 두는가.** 레지스트리 HKCU 값 하나를 읽는 것은 사실 빠르다 — 네트워크도
+COM 도 아니다. 그래도 동기 `bool` 프로퍼티로 두지 않은 이유는 이 저장소의 다른 모든 시스템
+조회 포트(`IDriveList` 등)가 예외 없이 비동기라서다: `CLAUDE.md` §3 의 기준은 "얼마나 걸리나"
+가 아니라 **"누가 얼마나 걸릴지 모르는 것"** 이고, 그 판단을 포트마다 다시 하게 만들지
+않는다. 한 곳만 동기로 두면 다음 시스템 조회 포트를 추가할 때 "이번엔 동기여도 되나?" 를
+또 물어야 한다.
+
+**기각한 대안**
+
+- ~~**브러시 인스턴스를 유지하고 `Color` 만 바꾼다**~~ — **처음에 이것을 골랐고 실물에서
+  뒤집혔다** (위 §고친 것). frozen 이라 불가능하다.
+- **다크용 `ResourceDictionary` 를 따로 만들어 `MergedDictionaries` 를 교체한다** — WPF 의
+  또 다른 정석이다. 항목 교체와 결과가 같은데 사전 파일이 하나 늘고, 색 표가 두 파일로
+  갈려 `DESIGN.md` §5 와 대조하기 어려워진다. 지금은 `ThemePalette` 한 곳에 라이트·다크가
+  나란히 있다.
+- **테마를 2택(라이트/다크)으로 두고 시스템 추종을 뒤로 미룬다** — 구현이 단순하다. 기각
+  사유는 탐색기·대부분의 Windows 앱이 3택이 기본이라는 것과, OS 를 다크로 쓰는 사람 앞에
+  매번 라이트 창이 뜨는 것이 첫인상을 깎는다는 것.
+- **OS 변경 감지를 폴링으로** — 훅이 필요 없다. 초 단위 타이머를 켜 두는 값이 크고,
+  `WM_SETTINGCHANGE` 는 이미 다른 attached behavior(`MaximizedFrame`)가 쓰는 같은
+  `HwndSource.AddHook` 경로라 새 배관이 아니다.
+
+**대가**
+
+- **`AppSettings` 에 항목을 늘리는 것만으로는 저장되지 않는다.** `JsonSettingsStore` 는
+  저장 형식을 Core 타입과 분리해 자체 `Document` record 를 쓰므로, 새 설정은 **record ·
+  `SaveAsync` · `Parse` 세 곳**을 함께 고쳐야 한다. 2026-08-12 에 그것을 잊었고, 화면에서는
+  다크가 골라지는데 저장도 복원도 되지 않았다 — `FakeSettingsStore` 는 `AppSettings` 를
+  객체째로 들고 있어 Core 의 계약 테스트가 통과한다. `JsonSettingsStoreTests` 의 테마
+  라운드트립 넷이 이 자리를 지킨다.
+- **`ListBox` 는 `Foreground` 를 명시해야 한다.** `PaneList` 에 그것이 없어서 항목 텍스트가
+  WPF 시스템 기본색(검정 계열)을 상속하고 있었다 — **라이트에서는 우연히 맞아 v1 부터
+  아무도 몰랐고**, 다크에서 파일 이름이 배경에 묻혀서야 드러났다. 트리는
+  `TreeItemName` 이 이미 명시하고 있어 무사했다. 다크가 **라이트 시절의 잠재 결함을
+  드러낸** 자리다.
+- **WPF 기본 컨트롤 여섯 종(`ScrollBar`·`ContextMenu`·`MenuItem`·`CheckBox`·`RadioButton`·
+  `ToolTip`)을 전부 다시 스타일해야 했다.** 이 파일에 커스텀 스타일이 없어 Aero2 기본(밝은
+  회색·흰 팝업)을 그대로 쓰고 있었다 — 목록 배경만 어둡게 하면 그 위 스크롤바만 밝게
+  남는다. 암묵적 스타일(`x:Key` 없음)로 한 번만 걸고, 기존 명시적 키 스타일 일곱 곳에는
+  `BasedOn="{StaticResource {x:Type T}}"` 를 달아 연결했다 — WPF 의 암묵적 스타일은
+  `Style=` 을 직접 건 인스턴스에는 자동으로 붙지 않는다.
+- **다크 팔레트 값은 근사치다.** Windows 11 탐색기가 쓰는 정확한 리소스 값은 공개돼 있지
+  않다 — 잘 알려진 WinUI 다크 중립 값으로 근사했고, 실물 대조는 사람이 볼 몫으로 남겼다
+  (`docs/PRD-v2.md` §19 §열린 것).
