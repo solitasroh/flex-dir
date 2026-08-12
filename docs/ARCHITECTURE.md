@@ -86,35 +86,47 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | 항목 목록 · 선택 | `PaneViewModel` | 폴더 전환까지 |
 | **탭 목록 · 활성 탭** | `PaneTabsViewModel` (페인마다 하나) | 프로세스 (목록 자체는 영구 저장) |
 | 뷰 모드 · 정렬 | `IViewStateStore` | 영구 (**폴더별** — 탭이 갖지 않는다) |
-| 스플리터 비율 · 창 위치 · **탭 목록** | `IViewStateStore` | 영구 (전역) |
+| **분할 수 · 비율 둘** · 창 위치 · **페인별 탭 목록·컬럼 폭** | `IViewStateStore` | 영구 (전역) |
 | 썸네일 | shell 캐시 | **우리가 소유하지 않는다** |
 | 사용 로그 | `IUsageLog` | 영구 (append) |
 
 **진실원천은 파일시스템이다.** 위 항목 중 목록·썸네일은 캐시이며, 어긋나면
 파일시스템을 믿는다.
 
-### 탭이 소유 구조를 한 단 깊게 한다 (docs/PRD-v2.md §17 · ADR-018)
+### 탭이 소유 구조를 한 단 깊게 한다 (docs/PRD-v2.md §17 · ADR-018 · §18 · ADR-019)
 
 ```
-WorkspaceViewModel ──> PaneTabsViewModel ×2      (LeftTabs · RightTabs)
-                              │
+WorkspaceViewModel ──> PaneTabsViewModel ×1~4   (AllPanes — 접힌 것까지)
+                              │                  Panes = 앞에서부터 SplitCount 개가 화면에
                               ├─ Tabs   : PaneViewModel ×N   전부 살아 있다
                               └─ Active : PaneViewModel      이 중 하나
 
-WorkspaceViewModel.Left  == LeftTabs.Active      (파생 속성 — 아래 참조)
-WorkspaceViewModel.Right == RightTabs.Active
+WorkspaceViewModel.ActivePane : PaneTabsViewModel   활성 페인 (인스턴스로 든다)
+WorkspaceViewModel.ActiveTab  == ActivePane.Active  (파생 속성 — 아래 참조)
+WorkspaceViewModel.OtherPane  : PaneTabsViewModel?  직전에 활성이던 <b>보이는</b> 페인 (MRU)
 ```
+
+**`PaneSide { Left, Right }` 는 없다** (분할이 들어온 2026-08-12에 사라졌다). 자리는 번호이고,
+어느 번호가 화면 어느 칸에 앉는지는 **View 만 안다** (`Views/SplitLayout.cs`) — ViewModel 이
+화면의 기하를 알면 배치를 바꿀 때마다 두 계층을 함께 고쳐야 한다.
+
+**`OtherPane` 이 nullable 인 것은 1분할 때문이다.** 갈 곳이 없다는 것을 타입으로 말한다 —
+자기 자신을 내면 '다른 페인으로 복사' 가 제자리 복사가 되고 그것은 조용히 파일을 부른다.
 
 **View 가 무는 자리는 2단이다** (탭 줄이 선 2026-08-11에 이렇게 됐다):
 
 ```
-ContentControl  Content={Binding LeftTabs}  Template=PaneWithTabs   ← 탭 줄 + 페인 크롬
+ContentControl  Content={Binding Pane0}  Template=PaneWithTabs   ← 탭 줄 + 페인 크롬
   └ ContentControl  Content={Binding Active}  Template=PaneTemplate ← 페인 하나
 ```
 
+**슬롯 넷을 `Panes[n]` 이 아니라 속성 넷(`Pane0`~`Pane3`)으로 문다.** 인덱서 바인딩은 목록이
+짧을 때 **조용히** 실패한다 — 이것이 아래 교훈의 두 번째 적용이다.
+
 **`PaneTemplate` 의 계약은 그대로다** — 여전히 `PaneViewModel` 을 물고, 그 안의 바인딩 수십
-개가 손대지 않은 채 산다. `Left`·`Right` 도 타입을 지켰다: WPF 바인딩은 런타임 조회라 타입을
-바꾸면 템플릿 안 바인딩이 **컴파일 에러 없이 조용히 죽는다**
+개가 손대지 않은 채 산다. 타입을 바꾼 것은 `ActivePane` 하나뿐이고 (탭 → 페인), **그래서
+XAML 의 `ActivePane.*` 열둘을 `ActiveTab.*` 로 함께 옮겼다**: WPF 바인딩은 런타임 조회라
+타입을 바꾸면 템플릿 안 바인딩이 **컴파일 에러 없이 조용히 죽는다**
 (docs/PRD-v2.md §17 값을 치르고 배운 것).
 
 **바깥이 한 겹 늘어난 이유는 수명이다.** 활성 탭이 바뀌면 안쪽 `ContentControl` 이 무는
@@ -122,15 +134,20 @@ ContentControl  Content={Binding LeftTabs}  Template=PaneWithTabs   ← 탭 줄 
 지금 누르고 있는 그것이 매 전환마다 새로 서고 가로 스크롤 위치와 드래그 상태가 함께 사라진다
 — 그래서 줄은 탭보다 오래 사는 바깥 층에 있다.
 
-**`ActivePane` 을 지나는 배선 일곱이 "활성 페인의 활성 탭" 으로 한 단 깊어진다** — 트리
-따라가기(양방향) · 즐겨찾기 고정 · 설정의 시작 폴더 지정 · 페인 간 복사 · 이동 · 반대편
-폴더 열기 · 마우스 뒤로/앞으로.
+**`ActiveTab` 을 지나는 배선 일곱** — 트리 따라가기(양방향) · 즐겨찾기 고정 · 설정의 시작
+폴더 지정 · 페인 간 복사 · 이동 · 다른 페인 폴더 열기 · 마우스 뒤로/앞으로. 페인이 런타임에
+생기므로 **페인별 구독은 만드는 자리 하나(`Wire`)에서만 건다** — 다만 트리의
+`NavigationRequested` 는 창에 하나뿐이라 생성자에 남는다 (여기를 헷갈려 한 번 끊었고
+테스트가 잡았다).
 
 **감시는 활성 탭만 든다.** 배경 탭은 목록을 메모리에 지닌 채 `IFolderWatcher` 를 놓고,
 다시 활성이 될 때 새로 고침 한 번을 돌린 뒤 감시를 건다 — 근거는 docs/PRD-v2.md §13
-(감시 오버플로 폭주)이다. **정리도 탭 수만큼 늘어난다**: `AppComposition.DisposeAsync` 가
-모든 탭을 접은 뒤에 shell 구현체를 닫는다 (순서를 뒤집으면 진행 중인 썸네일 요청이 닫힌
-STA 큐에 들어간다).
+(감시 오버플로 폭주)이다. **접힌 페인도 같다**: 화면에 없는 페인이 감시를 들면 그 폭주가
+상태표시줄 문구조차 못 보는 자리에서 돈다 (§18). 그래서 접기(`SuspendAsync`)와
+펴기(`ResumeAsync`)가 짝이고, 탭 전환과 **같은 여는 경로**(`OpenAsync`)를 나눠 쓴다.
+**정리는 `AllPanes` 를 지난다**: `AppComposition.DisposeAsync` 가 **접힌 페인까지** 모든
+탭을 접은 뒤에 shell 구현체를 닫는다 (순서를 뒤집으면 진행 중인 썸네일 요청이 닫힌
+STA 큐에 들어가고, 접힌 것을 빼먹으면 그 탭들이 그대로 남는다).
 
 저장 위치: `%APPDATA%\flex-dir\`
 
