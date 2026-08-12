@@ -608,6 +608,48 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     }
 
     /// <summary>
+    /// 이 페인을 접는다 — 분할을 줄일 때다 (docs/PRD-v2.md §18 · 사용자 결정 2026-08-12).
+    /// <para>
+    /// <b>인스턴스는 살아 있고 감시만 놓는다.</b> 그래서 다시 폈을 때 탭도 선택도 스크롤도
+    /// 그대로 돌아온다 — 접기는 닫기가 아니다. 대가는 접힌 페인의 탭들이 메모리에 남는
+    /// 것이고 (ADR-018 이 이미 치른 값), 얻는 것은 §13 이 값을 치르고 배운 것이다:
+    /// <b>화면에 없는 것이 감시를 들면 폭주가 보이지 않는 자리에서 돈다.</b>
+    /// </para>
+    /// </summary>
+    public Task SuspendAsync()
+    {
+        // 진행 중인 전환의 '여는' 쪽을 끊는다. 그러지 않으면 접는 중에 새로 고침이 감시를
+        // 다시 건다 (DisposeAsync 와 같은 수).
+        Interlocked.Exchange(ref switching, null)?.Cancel();
+
+        switchWork = active.SuspendWatchAsync();
+
+        return switchWork;
+    }
+
+    /// <summary>
+    /// 접었던 페인을 편다 — 활성 탭이 자기 폴더를 다시 연다 (docs/PRD-v2.md §18).
+    /// <para>
+    /// <b>한 번도 접힌 적 없는 새 페인도 이 길로 선다.</b> 그때 활성 탭은
+    /// <c>PendingLocation</c> 만 든 상태이고, 그것을 여는 규칙은 배경 탭이 처음 활성이 될
+    /// 때와 완전히 같다 (<see cref="OpenAsync"/>).
+    /// </para>
+    /// </summary>
+    public Task ResumeAsync(CancellationToken ct = default)
+    {
+        var next = new CancellationTokenSource();
+
+        Interlocked.Exchange(ref switching, next)?.Cancel();
+
+        switchWork = OpenAsync(active, next.Token);
+
+        // 편 페인이 보는 폴더는 트리가 따라갈 자리다 — 탭 전환과 같은 사건이다.
+        ActiveLocationChanged?.Invoke(this, EventArgs.Empty);
+
+        return switchWork;
+    }
+
+    /// <summary>
     /// 저장된 탭 목록을 세운다 (docs/PRD-v2.md §17). <b>여는 것은 활성 탭 하나뿐이다</b> —
     /// 배경 탭은 위치만 들고 있다가 처음 활성화될 때 연다. 그것이 cold start 를 지금과 같이
     /// 두는 자리다 (ADR-018 · ADR-016).
@@ -620,7 +662,17 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     /// (<c>AppSettings.ResolveStartFolder</c>) — 그 규칙을 아는 곳은 워크스페이스다.
     /// <see langword="null"/> 이면 아무 곳도 열지 않는다 (첫 실행에 폴백조차 없는 경우).
     /// </param>
-    public Task RestoreAsync(PaneTabsState? state, LocationId? activeFolder, CancellationToken ct = default)
+    /// <param name="open">
+    /// 활성 탭의 폴더를 지금 열 것인가 (docs/PRD-v2.md §18). <b>접힌 채로 복원되는 페인은
+    /// 열지 않는다</b> — 그것이 열면 화면에 없는 페인이 감시를 들고, §13 의 폭주가 보이지
+    /// 않는 자리에서 시작할 수 있다. 그때 폴더는 배경 탭과 같이 <c>PendingLocation</c> 으로
+    /// 실리고, 펴는 순간 <see cref="ResumeAsync"/> 가 연다.
+    /// </param>
+    public Task RestoreAsync(
+        PaneTabsState? state,
+        LocationId? activeFolder,
+        bool open = true,
+        CancellationToken ct = default)
     {
         var restored = state?.Tabs ?? [];
 
@@ -651,7 +703,20 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
             OnPropertyChanged(nameof(ActiveIndex));
         }
 
-        return activeFolder is null ? Task.CompletedTask : active.NavigateAsync(activeFolder, ct);
+        if (activeFolder is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!open)
+        {
+            // 접힌 채로 선다. 배경 탭과 같은 모양이고, 펴는 순간 같은 길로 열린다.
+            active.PendingLocation = activeFolder;
+
+            return Task.CompletedTask;
+        }
+
+        return active.NavigateAsync(activeFolder, ct);
     }
 
     /// <summary>
@@ -827,6 +892,19 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
             return;
         }
 
+        await OpenAsync(arriving, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 탭 하나를 화면에 세운다 — 아직 열지 않았으면 열고, 열었으면 새로 고친다.
+    /// <para>
+    /// 탭 전환(<see cref="SwitchAsync"/>)과 페인 펴기(<see cref="ResumeAsync"/>)가 이 자리를
+    /// 나눠 쓴다. <b>같은 일이 두 자리에 있으면 한쪽만 고쳐진다</b> — 감시를 다시 거는 길이
+    /// 갈리면 §13 의 폭주가 한쪽 경로에서만 막힌다.
+    /// </para>
+    /// </summary>
+    private static async Task OpenAsync(PaneViewModel arriving, CancellationToken ct)
+    {
         // 아직 열지 않은 탭 — 복원된 배경 탭이거나 방금 만든 탭이다. 히스토리에 기록하며
         // 연다: 그 탭에서 뒤로를 누를 자리가 생긴다.
         if (arriving.PendingLocation is { } pending)

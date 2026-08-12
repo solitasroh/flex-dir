@@ -43,7 +43,7 @@ public class WorkspaceTabsTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -64,23 +64,19 @@ public class WorkspaceTabsTests
         var rights = Enumerable.Range(0, 3).Select(index => Folder($@"C:\R{index}")).ToList();
 
         await viewStates.SaveGlobalAsync(
-            GlobalViewState.Default with
-            {
-                LeftTabs = new PaneTabsState([.. folders.Select(folder => new TabState(folder))], 1),
-                RightTabs = new PaneTabsState([.. rights.Select(folder => new TabState(folder))], 2),
-            },
+            GlobalViewState.Default.WithTwoPanes(new PaneTabsState([.. folders.Select(folder => new TabState(folder))], 1), new PaneTabsState([.. rights.Select(folder => new TabState(folder))], 2)),
             CancellationToken.None);
 
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(3, workspace.LeftTabs.Tabs.Count);
-        Assert.Equal(3, workspace.RightTabs.Tabs.Count);
-        Assert.Equal(folders[1], workspace.Left.CurrentLocation);
-        Assert.Equal(rights[2], workspace.Right.CurrentLocation);
+        Assert.Equal(3, workspace.LeftTabs().Tabs.Count);
+        Assert.Equal(3, workspace.RightTabs().Tabs.Count);
+        Assert.Equal(folders[1], workspace.Left().CurrentLocation);
+        Assert.Equal(rights[2], workspace.Right().CurrentLocation);
 
         // 순서가 곧 탭 줄의 순서다.
-        Assert.Equal(folders, workspace.LeftTabs.Tabs.Select(tab => tab.CurrentLocation ?? tab.PendingLocation));
+        Assert.Equal(folders, workspace.LeftTabs().Tabs.Select(tab => tab.CurrentLocation ?? tab.PendingLocation));
 
         // 이것이 이 테스트의 본체다.
         Assert.Equal([folders[1], rights[2]], source.EnumerateCalls);
@@ -96,17 +92,14 @@ public class WorkspaceTabsTests
         settingsStore.Seed(new AppSettings { ShowHiddenItems = true });
 
         await viewStates.SaveGlobalAsync(
-            GlobalViewState.Default with
-            {
-                LeftTabs = new PaneTabsState([new TabState(left), new TabState(background)]),
-            },
+            GlobalViewState.Default.WithTwoPanes(new PaneTabsState([new TabState(left), new TabState(background)])),
             CancellationToken.None);
 
         var (workspace, _, _) = CreateWithSettings();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.All(workspace.LeftTabs.Tabs, tab => Assert.True(tab.ShowHiddenItems));
-        Assert.True(workspace.LeftTabs.ShowHiddenItems);
+        Assert.All(workspace.LeftTabs().Tabs, tab => Assert.True(tab.ShowHiddenItems));
+        Assert.True(workspace.LeftTabs().ShowHiddenItems);
     }
 
     [Fact]
@@ -120,17 +113,14 @@ public class WorkspaceTabsTests
         settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.Fixed, StartFolder = chosen });
 
         await viewStates.SaveGlobalAsync(
-            GlobalViewState.Default with
-            {
-                LeftTabs = new PaneTabsState([new TabState(remembered), new TabState(background)]),
-            },
+            GlobalViewState.Default.WithTwoPanes(new PaneTabsState([new TabState(remembered), new TabState(background)])),
             CancellationToken.None);
 
         var (workspace, _, _) = CreateWithSettings();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(chosen, workspace.Left.CurrentLocation);
-        Assert.Equal(background, workspace.LeftTabs.Tabs[1].PendingLocation);
+        Assert.Equal(chosen, workspace.Left().CurrentLocation);
+        Assert.Equal(background, workspace.LeftTabs().Tabs[1].PendingLocation);
     }
 
     [Fact]
@@ -141,24 +131,24 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        await workspace.Left.NavigateAsync(left);
-        await workspace.Right.NavigateAsync(right);
+        await workspace.Left().NavigateAsync(left);
+        await workspace.Right().NavigateAsync(right);
 
         // 좌 페인에 탭을 하나 더 만들고 원래 탭으로 돌아온다 — 저장 시점에 배경 탭이 있다.
         workspace.NewTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
-        workspace.LeftTabs.Active.CustomTitle = "일감";
-        workspace.LeftTabs.Activate(workspace.LeftTabs.Tabs[0]);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+        workspace.LeftTabs().Active.CustomTitle = "일감";
+        workspace.LeftTabs().Activate(workspace.LeftTabs().Tabs[0]);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
         await workspace.PersistAsync();
 
         var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(2, state.LeftTabs!.Tabs.Count);
-        Assert.Equal(0, state.LeftTabs.ActiveIndex);
-        Assert.Equal("일감", state.LeftTabs.Tabs[1].Title);
-        Assert.Equal(right, Assert.Single(state.RightTabs!.Tabs).Folder);
+        Assert.Equal(2, state.TabsAt(0)!.Tabs.Count);
+        Assert.Equal(0, state.TabsAt(0)!.ActiveIndex);
+        Assert.Equal("일감", state.TabsAt(0)!.Tabs[1].Title);
+        Assert.Equal(right, Assert.Single(state.TabsAt(1)!.Tabs).Folder);
     }
 
     // ── XAML 이 물고 있는 자리 ────────────────────────────────────
@@ -170,38 +160,36 @@ public class WorkspaceTabsTests
         // 속성이라 값 비교로 걸러낼 수 없으므로 전환마다 알림이 나가야 한다.
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
 
         var announced = new List<string?>();
         workspace.PropertyChanged += (_, args) => announced.Add(args.PropertyName);
 
-        var created = workspace.LeftTabs.NewTab();
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        var created = workspace.LeftTabs().NewTab();
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Same(created, workspace.Left);
-        Assert.Same(created, workspace.ActivePane);
-        Assert.Contains(nameof(WorkspaceViewModel.Left), announced);
-        Assert.Contains(nameof(WorkspaceViewModel.ActivePane), announced);
+        Assert.Same(created, workspace.Left());
+        Assert.Same(created, workspace.ActiveTab);
+        Assert.Contains(nameof(WorkspaceViewModel.ActiveTab), announced);
     }
 
     [Fact]
-    public async Task Right_SwitchingATabOfTheInactivePane_AnnouncesTheInactivePane()
+    public async Task Right_SwitchingATabOfTheOtherPane_AnnouncesTheOtherTab()
     {
-        // 페인 간 복사의 대상이 바뀐다 — View 는 그것을 InactivePane 으로 본다.
+        // 페인 간 복사의 대상이 바뀐다 — View 는 그것을 OtherTab 으로 본다.
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
 
         var announced = new List<string?>();
         workspace.PropertyChanged += (_, args) => announced.Add(args.PropertyName);
 
-        var created = workspace.RightTabs.NewTab();
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        var created = workspace.RightTabs().NewTab();
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Same(created, workspace.Right);
-        Assert.Same(created, workspace.InactivePane);
-        Assert.Contains(nameof(WorkspaceViewModel.Right), announced);
-        Assert.Contains(nameof(WorkspaceViewModel.InactivePane), announced);
+        Assert.Same(created, workspace.Right());
+        Assert.Same(created, workspace.OtherTab);
+        Assert.Contains(nameof(WorkspaceViewModel.OtherTab), announced);
     }
 
     // ── 배선 일곱 ─────────────────────────────────────────────────
@@ -215,7 +203,7 @@ public class WorkspaceTabsTests
 
         var (workspace, tree, _) = CreateWithTree();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs);
+        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs());
 
         tree.Roots[0].IsSelected = true;
         await workspace.TreeRevealWork;
@@ -236,20 +224,20 @@ public class WorkspaceTabsTests
         var second = Sub(@"C:\", "two");
         await tree.LoadAsync(CancellationToken.None);
 
-        await workspace.Left.NavigateAsync(first);
+        await workspace.Left().NavigateAsync(first);
         await workspace.TreeRevealWork;
         Assert.Equal(first, Selected(tree));
 
         // 새 탭에서 다른 곳으로 옮긴다.
-        var created = workspace.LeftTabs.NewTab();
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        var created = workspace.LeftTabs().NewTab();
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
         await created.NavigateAsync(second);
         await workspace.TreeRevealWork;
         Assert.Equal(second, Selected(tree));
 
         // 전환만으로 트리가 돌아온다 — 이 탭의 폴더는 그대로다.
-        workspace.LeftTabs.Activate(workspace.LeftTabs.Tabs[0]);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        workspace.LeftTabs().Activate(workspace.LeftTabs().Tabs[0]);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
         await workspace.TreeRevealWork;
 
         Assert.Equal(first, Selected(tree));
@@ -267,11 +255,11 @@ public class WorkspaceTabsTests
         var second = Sub(@"C:\", "two");
         await tree.LoadAsync(CancellationToken.None);
 
-        await workspace.Left.NavigateAsync(first);
-        var background = workspace.Left;
+        await workspace.Left().NavigateAsync(first);
+        var background = workspace.Left();
 
-        workspace.LeftTabs.NewTab();
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        workspace.LeftTabs().NewTab();
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
         await workspace.TreeRevealWork;
 
         await background.NavigateAsync(second);
@@ -285,7 +273,7 @@ public class WorkspaceTabsTests
     {
         // 배선 2. 즐겨찾기는 페인을 모른다.
         var (workspace, tree, _) = CreateWithTree();
-        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs);
+        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs());
 
         await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
 
@@ -300,7 +288,7 @@ public class WorkspaceTabsTests
     {
         // 배선 3. 설정은 페인을 모른다.
         var (workspace, settings, _) = CreateWithSettings();
-        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs);
+        var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs());
 
         workspace.UseCurrentFolderAsStartCommand.Execute(null);
 
@@ -315,8 +303,8 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (_, leftActive) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (_, leftActive) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
 
         leftActive.Selection.SelectSingle("a.txt");
         await workspace.CopyToOtherPaneCommand.ExecuteAsync(null);
@@ -333,8 +321,8 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (_, leftActive) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (_, leftActive) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
 
         leftActive.Selection.SelectSingle("a.txt");
         await workspace.MoveToOtherPaneCommand.ExecuteAsync(null);
@@ -351,8 +339,8 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (leftBackground, leftActive) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        var (_, rightActive) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (leftBackground, leftActive) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        var (_, rightActive) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
 
         await workspace.OpenOtherPaneLocationCommand.ExecuteAsync(null);
 
@@ -368,14 +356,14 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
         var second = Folder(@"C:\R-second");
         await rightActive.NavigateAsync(second);
         var origin = rightActive.CurrentLocation;
 
         await workspace.GoBackAtAsync(rightActive);
 
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
         Assert.NotEqual(origin, rightActive.CurrentLocation);
         Assert.Equal(second, (await GoForwardAsync(workspace, rightActive)).CurrentLocation);
 
@@ -391,13 +379,13 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (rightBackground, rightActive) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
         await rightActive.NavigateAsync(Folder(@"C:\R-second"));
         var backgroundFolder = rightBackground.CurrentLocation;
 
         await workspace.GoBackAtAsync(rightBackground);
 
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
 
         // 움직인 것은 활성 탭이다. 배경 탭은 제자리다.
         Assert.Equal(backgroundFolder, rightBackground.CurrentLocation);
@@ -413,13 +401,13 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         workspace.NewTabCommand.Execute(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal(2, workspace.RightTabs.Tabs.Count);
-        Assert.Single(workspace.LeftTabs.Tabs);
+        Assert.Equal(2, workspace.RightTabs().Tabs.Count);
+        Assert.Single(workspace.LeftTabs().Tabs);
     }
 
     [Fact]
@@ -427,15 +415,15 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        var (first, second) = await TwoTabsAsync(workspace.LeftTabs);
+        var (first, second) = await TwoTabsAsync(workspace.LeftTabs());
 
         workspace.NextTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
-        Assert.Same(first, workspace.Left);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+        Assert.Same(first, workspace.Left());
 
         workspace.PreviousTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
-        Assert.Same(second, workspace.Left);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+        Assert.Same(second, workspace.Left());
     }
 
     [Fact]
@@ -443,15 +431,15 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
 
         await workspace.CloseTabCommand.ExecuteAsync(null);
 
-        Assert.Single(workspace.LeftTabs.Tabs);
+        Assert.Single(workspace.LeftTabs().Tabs);
 
         // 되살릴 것도 없다 — 닫히지 않았으므로 스택이 비어 있어야 한다.
         workspace.ReopenClosedTabCommand.Execute(null);
-        Assert.Single(workspace.LeftTabs.Tabs);
+        Assert.Single(workspace.LeftTabs().Tabs);
     }
 
     [Fact]
@@ -459,12 +447,12 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await TwoTabsAsync(workspace.LeftTabs);
-        workspace.Left.IsPinned = true;
+        await TwoTabsAsync(workspace.LeftTabs());
+        workspace.Left().IsPinned = true;
 
         await workspace.CloseTabCommand.ExecuteAsync(null);
 
-        Assert.Equal(2, workspace.LeftTabs.Tabs.Count);
+        Assert.Equal(2, workspace.LeftTabs().Tabs.Count);
     }
 
     // ── 반대편 페인으로 보내기 (docs/PRD-v2.md §17) ────────────────
@@ -477,25 +465,25 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (leftKept, leftMoving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var (leftKept, leftMoving) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
 
         leftMoving.Selection.SelectSingle("a.txt");
         var folder = leftMoving.CurrentLocation;
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
         // 같은 인스턴스가 반대편에 서 있다.
-        Assert.DoesNotContain(leftMoving, workspace.LeftTabs.Tabs);
-        Assert.Contains(leftMoving, workspace.RightTabs.Tabs);
-        Assert.Same(leftMoving, workspace.RightTabs.Active);
+        Assert.DoesNotContain(leftMoving, workspace.LeftTabs().Tabs);
+        Assert.Contains(leftMoving, workspace.RightTabs().Tabs);
+        Assert.Same(leftMoving, workspace.RightTabs().Active);
         Assert.Equal(folder, leftMoving.CurrentLocation);
         Assert.Equal(["a.txt"], leftMoving.Selection.SelectedNames);
 
         // 활성 페인은 따라가지 않는다 (사용자 결정 2026-08-11) — 보내는 것은 정리 동작이다.
-        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
-        Assert.Same(leftKept, workspace.ActivePane);
+        Assert.Same(workspace.LeftTabs(), workspace.ActivePane);
+        Assert.Same(leftKept, workspace.ActiveTab);
     }
 
     [Fact]
@@ -504,18 +492,18 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        var (rightFirst, rightSecond) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        var (rightFirst, rightSecond) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
 
         // 도착 페인의 활성 탭을 첫 번째로 되돌린다 — 착지가 "맨 뒤" 가 아님을 보려면 활성
         // 탭이 맨 뒤가 아니어야 한다.
-        workspace.RightTabs.Activate(rightFirst);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        workspace.RightTabs().Activate(rightFirst);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal([rightFirst, moving, rightSecond], workspace.RightTabs.Tabs);
+        Assert.Equal([rightFirst, moving, rightSecond], workspace.RightTabs().Tabs);
     }
 
     [Fact]
@@ -526,16 +514,16 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (background, active) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var (background, active) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
 
-        Assert.Same(active, workspace.LeftTabs.Active);
+        Assert.Same(active, workspace.LeftTabs().Active);
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(background);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Contains(background, workspace.RightTabs.Tabs);
-        Assert.Same(active, Assert.Single(workspace.LeftTabs.Tabs));
+        Assert.Contains(background, workspace.RightTabs().Tabs);
+        Assert.Same(active, Assert.Single(workspace.LeftTabs().Tabs));
     }
 
     [Fact]
@@ -545,14 +533,14 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
-        var (_, moving) = await TwoTabsAsync(workspace.RightTabs, prefix: "R");
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
+        var (_, moving) = await TwoTabsAsync(workspace.RightTabs(), prefix: "R");
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(moving);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Contains(moving, workspace.LeftTabs.Tabs);
-        Assert.DoesNotContain(moving, workspace.RightTabs.Tabs);
+        Assert.Contains(moving, workspace.LeftTabs().Tabs);
+        Assert.DoesNotContain(moving, workspace.RightTabs().Tabs);
     }
 
     [Fact]
@@ -561,14 +549,14 @@ public class WorkspaceTabsTests
         // 보내면 그 페인이 탭 0개가 된다 — "페인은 항상 둘" 전제가 깨진다.
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        var only = workspace.Left;
+        var only = workspace.Left();
         await only.NavigateAsync(Folder(@"C:\L0"));
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
 
-        Assert.Same(only, Assert.Single(workspace.LeftTabs.Tabs));
-        Assert.Single(workspace.RightTabs.Tabs);
+        Assert.Same(only, Assert.Single(workspace.LeftTabs().Tabs));
+        Assert.Single(workspace.RightTabs().Tabs);
     }
 
     [Fact]
@@ -579,14 +567,14 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
         moving.IsPinned = true;
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Contains(moving, workspace.RightTabs.Tabs);
+        Assert.Contains(moving, workspace.RightTabs().Tabs);
         Assert.True(moving.IsPinned);
     }
 
@@ -598,18 +586,18 @@ public class WorkspaceTabsTests
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var (_, moving) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
         var folder = moving.CurrentLocation;
 
         await workspace.SendTabToOtherPaneCommand.ExecuteAsync(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
         await workspace.PersistAsync();
 
         var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
 
-        Assert.DoesNotContain(folder, state.LeftTabs!.Tabs.Select(tab => tab.Folder));
-        Assert.Contains(folder, state.RightTabs!.Tabs.Select(tab => tab.Folder));
+        Assert.DoesNotContain(folder, state.TabsAt(0)!.Tabs.Select(tab => tab.Folder));
+        Assert.Contains(folder, state.TabsAt(1)!.Tabs.Select(tab => tab.Folder));
     }
 
     // ── 닫은 탭 되살리기 (Ctrl+Shift+T) ───────────────────────────
@@ -623,37 +611,37 @@ public class WorkspaceTabsTests
         await workspace.RestoreAsync(null, CancellationToken.None);
 
         // 우 페인에 탭 셋을 만들고 가운데를 닫는다.
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
         workspace.NewTabCommand.Execute(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
-        var closing = workspace.Right;
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
+        var closing = workspace.Right();
         var closingFolder = Folder(@"C:\R-middle");
         await closing.NavigateAsync(closingFolder);
         workspace.NewTabCommand.Execute(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal(3, workspace.RightTabs.Tabs.Count);
-        Assert.Equal(1, workspace.RightTabs.Tabs.IndexOf(closing));
+        Assert.Equal(3, workspace.RightTabs().Tabs.Count);
+        Assert.Equal(1, workspace.RightTabs().Tabs.IndexOf(closing));
 
-        workspace.RightTabs.Activate(closing);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        workspace.RightTabs().Activate(closing);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
         await workspace.CloseTabCommand.ExecuteAsync(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal(2, workspace.RightTabs.Tabs.Count);
+        Assert.Equal(2, workspace.RightTabs().Tabs.Count);
 
         // 닫은 직후 반대편으로 옮겨가서 누른다 — 페인별 스택이면 여기서 돌아오지 않는다.
-        workspace.ActivateCommand.Execute(PaneSide.Left);
+        workspace.ActivateCommand.Execute(workspace.LeftTabs());
 
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.RightTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.RightTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal(3, workspace.RightTabs.Tabs.Count);
-        Assert.Equal(closingFolder, workspace.RightTabs.Tabs[1].CurrentLocation);
-        Assert.Same(workspace.RightTabs.Tabs[1], workspace.RightTabs.Active);
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
-        Assert.Same(workspace.RightTabs.Tabs[1], workspace.ActivePane);
+        Assert.Equal(3, workspace.RightTabs().Tabs.Count);
+        Assert.Equal(closingFolder, workspace.RightTabs().Tabs[1].CurrentLocation);
+        Assert.Same(workspace.RightTabs().Tabs[1], workspace.RightTabs().Active);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
+        Assert.Same(workspace.RightTabs().Tabs[1], workspace.ActiveTab);
     }
 
     [Fact]
@@ -661,16 +649,16 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await TwoTabsAsync(workspace.LeftTabs);
+        await TwoTabsAsync(workspace.LeftTabs());
 
-        workspace.Left.CustomTitle = "일감";
+        workspace.Left().CustomTitle = "일감";
         await workspace.CloseTabCommand.ExecuteAsync(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Equal("일감", workspace.Left.Title);
+        Assert.Equal("일감", workspace.Left().Title);
     }
 
     [Fact]
@@ -678,7 +666,7 @@ public class WorkspaceTabsTests
     {
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
 
         var first = await AddTabAsync(workspace, Folder(@"C:\First"));
         var second = await AddTabAsync(workspace, Folder(@"C:\Second"));
@@ -687,12 +675,12 @@ public class WorkspaceTabsTests
         await CloseAsync(workspace, first);
 
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
-        Assert.Equal(@"C:\First", workspace.Left.CurrentLocation!.DisplayPath);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+        Assert.Equal(@"C:\First", workspace.Left().CurrentLocation!.DisplayPath);
 
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
-        Assert.Equal(@"C:\Second", workspace.Left.CurrentLocation!.DisplayPath);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+        Assert.Equal(@"C:\Second", workspace.Left().CurrentLocation!.DisplayPath);
     }
 
     [Fact]
@@ -701,7 +689,7 @@ public class WorkspaceTabsTests
         // 깊이 10 이다 (docs/PRD-v2.md §17). 넘치면 버리는 것은 <b>가장 오래된 것</b>이다.
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
 
         for (var index = 0; index < 11; index++)
         {
@@ -711,16 +699,16 @@ public class WorkspaceTabsTests
         for (var index = 10; index >= 1; index--)
         {
             workspace.ReopenClosedTabCommand.Execute(null);
-            await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+            await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
-            Assert.Equal($@"C:\T{index}", workspace.Left.CurrentLocation!.DisplayPath);
+            Assert.Equal($@"C:\T{index}", workspace.Left().CurrentLocation!.DisplayPath);
         }
 
         // 열한 번째로 오래된 것(T0)은 버려졌다 — 더 눌러도 아무 일도 없다.
-        var before = workspace.LeftTabs.Tabs.Count;
+        var before = workspace.LeftTabs().Tabs.Count;
         workspace.ReopenClosedTabCommand.Execute(null);
 
-        Assert.Equal(before, workspace.LeftTabs.Tabs.Count);
+        Assert.Equal(before, workspace.LeftTabs().Tabs.Count);
     }
 
     [Fact]
@@ -730,25 +718,25 @@ public class WorkspaceTabsTests
         // 닫은 것이 스택에 안 들어가면 그 탭만 조용히 되살아나지 않는다.
         var workspace = CreateWorkspace();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(Folder(@"C:\L0"));
+        await workspace.Left().NavigateAsync(Folder(@"C:\L0"));
 
-        var kept = workspace.Left;
+        var kept = workspace.Left();
         await AddTabAsync(workspace, Folder(@"C:\First"));
         await AddTabAsync(workspace, Folder(@"C:\Second"));
 
-        await workspace.LeftTabs.CloseOthersAsync(kept).WaitAsync(Limit);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().CloseOthersAsync(kept).WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
-        Assert.Single(workspace.LeftTabs.Tabs);
+        Assert.Single(workspace.LeftTabs().Tabs);
 
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
         workspace.ReopenClosedTabCommand.Execute(null);
-        await workspace.LeftTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
 
         Assert.Equal(
             [@"C:\L0", @"C:\First", @"C:\Second"],
-            workspace.LeftTabs.Tabs.Select(tab => tab.CurrentLocation!.DisplayPath));
+            workspace.LeftTabs().Tabs.Select(tab => tab.CurrentLocation!.DisplayPath));
     }
 
     [Fact]
@@ -759,8 +747,8 @@ public class WorkspaceTabsTests
 
         workspace.ReopenClosedTabCommand.Execute(null);
 
-        Assert.Single(workspace.LeftTabs.Tabs);
-        Assert.Single(workspace.RightTabs.Tabs);
+        Assert.Single(workspace.LeftTabs().Tabs);
+        Assert.Single(workspace.RightTabs().Tabs);
     }
 
     // ── 숨김 정책 변경 ────────────────────────────────────────────
@@ -772,34 +760,34 @@ public class WorkspaceTabsTests
         // 탭 수만큼 나간다 — 배경 탭은 활성이 될 때 도는 새로 고침이 새 정책으로 읽는다.
         var (workspace, settings, _) = CreateWithSettings();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        var (leftBackground, _) = await TwoTabsAsync(workspace.LeftTabs, prefix: "L");
-        await workspace.Right.NavigateAsync(Folder(@"C:\R0"));
+        var (leftBackground, _) = await TwoTabsAsync(workspace.LeftTabs(), prefix: "L");
+        await workspace.Right().NavigateAsync(Folder(@"C:\R0"));
 
         var before = source.EnumerateCalls.Count;
         settings.ShowHiddenItems = true;
         await workspace.HiddenItemsWork;
 
-        Assert.All(workspace.LeftTabs.Tabs, tab => Assert.True(tab.ShowHiddenItems));
+        Assert.All(workspace.LeftTabs().Tabs, tab => Assert.True(tab.ShowHiddenItems));
         Assert.True(leftBackground.ShowHiddenItems);
         Assert.Equal(before + 2, source.EnumerateCalls.Count);
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
     private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree, object? Unused) CreateWithTree()
     {
         var tree = new FolderTreeViewModel(drives, new FakeNetworkPlaceList(), favorites, source, dispatcher);
 
-        return (new WorkspaceViewModel(CreatePane, viewStates, update: null, tree), tree, null);
+        return (new WorkspaceViewModel(CreatePane, viewStates, update: null, tree).Split2(), tree, null);
     }
 
     private (WorkspaceViewModel Workspace, SettingsViewModel Settings, object? Unused) CreateWithSettings()
     {
         var settings = new SettingsViewModel(settingsStore, dispatcher, "0.4.3", StateDirectory);
 
-        return (new WorkspaceViewModel(CreatePane, viewStates, null, null, settings), settings, null);
+        return (new WorkspaceViewModel(CreatePane, viewStates, null, null, settings).Split2(), settings, null);
     }
 
     private PaneViewModel CreatePane()
@@ -827,9 +815,9 @@ public class WorkspaceTabsTests
     private async Task<PaneViewModel> AddTabAsync(WorkspaceViewModel workspace, LocationId folder)
     {
         workspace.NewTabCommand.Execute(null);
-        await workspace.ActiveTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.ActivePane.SwitchWork.WaitAsync(Limit);
 
-        var tab = workspace.ActivePane;
+        var tab = workspace.ActiveTab;
         await tab.NavigateAsync(folder);
 
         return tab;
@@ -837,10 +825,10 @@ public class WorkspaceTabsTests
 
     private static async Task CloseAsync(WorkspaceViewModel workspace, PaneViewModel tab)
     {
-        workspace.ActiveTabs.Activate(tab);
-        await workspace.ActiveTabs.SwitchWork.WaitAsync(Limit);
+        workspace.ActivePane.Activate(tab);
+        await workspace.ActivePane.SwitchWork.WaitAsync(Limit);
         await workspace.CloseTabCommand.ExecuteAsync(null);
-        await workspace.ActiveTabs.SwitchWork.WaitAsync(Limit);
+        await workspace.ActivePane.SwitchWork.WaitAsync(Limit);
     }
 
     private static async Task<PaneViewModel> GoForwardAsync(WorkspaceViewModel workspace, PaneViewModel tab)

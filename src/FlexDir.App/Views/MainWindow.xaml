@@ -43,17 +43,17 @@
     <!-- ═══ 키보드 맵 — 창 전역 (docs/DESIGN.md §9) ═══
          방향·Enter 류는 페인 목록에 있다. 여기는 포커스와 무관한 전역 키만 둔다. -->
     <Window.InputBindings>
-        <KeyBinding Key="Left" Modifiers="Alt" Command="{Binding ActivePane.GoBackCommand}" />
-        <KeyBinding Key="Right" Modifiers="Alt" Command="{Binding ActivePane.GoForwardCommand}" />
-        <KeyBinding Key="Up" Modifiers="Alt" Command="{Binding ActivePane.GoUpCommand}" />
-        <KeyBinding Key="F5" Command="{Binding ActivePane.RefreshCommand}" />
-        <KeyBinding Key="C" Modifiers="Control" Command="{Binding ActivePane.CopySelectionCommand}" />
-        <KeyBinding Key="X" Modifiers="Control" Command="{Binding ActivePane.CutSelectionCommand}" />
-        <KeyBinding Key="V" Modifiers="Control" Command="{Binding ActivePane.PasteCommand}" />
-        <KeyBinding Key="Delete" Command="{Binding ActivePane.DeleteSelectionCommand}" />
-        <KeyBinding Key="F2" Command="{Binding ActivePane.BeginRenameCommand}" />
-        <KeyBinding Key="N" Modifiers="Control+Shift" Command="{Binding ActivePane.CreateFolderCommand}" />
-        <KeyBinding Key="A" Modifiers="Control" Command="{Binding ActivePane.SelectAllCommand}" />
+        <KeyBinding Key="Left" Modifiers="Alt" Command="{Binding ActiveTab.GoBackCommand}" />
+        <KeyBinding Key="Right" Modifiers="Alt" Command="{Binding ActiveTab.GoForwardCommand}" />
+        <KeyBinding Key="Up" Modifiers="Alt" Command="{Binding ActiveTab.GoUpCommand}" />
+        <KeyBinding Key="F5" Command="{Binding ActiveTab.RefreshCommand}" />
+        <KeyBinding Key="C" Modifiers="Control" Command="{Binding ActiveTab.CopySelectionCommand}" />
+        <KeyBinding Key="X" Modifiers="Control" Command="{Binding ActiveTab.CutSelectionCommand}" />
+        <KeyBinding Key="V" Modifiers="Control" Command="{Binding ActiveTab.PasteCommand}" />
+        <KeyBinding Key="Delete" Command="{Binding ActiveTab.DeleteSelectionCommand}" />
+        <KeyBinding Key="F2" Command="{Binding ActiveTab.BeginRenameCommand}" />
+        <KeyBinding Key="N" Modifiers="Control+Shift" Command="{Binding ActiveTab.CreateFolderCommand}" />
+        <KeyBinding Key="A" Modifiers="Control" Command="{Binding ActiveTab.SelectAllCommand}" />
         <KeyBinding Key="Tab" Command="{Binding SwitchPaneCommand}" />
         <KeyBinding Key="F6" Command="{Binding SwitchPaneCommand}" />
         <KeyBinding Key="C" Modifiers="Control+Alt" Command="{Binding CopyToOtherPaneCommand}" />
@@ -70,15 +70,15 @@
         <KeyBinding Key="PageDown" Modifiers="Control" Command="{Binding NextTabCommand}" />
         <KeyBinding Key="PageUp" Modifiers="Control" Command="{Binding PreviousTabCommand}" />
         <KeyBinding Key="T" Modifiers="Control+Shift" Command="{Binding ReopenClosedTabCommand}" />
-        <KeyBinding Key="D1" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Name}" />
-        <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Size}" />
-        <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Type}" />
-        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding ActivePane.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Modified}" />
+        <KeyBinding Key="D1" Modifiers="Control" Command="{Binding ActiveTab.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Name}" />
+        <KeyBinding Key="D2" Modifiers="Control" Command="{Binding ActiveTab.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Size}" />
+        <KeyBinding Key="D3" Modifiers="Control" Command="{Binding ActiveTab.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Type}" />
+        <KeyBinding Key="D4" Modifiers="Control" Command="{Binding ActiveTab.ChangeSortCommand}" CommandParameter="{x:Static sorting:SortKey.Modified}" />
         <!-- 뷰 4종. 탐색기는 Ctrl+Shift+1~8 이지만 우리 뷰는 4종이라 툴바 버튼 순서에 맞춘다 -->
-        <KeyBinding Key="D1" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}" />
-        <KeyBinding Key="D2" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.List}" />
-        <KeyBinding Key="D3" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Tiles}" />
-        <KeyBinding Key="D4" Modifiers="Control+Shift" Command="{Binding ActivePane.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}" />
+        <KeyBinding Key="D1" Modifiers="Control+Shift" Command="{Binding ActiveTab.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}" />
+        <KeyBinding Key="D2" Modifiers="Control+Shift" Command="{Binding ActiveTab.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.List}" />
+        <KeyBinding Key="D3" Modifiers="Control+Shift" Command="{Binding ActiveTab.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Tiles}" />
+        <KeyBinding Key="D4" Modifiers="Control+Shift" Command="{Binding ActiveTab.ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}" />
     </Window.InputBindings>
 
     <Window.Resources>
@@ -242,6 +242,19 @@
 
         <!-- 툴바의 드롭다운 머리 — ToolButton 과 같은 크기·크롬. Menu/MenuItem 을 쓰는 이유는
              눌러서 펴지는 것이 내장이라 코드비하인드가 필요 없기 때문이다 (CLAUDE.md §2) -->
+        <!-- 페인 사이의 스플리터. 분할이 들어오며 축이 둘이 되어(가로·세로) 인라인으로
+             두 벌 쓸 수 없게 됐다 — 트리 스플리터는 여전히 자기 것을 인라인으로 든다. -->
+        <Style x:Key="PaneSplitter" TargetType="GridSplitter">
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                </Trigger>
+                <Trigger Property="IsDragging" Value="True">
+                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <Style x:Key="ToolMenu" TargetType="MenuItem">
             <Setter Property="Width" Value="32" />
             <Setter Property="Height" Value="28" />
@@ -301,8 +314,26 @@
             <Setter Property="CommandParameter" Value="{Binding Key}" />
         </Style>
 
+        <!-- ═══ 분할 (docs/PRD-v2.md §18) ═══
+             항목 넷은 WorkspaceViewModel.SplitOptions 가 소유한다 — 분류 방법과 같은 이유다
+             (체크 표시를 채점할 수 있어야 한다). 커맨드는 항목의 DataContext(SplitOption)에
+             없으므로 메뉴에서 끌어온다. -->
+        <Style x:Key="SplitOptionItem" TargetType="MenuItem">
+            <Setter Property="Header" Value="{Binding Label}" />
+            <!-- 본문 글꼴을 명시한다 (docs/DESIGN.md §4). 아이콘 폰트를 쓰는 버튼 아래에
+                 달리므로, 비워 두면 상속으로 한글이 두부가 된다 -->
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="MinWidth" Value="120" />
+            <Setter Property="IsChecked" Value="{Binding IsSelected, Mode=OneWay}" />
+            <Setter Property="IsCheckable" Value="True" />
+            <Setter Property="CommandParameter" Value="{Binding Count}" />
+            <Setter Property="Command"
+                    Value="{Binding DataContext.SetSplitCommand, RelativeSource={RelativeSource AncestorType=Menu}}" />
+        </Style>
+
         <!-- 헤더 우클릭용. x:Shared="False" 로 참조마다 새 인스턴스를 만든다 —
-             하나를 좌우 페인이 나눠 쓰면 PlacementTarget 이 엇갈린다 -->
+             하나를 여러 페인이 나눠 쓰면 PlacementTarget 이 엇갈린다 -->
         <ContextMenu x:Key="GroupByMenu" x:Shared="False"
                      DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                      ItemsSource="{Binding GroupOptions}"
@@ -1285,9 +1316,25 @@
                                                     <MenuItem Header="이름 바꾸기"
                                                               Command="{Binding DataContext.BeginTitleRenameCommand}" />
                                                     <Separator />
-                                                    <MenuItem Header="반대편 페인으로 보내기"
+                                                    <MenuItem Header="다른 페인으로 보내기"
                                                               Command="{Binding Tag.Tag.SendTabToOtherPaneCommand}"
                                                               CommandParameter="{Binding DataContext}" />
+                                                    <Separator />
+                                                    <!-- 분할 (docs/PRD-v2.md §18 · 사용자 결정
+                                                         2026-08-12: 탭 줄 우클릭). 넷이면
+                                                         '여기서 분할' 이, 1분할이면 '이 페인
+                                                         닫기' 가 접힌다 — 눌러도 아무 일이
+                                                         없는 항목은 고장으로 보인다. -->
+                                                    <MenuItem Header="여기서 분할"
+                                                              Command="{Binding Tag.Tag.SplitOnceCommand}"
+                                                              Visibility="{Binding Tag.Tag.CanSplit, Converter={StaticResource BoolToVisibility}}" />
+                                                    <!-- 지목한 페인을 닫는다. 커맨드가 받는
+                                                         것은 탭이 아니라 **탭 목록**이라
+                                                         Tag(ItemsControl)의 DataContext 다. -->
+                                                    <MenuItem Header="이 페인 닫기"
+                                                              Command="{Binding Tag.Tag.ClosePaneCommand}"
+                                                              CommandParameter="{Binding Tag.DataContext}"
+                                                              Visibility="{Binding Tag.Tag.CanClosePane, Converter={StaticResource BoolToVisibility}}" />
                                                 </ContextMenu>
                                             </Button.ContextMenu>
 
@@ -1347,8 +1394,9 @@
                         </DockPanel>
                     </Border>
 
-                    <!-- 활성 탭 하나가 페인을 그린다. 여기가 XAML 이 물고 있던 자리이고
-                         (Left == LeftTabs.Active) 1단계가 그것을 파생 속성으로 남긴 이유다. -->
+                    <!-- 활성 탭 하나가 페인을 그린다. 바깥이 무는 것은 탭 목록이고
+                         (PaneWithTabs) 여기서 그 안의 활성 탭으로 한 번 더 물린다 —
+                         탭 줄이 탭보다 오래 살아야 하기 때문이다. -->
                     <ContentControl Content="{Binding Active}" Focusable="False"
                                     ContentTemplate="{StaticResource PaneTemplate}" />
                 </DockPanel>
@@ -1699,6 +1747,22 @@
                 <Button Style="{StaticResource ToolButton}" Content="&#xE735;"
                         ToolTip="현재 폴더를 즐겨찾기에 추가" Command="{Binding PinCurrentFolderCommand}" />
 
+                <!-- 분할 (docs/PRD-v2.md §18 · 사용자 결정 2026-08-12: 툴바 버튼).
+                     트리 토글·즐겨찾기와 같은 자리인 이유도 같다 — 분할은 창 전체에 걸리고,
+                     페인 툴바에 두면 같은 버튼이 페인 수만큼 생긴다.
+
+                     **단축키는 없다** (사용자 결정 2026-08-12). Ctrl+1~4 는 정렬 키가,
+                     Ctrl+Shift+1~4 는 보기 모드가 이미 쓴다 — 실제로 써 보고 고른다.
+
+                     버튼 넷이 아니라 메뉴인 이유: 지금 몇 분할인지를 체크 표시로 말할 수
+                     있고 (분류 메뉴와 같은 수), 글리프 넷을 새로 고르지 않아도 된다. -->
+                <Menu Background="Transparent" VerticalAlignment="Center">
+                    <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE8A9;"
+                              AutomationProperties.Name="분할" ToolTip="분할"
+                              ItemsSource="{Binding SplitOptions}"
+                              ItemContainerStyle="{StaticResource SplitOptionItem}" />
+                </Menu>
+
                 <!-- 설정 (docs/PRD-v2.md §12). 창 전체에 걸리는 것이라 페인 툴바가 아니라
                      여기다 — 트리 토글·즐겨찾기와 같은 판단이다. E713 은 톱니 실루엣이고
                      옆의 둘(선 E700 · 별 E735)과 계열이 겹치지 않는다 (docs/DESIGN.md §7). -->
@@ -1778,41 +1842,95 @@
                 </GridSplitter.Style>
             </GridSplitter>
 
-        <!-- 페인 둘 + 스플리터 6 (docs/DESIGN.md §1). 비율은 복원·저장 대상이다.
-             위 여백이 0 인 것은 목업 .panes 그대로다 — 페인의 둥근 위 모서리가 타이틀바에
-             붙어야 크롬이 이어져 보인다. -->
+        <!-- 페인 하나~넷 + 스플리터 6 (docs/DESIGN.md §1 · docs/PRD-v2.md §18). 비율 둘은
+             복원·저장 대상이다. 위 여백이 0 인 것은 목업 .panes 그대로다 — 페인의 둥근 위
+             모서리가 타이틀바에 붙어야 크롬이 이어져 보인다.
+
+             **열·행 정의는 분할 수와 무관하게 고정이다.** 바뀌는 것은 자식이 어느 칸을
+             차지하는가뿐이고 (v:SplitLayout), 정의를 갈아 끼우면 그때마다 페인이 통째로
+             다시 그려져 스크롤과 선택 표시가 튄다. -->
         <Grid Grid.Column="2"
               v:SplitterSync.Enabled="True"
-              v:SplitterSync.Ratio="{Binding SplitterRatio, Mode=TwoWay}">
+              v:SplitterSync.Ratio="{Binding SplitterRatio, Mode=TwoWay}"
+              v:SplitterSync.RowRatio="{Binding RowRatio, Mode=TwoWay}"
+              v:SplitLayout.Count="{Binding SplitCount}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="320" />
                 <ColumnDefinition Width="6" />
                 <ColumnDefinition Width="*" MinWidth="320" />
             </Grid.ColumnDefinitions>
-            <!-- 무는 것이 활성 탭(Left)이 아니라 <b>탭 목록</b>이다 — 탭 줄이 탭보다 오래
-                 살아야 하기 때문이다 (PaneWithTabs 주석). PaneTemplate 은 그 안쪽
-                 ContentControl 이 활성 탭으로 다시 물리므로 템플릿 안 바인딩은 그대로다. -->
-            <ContentControl Content="{Binding LeftTabs}" ContentTemplate="{StaticResource PaneWithTabs}"
-                            Focusable="False"
-                            v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Left}}" />
-            <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                          Background="Transparent" Focusable="False">
-                <GridSplitter.Style>
-                    <Style TargetType="GridSplitter">
-                        <Style.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsDragging" Value="True">
-                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
-                            </Trigger>
-                        </Style.Triggers>
-                    </Style>
-                </GridSplitter.Style>
-            </GridSplitter>
-            <ContentControl Grid.Column="2" Content="{Binding RightTabs}" ContentTemplate="{StaticResource PaneWithTabs}"
-                            Focusable="False"
-                            v:PaneChrome.IsActive="{Binding ActiveSide, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static vm:PaneSide.Right}}" />
+            <!-- 행 최소 높이가 열(320)보다 훨씬 작다. 목록은 세로로 좁아도 쓸 수 있고,
+                 여기를 크게 잡으면 창 최소 높이가 그만큼 밀려 올라간다. -->
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" MinHeight="120" />
+                <RowDefinition Height="6" />
+                <RowDefinition Height="*" MinHeight="120" />
+            </Grid.RowDefinitions>
+
+            <!-- 무는 것이 활성 탭이 아니라 <b>탭 목록</b>이다 — 탭 줄이 탭보다 오래 살아야
+                 하기 때문이다 (PaneWithTabs 주석). PaneTemplate 은 그 안쪽 ContentControl 이
+                 활성 탭으로 다시 물리므로 템플릿 안 바인딩은 그대로다.
+
+                 슬롯을 Panes[n] 이 아니라 속성 넷으로 무는 이유는 WorkspaceViewModel.Pane0
+                 주석에 있다 — 인덱서 바인딩은 목록이 짧을 때 조용히 실패한다.
+
+                 Grid.Row·Column 을 여기 적지 않는다. 그것은 SplitLayout 이 정하고, 여기 적으면
+                 분할 수에 따라 달라지는 값이 두 곳에 생긴다. -->
+            <!-- 활성 표시는 <b>같은 인스턴스인가</b>로 가른다 (SameInstanceConverter) —
+                 번호로 가르면 페인을 닫을 때 맨 뒤와 자리를 맞바꾸는 순간
+                 (WorkspaceViewModel.ClosePane) 표시가 엉뚱한 칸에 남는다. 탭 줄이 활성 탭을
+                 가리는 것과 완전히 같은 수다. -->
+            <ContentControl v:SplitLayout.Part="Pane0"
+                            Content="{Binding Pane0}" ContentTemplate="{StaticResource PaneWithTabs}"
+                            Focusable="False">
+                <v:PaneChrome.IsActive>
+                    <MultiBinding Converter="{StaticResource SameInstance}">
+                        <Binding Path="Pane0" />
+                        <Binding Path="ActivePane" />
+                    </MultiBinding>
+                </v:PaneChrome.IsActive>
+            </ContentControl>
+            <ContentControl v:SplitLayout.Part="Pane1"
+                            Content="{Binding Pane1}" ContentTemplate="{StaticResource PaneWithTabs}"
+                            Focusable="False">
+                <v:PaneChrome.IsActive>
+                    <MultiBinding Converter="{StaticResource SameInstance}">
+                        <Binding Path="Pane1" />
+                        <Binding Path="ActivePane" />
+                    </MultiBinding>
+                </v:PaneChrome.IsActive>
+            </ContentControl>
+            <ContentControl v:SplitLayout.Part="Pane2"
+                            Content="{Binding Pane2}" ContentTemplate="{StaticResource PaneWithTabs}"
+                            Focusable="False">
+                <v:PaneChrome.IsActive>
+                    <MultiBinding Converter="{StaticResource SameInstance}">
+                        <Binding Path="Pane2" />
+                        <Binding Path="ActivePane" />
+                    </MultiBinding>
+                </v:PaneChrome.IsActive>
+            </ContentControl>
+            <ContentControl v:SplitLayout.Part="Pane3"
+                            Content="{Binding Pane3}" ContentTemplate="{StaticResource PaneWithTabs}"
+                            Focusable="False">
+                <v:PaneChrome.IsActive>
+                    <MultiBinding Converter="{StaticResource SameInstance}">
+                        <Binding Path="Pane3" />
+                        <Binding Path="ActivePane" />
+                    </MultiBinding>
+                </v:PaneChrome.IsActive>
+            </ContentControl>
+
+            <!-- ResizeDirection 을 명시한다. Auto 면 SplitterSync 가 어느 비율을 되쓸지
+                 판정할 수 없고, 짐작하면 세로로 끈 것이 열 비율을 덮어쓴다. -->
+            <GridSplitter v:SplitLayout.Part="ColumnSplitter" ResizeDirection="Columns"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" Focusable="False"
+                          Style="{StaticResource PaneSplitter}" />
+            <GridSplitter v:SplitLayout.Part="RowSplitter" ResizeDirection="Rows"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" Focusable="False"
+                          Style="{StaticResource PaneSplitter}" />
         </Grid>
         </Grid>
 

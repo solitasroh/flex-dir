@@ -27,7 +27,7 @@ public class WorkspaceTreeSyncTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -73,7 +73,7 @@ public class WorkspaceTreeSyncTests
         var tree = new FolderTreeViewModel(
             drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
-        var workspace = new WorkspaceViewModel(CreatePane, viewStates, null, tree);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates, null, tree).Split2();
 
         return (workspace, tree, work, play);
     }
@@ -100,7 +100,7 @@ public class WorkspaceTreeSyncTests
         var (workspace, tree, work, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        await workspace.Left.NavigateAsync(work);
+        await workspace.Left().NavigateAsync(work);
         await workspace.TreeRevealWork;
 
         Assert.Equal(work, Selected(tree));
@@ -113,10 +113,10 @@ public class WorkspaceTreeSyncTests
         // 어느 쪽을 보고 있는지 알 수 없고, 그 탐색은 전부 저장소 호출이다.
         var (workspace, tree, work, play) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(work);
+        await workspace.Left().NavigateAsync(work);
         await workspace.TreeRevealWork;
 
-        await workspace.Right.NavigateAsync(play);
+        await workspace.Right().NavigateAsync(play);
         await workspace.TreeRevealWork;
 
         Assert.Equal(work, Selected(tree));
@@ -129,8 +129,8 @@ public class WorkspaceTreeSyncTests
         // 자리를 계속 보여준다.
         var (workspace, tree, work, play) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(work);
-        await workspace.Right.NavigateAsync(play);
+        await workspace.Left().NavigateAsync(work);
+        await workspace.Right().NavigateAsync(play);
         await workspace.TreeRevealWork;
 
         workspace.SwitchPaneCommand.Execute(null);
@@ -154,7 +154,7 @@ public class WorkspaceTreeSyncTests
         node.IsSelected = true;
         await workspace.TreeRevealWork;
 
-        Assert.Equal(work, workspace.ActivePane.CurrentLocation);
+        Assert.Equal(work, workspace.ActiveTab.CurrentLocation);
 
         // 유한하면 된다. 정확한 수를 못박으면 무관한 최적화가 이 테스트를 깨뜨린다.
         Assert.True(
@@ -169,13 +169,13 @@ public class WorkspaceTreeSyncTests
         // 자리를 잃는다 — 아무것도 하지 않는 편이 낫다.
         var (workspace, tree, work, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        await workspace.Left.NavigateAsync(work);
+        await workspace.Left().NavigateAsync(work);
         await workspace.TreeRevealWork;
 
         var elsewhere = Loc(@"D:\elsewhere");
         source.Folders[elsewhere] = [];
 
-        await workspace.Left.NavigateAsync(elsewhere);
+        await workspace.Left().NavigateAsync(elsewhere);
         await workspace.TreeRevealWork;
 
         Assert.Equal(work, Selected(tree));
@@ -188,11 +188,11 @@ public class WorkspaceTreeSyncTests
         var folder = Loc(@"C:\work");
         source.Folders[folder] = [];
 
-        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
-        await workspace.Left.NavigateAsync(folder);
+        await workspace.Left().NavigateAsync(folder);
         await workspace.TreeRevealWork;
 
-        Assert.Equal(folder, workspace.Left.CurrentLocation);
+        Assert.Equal(folder, workspace.Left().CurrentLocation);
     }
 }

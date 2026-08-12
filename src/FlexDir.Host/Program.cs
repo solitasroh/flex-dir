@@ -110,8 +110,12 @@ internal static class Program
 
         // 폴더 전환 → 첫 항목 도착 (FirstItem). 페인 밖에서 관찰한다 — perf.log 는 Host 의
         // 것이고, App 이 그것을 알면 참조 방향이 뒤집힌다.
-        using var leftMeter = new FirstItemMeter(composition.Workspace.Left, perf, TimeProvider.System);
-        using var rightMeter = new FirstItemMeter(composition.Workspace.Right, perf, TimeProvider.System);
+        //
+        // **0번 페인의 첫 탭만 잰다** (docs/PRD-v2.md §18). 페인이 런타임에 생기고 사라지므로
+        // 조립 시점에 다 걸 수 없고, 여기 있는 것은 그때 존재하는 하나뿐이다 — 분할 이전에도
+        // 이 관찰자는 조립 시점의 활성 탭만 봤고 탭 전환으로 생긴 탭은 못 봤다. cold start 를
+        // 재는 것이 목적이라 그 하나로 충분하다.
+        using var firstPaneMeter = new FirstItemMeter(composition.Workspace.ActiveTab, perf, TimeProvider.System);
 
         using var lifetime = new CancellationTokenSource();
 
@@ -164,7 +168,7 @@ internal static class Program
         lifetime.Cancel();
 
         // 진행 중인 계측 기록을 마저 쓴다 — 종료 직전의 폴더 전환이 마지막 수치다.
-        Task.WhenAll(leftMeter.Recording, rightMeter.Recording).GetAwaiter().GetResult();
+        firstPaneMeter.Recording.GetAwaiter().GetResult();
 
         // 마지막 폴더·스플리터·창 배치를 남긴다 — 다음 실행의 시작 상태다. 페인을 접기 전이다.
         composition.Workspace.PersistAsync(CancellationToken.None).GetAwaiter().GetResult();

@@ -81,9 +81,13 @@ public sealed class SameInstanceConverter : IMultiValueConverter
 }
 
 /// <summary>
-/// 값이 매개변수와 같은가. 활성 페인 판정(<c>ActiveSide</c> = <c>PaneSide</c>)과 정렬
-/// 화살표 표시(<c>Sort[0].Key</c> = 컬럼 키)가 쓴다. 대상이 <c>Visibility</c> 면 그대로
-/// 매핑한다 — WPF 는 bool→Visibility 를 자동 변환하지 않는다.
+/// 값이 매개변수와 같은가. 정렬 화살표 표시(<c>Sort[0].Key</c> = 컬럼 키)와 뷰 모드 판정이
+/// 쓴다. 대상이 <c>Visibility</c> 면 그대로 매핑한다 — WPF 는 bool→Visibility 를 자동
+/// 변환하지 않는다.
+/// <para>
+/// 활성 페인 판정은 여기가 아니다 — 인스턴스 비교라 <see cref="SameInstanceConverter"/> 다
+/// (분할이 들어오며 <c>PaneSide</c> 열거형이 사라졌다, docs/PRD-v2.md §18).
+/// </para>
 /// </summary>
 public sealed class EnumEqualityConverter : IValueConverter
 {

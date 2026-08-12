@@ -140,7 +140,7 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
         Assert.Equal(0.4, loaded.SplitterRatio);
-        Assert.NotNull(loaded.LeftTabs);
+        Assert.NotNull(loaded.Panes);
         Assert.True(loaded.TreeVisible);
         Assert.Equal(GlobalViewState.DefaultTreeWidth, loaded.TreeWidth);
     }
@@ -157,19 +157,68 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
 
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
-        var left = Assert.Single(loaded.LeftTabs!.Tabs);
-        Assert.Equal(Folder(@"C:\Temp"), left.Folder);
-        Assert.False(left.IsPinned);
-        Assert.Null(left.Title);
-        Assert.Equal(0, loaded.LeftTabs.ActiveIndex);
+        var first = Assert.Single(loaded.Panes![0].Tabs.Tabs);
+        Assert.Equal(Folder(@"C:\Temp"), first.Folder);
+        Assert.False(first.IsPinned);
+        Assert.Null(first.Title);
+        Assert.Equal(0, loaded.Panes[0].Tabs.ActiveIndex);
 
-        Assert.Equal(Folder(@"D:\"), Assert.Single(loaded.RightTabs!.Tabs).Folder);
+        Assert.Equal(Folder(@"D:\"), Assert.Single(loaded.Panes[1].Tabs.Tabs).Folder);
     }
 
-    // 한쪽만 기억이 있는 파일. 없는 쪽을 "탭 0개" 로 읽으면 그 페인이 시작 폴더 규칙을
-    // 지나지 못하고 빈 채로 뜬다 — 기억이 없는 것은 null 이다.
+    // ── 분할 이전 파일 (docs/PRD-v2.md §18 저장 호환) ────────────────
+    // v0.5.0 까지는 페인이 언제나 둘이었다. 그 파일을 1분할로 읽으면 이미 쓰던 사람의
+    // 화면이 갱신 한 번으로 반쪽이 된다 — 1분할은 **기억이 없을 때**의 기본이다
+    // (사용자 결정 2026-08-12).
+
     [Fact]
-    public async Task FileWrittenBeforeTabs_WithOnlyOneFolder_LeavesTheOtherPaneUnremembered()
+    public async Task FileWrittenBeforeSplitting_LoadsAsTwoPanes()
+    {
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "leftTabs": { "tabs": [ { "folder": "C:\\Left" } ] },
+                "rightTabs": { "tabs": [ { "folder": "D:\\Right" } ] }
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(2, loaded.PaneCount);
+        Assert.Equal(2, loaded.Panes!.Count);
+        Assert.Equal(Folder(@"C:\Left"), loaded.Panes[0].Tabs.Tabs[0].Folder);
+        Assert.Equal(Folder(@"D:\Right"), loaded.Panes[1].Tabs.Tabs[0].Folder);
+    }
+
+    [Fact]
+    public async Task FileWrittenBeforeSplitting_CarriesEachPaneColumnWidths()
+    {
+        // 컬럼 폭도 좌·우 두 벌이었다. 페인으로 접을 때 함께 따라오지 않으면 갱신 한 번에
+        // 끌어 둔 폭이 사라진다.
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "leftTabs": { "tabs": [ { "folder": "C:\\Left" } ] },
+                "rightTabs": { "tabs": [ { "folder": "D:\\Right" } ] },
+                "leftColumns": { "name": 400, "size": 70, "type": 200, "modified": 180 },
+                "rightColumns": { "name": 200, "size": 60, "type": 90, "modified": 100 }
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(new PaneColumns(400, 70, 200, 180), loaded.Panes![0].Columns);
+        Assert.Equal(new PaneColumns(200, 60, 90, 100), loaded.Panes[1].Columns);
+    }
+
+    // 한쪽만 기억이 있는 파일. 그래도 분할은 둘이다 — 모자란 자리는 ViewModel 이 활성
+    // 페인을 복제해 채운다. 여기서 수를 줄이면 그 사람은 쓰던 분할을 잃는다.
+    [Fact]
+    public async Task FileWrittenBeforeTabs_WithOnlyOneFolder_StillLoadsAsTwoPanes()
     {
         WriteRawFile("""
             { "global": { "splitterRatio": 0.4, "leftFolder": "C:\\Temp" } }
@@ -177,8 +226,77 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
 
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
-        Assert.NotNull(loaded.LeftTabs);
-        Assert.Null(loaded.RightTabs);
+        Assert.Equal(2, loaded.PaneCount);
+        Assert.Single(loaded.Panes!);
+    }
+
+    // 아무 기억도 없는 파일은 1분할이다. 좌·우 필드가 없다는 것은 창을 한 번도 띄우지
+    // 않았다는 뜻이라, 되찾을 분할이 없다.
+    [Fact]
+    public async Task FileWithoutAnyFolders_LoadsAsOnePane()
+    {
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4 } }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(1, loaded.PaneCount);
+        Assert.Null(loaded.Panes);
+    }
+
+    [Fact]
+    public async Task FileWithPanes_KeepsTheFoldedOnesOutOfSight()
+    {
+        // 접은 페인은 목록에 남고 수에서만 빠진다 (사용자 결정 2026-08-12: "다시 폄면 그대로").
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "paneCount": 1,
+                "panes": [
+                  { "tabs": { "tabs": [ { "folder": "C:\\Shown" } ] } },
+                  { "tabs": { "tabs": [ { "folder": "C:\\Folded" } ] } }
+                ]
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(1, loaded.PaneCount);
+        Assert.Equal(2, loaded.Panes!.Count);
+    }
+
+    [Fact]
+    public async Task FileWithOutOfRangePaneCount_IsClampedWithoutLosingTheRest()
+    {
+        // 비율과 달리 파일 전체를 버리지 않는다 — 9 에는 짐작할 수 있는 뜻이 있다.
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "paneCount": 9,
+                "panes": [ { "tabs": { "tabs": [ { "folder": "C:\\Kept" } ] } } ]
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(4, loaded.PaneCount);
+        Assert.Equal(Folder(@"C:\Kept"), loaded.Panes![0].Tabs.Tabs[0].Folder);
+    }
+
+    [Fact]
+    public async Task FileWithOutOfRangeRowRatio_FallsBackToDefault()
+    {
+        // 열 비율과 같은 취급이다 (GlobalViewState 가 거부한다).
+        WriteRawFile("""
+            { "global": { "splitterRatio": 0.4, "rowRatio": -3 } }
+            """);
+
+        Assert.Equal(GlobalViewState.Default, await CreateStore().LoadGlobalAsync(CancellationToken.None));
     }
 
     // 새 형식과 옛 형식이 한 파일에 같이 있으면 새 것이 이긴다 — 옛 필드는 우리가 더 이상
@@ -198,7 +316,26 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
 
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(Folder(@"C:\New"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
+        Assert.Equal(Folder(@"C:\New"), Assert.Single(loaded.Panes![0].Tabs.Tabs).Folder);
+    }
+
+    [Fact]
+    public async Task FileWithBothPaneShapes_PrefersThePaneList()
+    {
+        // 같은 규칙이 한 단 위에서도 성립해야 한다 — panes 가 있으면 좌·우 필드는 낡은 값이다.
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "leftTabs": { "tabs": [ { "folder": "C:\\Old" } ] },
+                "panes": [ { "tabs": { "tabs": [ { "folder": "C:\\New" } ] } } ]
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(Folder(@"C:\New"), Assert.Single(Assert.Single(loaded.Panes!).Tabs.Tabs).Folder);
     }
 
     // 경로 하나가 깨졌다고 나머지 탭까지 잃으면 안 된다 — 폴더별 기억을 한 폴더의 손상으로
@@ -217,10 +354,35 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
 
         var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(Folder(@"C:\Good"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
+        Assert.Equal(Folder(@"C:\Good"), Assert.Single(loaded.Panes![0].Tabs.Tabs).Folder);
 
         // 앞의 탭이 빠졌으니 번호도 함께 당겨져야 한다. 그대로 두면 활성 탭이 목록 밖이다.
-        Assert.Equal(0, loaded.LeftTabs.ActiveIndex);
+        Assert.Equal(0, loaded.Panes[0].Tabs.ActiveIndex);
+    }
+
+    // 페인 하나가 통째로 깨져도 나머지는 살린다 — 탭 하나가 깨졌을 때와 같은 판단이다.
+    [Fact]
+    public async Task FileWithOneUnreadablePane_KeepsTheOtherPanes()
+    {
+        WriteRawFile("""
+            {
+              "global": {
+                "splitterRatio": 0.4,
+                "paneCount": 2,
+                "panes": [
+                  { "tabs": { "tabs": [ { "folder": "" } ] } },
+                  { "tabs": { "tabs": [ { "folder": "C:\\Good" } ] } }
+                ]
+              }
+            }
+            """);
+
+        var loaded = await CreateStore().LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(Folder(@"C:\Good"), Assert.Single(loaded.Panes!).Tabs.Tabs[0].Folder);
+
+        // 수는 그대로다. 깨진 자리는 ViewModel 이 활성 페인을 복제해 채운다.
+        Assert.Equal(2, loaded.PaneCount);
     }
 
     // 탭이 전부 깨진 페인은 "기억이 없다" 로 간다 — 탭 0개짜리 목록을 내면 ViewModel 이
@@ -232,7 +394,7 @@ public sealed class JsonViewStateStoreTests : ViewStateStoreContract, IDisposabl
             { "global": { "splitterRatio": 0.4, "leftTabs": { "tabs": [ { "folder": "" } ] } } }
             """);
 
-        Assert.Null((await CreateStore().LoadGlobalAsync(CancellationToken.None)).LeftTabs);
+        Assert.Null((await CreateStore().LoadGlobalAsync(CancellationToken.None)).Panes);
     }
 
     // 저장 파일이 손상돼 -3 이 들어와도 페인이 사라지면 안 된다 (GlobalViewState 가 거부한다).

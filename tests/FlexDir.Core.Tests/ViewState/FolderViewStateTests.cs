@@ -344,27 +344,134 @@ public class FolderViewStateTests
     }
 
     [Fact]
-    public void GlobalDefault_HasNoTabs()
+    public void GlobalDefault_HasNoPanes()
     {
         // 기억이 없는 것과 "탭 0개" 는 다르다 — 전자는 시작 폴더 규칙으로 가고 후자는
         // 손상된 파일이다.
-        Assert.Null(GlobalViewState.Default.LeftTabs);
-        Assert.Null(GlobalViewState.Default.RightTabs);
+        Assert.Null(GlobalViewState.Default.Panes);
     }
 
     [Fact]
-    public void GlobalState_KeepsBothPanesTabs()
+    public void GlobalState_KeepsEveryPanesTabs()
     {
         var state = GlobalViewState.Default with
         {
-            LeftTabs = new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"), IsPinned: true)], 1),
-            RightTabs = PaneTabsState.Single(Folder(@"D:\")),
+            Panes =
+            [
+                new PaneState(new PaneTabsState([new TabState(Folder(@"C:\A")), new TabState(Folder(@"C:\B"), IsPinned: true)], 1)),
+                new PaneState(PaneTabsState.Single(Folder(@"D:\"))),
+            ],
         };
 
-        Assert.Equal(2, state.LeftTabs!.Tabs.Count);
-        Assert.Equal(1, state.LeftTabs.ActiveIndex);
-        Assert.True(state.LeftTabs.Tabs[1].IsPinned);
-        Assert.Single(state.RightTabs!.Tabs);
+        Assert.Equal(2, state.Panes![0].Tabs.Tabs.Count);
+        Assert.Equal(1, state.Panes[0].Tabs.ActiveIndex);
+        Assert.True(state.Panes[0].Tabs.Tabs[1].IsPinned);
+        Assert.Single(state.Panes[1].Tabs.Tabs);
+    }
+
+    [Fact]
+    public void PaneState_DefaultsToDefaultColumns()
+    {
+        // 컬럼 폭은 페인마다 따로다 (사용자 지적 2026-08-10). 기억이 없는 페인은 기본 폭으로
+        // 뜬다 — null 로 두면 읽는 쪽이 매번 기본값을 다시 고르게 된다.
+        Assert.Equal(PaneColumns.Default, new PaneState(PaneTabsState.Single(Folder(@"C:\A"))).Columns);
+    }
+
+    [Fact]
+    public void GlobalState_CopiesThePaneList()
+    {
+        // 호출자가 넘긴 리스트를 나중에 바꿔도 상태가 흔들리지 않는다 (PaneTabsState.Tabs 와
+        // 같은 이유).
+        var panes = new List<PaneState> { new(PaneTabsState.Single(Folder(@"C:\A"))) };
+        var state = GlobalViewState.Default with { Panes = panes };
+
+        panes.Add(new PaneState(PaneTabsState.Single(Folder(@"D:\"))));
+
+        Assert.Single(state.Panes!);
+    }
+
+    // ── 분할 (docs/PRD-v2.md §18) ───────────────────────────────────
+
+    [Fact]
+    public void GlobalDefault_IsOnePane()
+    {
+        // 1분할이 기본화면이다 (사용자 결정 2026-08-12). 기억이 없는 첫 실행이 여기로 온다 —
+        // 이미 쓰던 사람은 저장 파일이 2분할을 들고 있다 (JsonViewStateStore 의 마이그레이션).
+        Assert.Equal(1, GlobalViewState.Default.PaneCount);
+    }
+
+    [Fact]
+    public void GlobalDefault_SplitsRowsInHalf()
+    {
+        Assert.Equal(0.5, GlobalViewState.Default.RowRatio);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void PaneCount_InsideRange_IsAccepted(int count)
+    {
+        Assert.Equal(count, (GlobalViewState.Default with { PaneCount = count }).PaneCount);
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(-3, 1)]
+    [InlineData(5, 4)]
+    [InlineData(int.MaxValue, 4)]
+    public void PaneCount_OutsideRange_IsClamped(int stored, int expected)
+    {
+        // 비율과 달리 던지지 않는다. 5 에는 짐작할 수 있는 뜻이 있고(4), 그 하나 때문에
+        // 전역 상태 전체가 기본값으로 접히면 창 배치와 마지막 폴더까지 잃는다
+        // (PaneTabsState.ActiveIndex·TreeWidth 와 같은 판단).
+        Assert.Equal(expected, (GlobalViewState.Default with { PaneCount = stored }).PaneCount);
+    }
+
+    [Fact]
+    public void PaneCount_MayExceedTheRememberedPanes()
+    {
+        // 4분할을 처음 켜면 기억된 페인이 둘뿐이다. 모자란 자리는 ViewModel 이 활성 페인을
+        // 복제해 채운다 (사용자 결정 2026-08-12) — 여기서 잘라내면 그 규칙이 닿을 곳이 없다.
+        var state = GlobalViewState.Default with
+        {
+            Panes = [new PaneState(PaneTabsState.Single(Folder(@"C:\A")))],
+            PaneCount = 4,
+        };
+
+        Assert.Equal(4, state.PaneCount);
+        Assert.Single(state.Panes!);
+    }
+
+    [Theory]
+    [InlineData(0.01)]
+    [InlineData(0.5)]
+    [InlineData(0.99)]
+    public void RowRatio_InsideRange_IsAccepted(double ratio)
+    {
+        Assert.Equal(ratio, (GlobalViewState.Default with { RowRatio = ratio }).RowRatio);
+    }
+
+    [Theory]
+    [InlineData(-3)]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(double.NaN)]
+    [InlineData(double.PositiveInfinity)]
+    public void RowRatio_OutsideRange_Throws(double ratio)
+    {
+        // 열 비율과 같은 취급이다. 비율은 손상됐을 때 짐작할 수 있는 뜻이 없고, 그대로
+        // 통과시키면 페인이 사라진다.
+        Assert.Throws<ArgumentOutOfRangeException>(() => GlobalViewState.Default with { RowRatio = ratio });
+    }
+
+    [Fact]
+    public void MaxPanes_IsFour()
+    {
+        // 프리셋 네 단계다 (사용자 결정 2026-08-12). 이 수가 늘면 SplitLayout 의 슬롯 배치도
+        // 함께 늘어야 한다 — 그쪽이 이 상수를 읽지 않고 자기 표를 든다.
+        Assert.Equal(4, GlobalViewState.MaxPanes);
     }
 
     private static LocationId Folder(string path)

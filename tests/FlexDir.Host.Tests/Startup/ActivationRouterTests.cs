@@ -2,6 +2,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
 
+using FlexDir.App.Tests;
 using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
 
@@ -32,7 +33,7 @@ public class ActivationRouterTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -56,19 +57,15 @@ public class ActivationRouterTests
         var left = Folder(@"C:\Temp\Left", "a.txt");
         var right = Folder(@"C:\Temp\Right", "b.txt");
         await viewStates.SaveGlobalAsync(
-            new FlexDir.Core.ViewState.GlobalViewState(
-                0.5,
-                null,
-                FlexDir.Core.ViewState.PaneTabsState.Single(left),
-                FlexDir.Core.ViewState.PaneTabsState.Single(right)),
+            FlexDir.Core.ViewState.GlobalViewState.Default.WithTwoPanes(FlexDir.Core.ViewState.PaneTabsState.Single(left), FlexDir.Core.ViewState.PaneTabsState.Single(right)),
             CancellationToken.None);
         var workspace = CreateWorkspace();
         var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
 
         await router.StartAsync([], @"C:\Users\Me", CancellationToken.None);
 
-        Assert.Equal(left, workspace.Left.CurrentLocation);
-        Assert.Equal(right, workspace.Right.CurrentLocation);
+        Assert.Equal(left, workspace.Left().CurrentLocation);
+        Assert.Equal(right, workspace.Right().CurrentLocation);
         Assert.Single(usage.Records);
     }
 
@@ -81,8 +78,8 @@ public class ActivationRouterTests
 
         await router.StartAsync([], @"C:\Users\Me", CancellationToken.None);
 
-        Assert.Equal(fallback, workspace.Left.CurrentLocation);
-        Assert.Equal(fallback, workspace.Right.CurrentLocation);
+        Assert.Equal(fallback, workspace.Left().CurrentLocation);
+        Assert.Equal(fallback, workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -92,15 +89,14 @@ public class ActivationRouterTests
         var last = Folder(@"C:\Temp\Left", "a.txt");
         var requested = Folder(@"C:\Windows", "w.txt");
         await viewStates.SaveGlobalAsync(
-            new FlexDir.Core.ViewState.GlobalViewState(
-                0.5, null, FlexDir.Core.ViewState.PaneTabsState.Single(last), null),
+            FlexDir.Core.ViewState.GlobalViewState.Default.WithTwoPanes(FlexDir.Core.ViewState.PaneTabsState.Single(last)),
             CancellationToken.None);
         var workspace = CreateWorkspace();
         var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
 
         await router.StartAsync([@"C:\Windows"], @"C:\Users\Me", CancellationToken.None);
 
-        Assert.Equal(requested, workspace.Left.CurrentLocation);
+        Assert.Equal(requested, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -144,8 +140,8 @@ public class ActivationRouterTests
 
         await router.ActivateAsync([@"C:\Temp"], CancellationToken.None);
 
-        Assert.Equal(folder, workspace.Left.CurrentLocation);
-        Assert.Single(workspace.Left.Items);
+        Assert.Equal(folder, workspace.Left().CurrentLocation);
+        Assert.Single(workspace.Left().Items);
     }
 
     [Fact]
@@ -154,14 +150,14 @@ public class ActivationRouterTests
         // 왼쪽에 못박으면 오른쪽에서 일하던 중에 두 번째 실행이 왼쪽을 갈아친다.
         var folder = Folder(@"C:\Temp", "a.txt");
         var workspace = CreateWorkspace();
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         var router = new ActivationRouter(workspace, usage, new FixedClock(Now));
 
         await router.ActivateAsync([@"C:\Temp"], CancellationToken.None);
 
-        Assert.Equal(folder, workspace.Right.CurrentLocation);
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Equal(folder, workspace.Right().CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -174,7 +170,7 @@ public class ActivationRouterTests
 
         await router.ActivateAsync([], CancellationToken.None);
 
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
         Assert.Single(usage.Records);
     }
 
@@ -187,7 +183,7 @@ public class ActivationRouterTests
 
         await router.ActivateAsync(["--이건경로가아니다"], CancellationToken.None);
 
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
         Assert.Single(usage.Records);
     }
 
@@ -201,7 +197,7 @@ public class ActivationRouterTests
 
         await router.ActivateAsync(["--new-window", @"C:\Temp"], CancellationToken.None);
 
-        Assert.Equal(folder, workspace.Left.CurrentLocation);
+        Assert.Equal(folder, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -215,8 +211,8 @@ public class ActivationRouterTests
         await router.RunAsync(Activations(default, [@"C:\A"], [@"C:\B"]), CancellationToken.None);
 
         Assert.Equal(2, usage.Records.Count);
-        Assert.Equal(second, workspace.Left.CurrentLocation);
-        Assert.NotEqual(first, workspace.Left.CurrentLocation);
+        Assert.Equal(second, workspace.Left().CurrentLocation);
+        Assert.NotEqual(first, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -232,7 +228,7 @@ public class ActivationRouterTests
         await router.RunAsync(Activations(default, [@"C:\A"], [@"C:\B"]), CancellationToken.None);
 
         Assert.Equal(2, failing.Attempts);
-        Assert.Equal(folder, workspace.Left.CurrentLocation);
+        Assert.Equal(folder, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -268,7 +264,7 @@ public class ActivationRouterTests
 
     // ── 헬퍼 ─────────────────────────────────────────────────────
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
     private PaneViewModel CreatePane() => new(
         source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator,

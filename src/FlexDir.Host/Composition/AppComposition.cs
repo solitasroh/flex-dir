@@ -207,8 +207,13 @@ public sealed class AppComposition : IAsyncDisposable
 
         disposed = true;
 
-        await Workspace.LeftTabs.DisposeAsync().ConfigureAwait(false);
-        await Workspace.RightTabs.DisposeAsync().ConfigureAwait(false);
+        // 접힌 페인까지 전부 접는다 (docs/PRD-v2.md §18) — 화면에 없다고 인스턴스가 없는
+        // 것이 아니다. 여기서 빠뜨리면 그 페인의 썸네일 스케줄러와 열거 세션이 shell 구현체가
+        // 닫힌 뒤에도 남는다.
+        foreach (var pane in Workspace.AllPanes)
+        {
+            await pane.DisposeAsync().ConfigureAwait(false);
+        }
 
         foreach (var service in shellServices)
         {

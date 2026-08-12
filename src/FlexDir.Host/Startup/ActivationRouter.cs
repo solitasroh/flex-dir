@@ -91,7 +91,7 @@ public sealed class ActivationRouter
 
         if (FirstLocation(args) is { } location)
         {
-            await workspace.ActivePane.NavigateAsync(location, ct).ConfigureAwait(false);
+            await workspace.ActiveTab.NavigateAsync(location, ct).ConfigureAwait(false);
         }
     }
 

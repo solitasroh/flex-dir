@@ -143,7 +143,7 @@ public sealed record TabState(Locations.LocationId Folder, bool IsPinned = false
 
 /// <summary>
 /// 페인 하나의 탭 목록과 활성 탭 (docs/PRD-v2.md §17 · docs/ARCHITECTURE.md §4).
-/// 좌·우가 각각 하나씩 갖는다 — 창 단위가 아니라 페인 단위다 (ADR-018).
+/// 페인마다 하나씩 갖는다 — 창 단위가 아니라 페인 단위다 (ADR-018).
 /// </summary>
 public sealed record PaneTabsState(IReadOnlyList<TabState> Tabs, int ActiveIndex = 0)
 {
@@ -201,11 +201,43 @@ public sealed record PaneTabsState(IReadOnlyList<TabState> Tabs, int ActiveIndex
 }
 
 /// <summary>
-/// 폴더와 무관한 전역 상태. 창 배치와 스플리터 비율, 트리의 모양 (docs/ARCHITECTURE.md §4).
+/// 페인 하나가 기억하는 것 — 탭 목록과 Details 컬럼 폭 (docs/PRD-v2.md §18).
+/// <para>
+/// <b>컬럼 폭이 탭이 아니라 여기 붙는 이유</b>는 <see cref="PaneColumns"/> 주석에 있다 —
+/// 소유자가 페인이라야 탭 전환마다 컬럼이 튀지 않는다. 분할이 들어오며 좌·우 두 벌이던
+/// 것이 페인마다 한 벌이 됐고, 그러면서 탭 목록과 한 묶음이 됐다: <b>페인이 생기고
+/// 사라지는 단위</b>가 곧 이 record 다.
+/// </para>
 /// </summary>
-/// <param name="LeftTabs">
-/// 좌 페인의 탭 목록 (docs/PRD-v2.md §17). <c>null</c> 은 <b>기억이 없다</b>는 뜻이고
-/// 그때 시작 폴더 규칙이 자리를 채운다 — 탭 0개짜리 목록과는 다른 사건이다.
+public sealed record PaneState(PaneTabsState Tabs, PaneColumns Columns)
+{
+    /// <summary>기억된 컬럼 폭이 없는 페인. 새로 만든 페인이 이 모양이다.</summary>
+    public PaneState(PaneTabsState tabs)
+        : this(tabs, PaneColumns.Default)
+    {
+    }
+}
+
+/// <summary>
+/// 폴더와 무관한 전역 상태. 창 배치와 분할 모양, 트리의 모양 (docs/ARCHITECTURE.md §4).
+/// </summary>
+/// <param name="Panes">
+/// 페인마다의 탭 목록과 컬럼 폭 (docs/PRD-v2.md §17·§18). <c>null</c> 은 <b>기억이 없다</b>는
+/// 뜻이고 그때 시작 폴더 규칙이 자리를 채운다 — 페인 0개짜리 목록과는 다른 사건이다.
+/// <para>
+/// <b><see cref="PaneCount"/> 보다 길 수 있다.</b> 분할을 줄이는 것은 페인을 <b>접는</b>
+/// 것이지 닫는 것이 아니라서(사용자 결정 2026-08-12), 접힌 페인도 여기 남아야 다시 폈을 때
+/// 그대로 돌아온다 — 재시작을 건너서도 그렇다.
+/// </para>
+/// </param>
+/// <param name="PaneCount">
+/// <b>화면에 보이는</b> 페인 수 (1~<see cref="MaxPanes"/>). 배치는 프리셋이라 이 수 하나로
+/// 정해진다 (사용자 결정 2026-08-12) — 어느 슬롯이 어디로 가는지는 View 가 든다
+/// (<c>SplitLayout</c>).
+/// </param>
+/// <param name="RowRatio">
+/// 가로 스플리터의 자리 — 위 칸이 차지하는 비율. <b>격자 전체에 하나다</b>: 4분할에서 좌·우가
+/// 이 값을 나눠 써야 가로줄이 일직선으로 이어진다. 3분할에서는 오른쪽 열에만 쓰인다.
 /// </param>
 /// <param name="TreeVisible">
 /// 폴더 트리를 보이는가 (docs/PRD-v2.md §10). 처음 켠 사람에게는 보인다 — 토글은 트리를
@@ -219,39 +251,126 @@ public sealed record PaneTabsState(IReadOnlyList<TabState> Tabs, int ActiveIndex
 public sealed record GlobalViewState(
     double SplitterRatio,
     WindowPlacement? Window,
-    PaneTabsState? LeftTabs = null,
-    PaneTabsState? RightTabs = null,
+    IReadOnlyList<PaneState>? Panes = null,
+    int PaneCount = 1,
+    double RowRatio = 0.5,
     bool TreeVisible = true,
-    double TreeWidth = GlobalViewState.DefaultTreeWidth,
-    PaneColumns? LeftColumns = null,
-    PaneColumns? RightColumns = null)
+    double TreeWidth = GlobalViewState.DefaultTreeWidth)
 {
     /// <summary>기억된 것이 없을 때의 트리 폭. 목록의 긴 폴더 이름이 대체로 들어간다.</summary>
     public const double DefaultTreeWidth = 220;
 
+    /// <summary>
+    /// 분할 프리셋의 끝 (사용자 결정 2026-08-12: 4분할까지). <b>이 수를 늘리는 것만으로는
+    /// 늘어나지 않는다</b> — 슬롯이 어느 칸에 앉는지는 View 의 <c>SplitLayout</c> 이 자기
+    /// 표로 들고 있고, 그 표도 함께 늘어야 한다.
+    /// </summary>
+    public const int MaxPanes = 4;
 
-    private readonly double splitterRatio = Validate(SplitterRatio);
+    private readonly double splitterRatio = Validate(SplitterRatio, nameof(SplitterRatio));
+    private readonly double rowRatio = Validate(RowRatio, nameof(RowRatio));
+    private readonly int paneCount = ClampCount(PaneCount);
+    private readonly IReadOnlyList<PaneState>? panes = Copy(Panes);
 
-    /// <summary>절반 분할, 창 배치·마지막 폴더 기억 없음 — 시작 폴더는 폴백으로 간다.</summary>
+    /// <summary>
+    /// 절반 분할, 창 배치·마지막 폴더 기억 없음 — 시작 폴더는 폴백으로 간다.
+    /// <b>1분할이다</b> (사용자 결정 2026-08-12): 기본화면은 한 칸이고, 이미 쓰던 사람은
+    /// 저장 파일이 2분할을 들고 온다 (<c>JsonViewStateStore</c> 의 마이그레이션).
+    /// </summary>
     public static GlobalViewState Default { get; } = new(0.5, null);
 
     /// <summary>
-    /// 좌 페인이 차지하는 비율. 0 과 1 사이여야 한다 — 저장 파일이 손상돼 -3 이
+    /// 왼쪽 열이 차지하는 비율. 0 과 1 사이여야 한다 — 저장 파일이 손상돼 -3 이
     /// 들어오면 페인이 사라지는데, 그 시점에는 원인을 찾기 어렵다.
     /// </summary>
     public double SplitterRatio
     {
         get => splitterRatio;
-        init => splitterRatio = Validate(value);
+        init => splitterRatio = Validate(value, nameof(SplitterRatio));
     }
 
-    private static double Validate(double value)
+    /// <inheritdoc cref="RowRatio"/>
+    public double RowRatio
+    {
+        get => rowRatio;
+        init => rowRatio = Validate(value, nameof(RowRatio));
+    }
+
+    /// <summary>
+    /// 화면에 보이는 페인 수. <b>범위를 벗어난 값은 던지지 않고 가장 가까운 자리로 잘린다</b> —
+    /// 5 에는 짐작할 수 있는 뜻이 있고(4), 그 하나 때문에 전역 상태 전체가 기본값으로 접히면
+    /// 창 배치와 마지막 폴더까지 잃는다 (<see cref="PaneTabsState.ActiveIndex"/> 와 같은 판단).
+    /// <para>
+    /// <b>비율과 갈리는 지점이 여기다.</b> 비율은 손상됐을 때 짐작할 수 있는 뜻이 없다 —
+    /// -3 이 0.3 이었는지 알 길이 없으므로 파일 전체를 기본값으로 접는 편이 낫다.
+    /// </para>
+    /// </summary>
+    public int PaneCount
+    {
+        get => paneCount;
+        init => paneCount = ClampCount(value);
+    }
+
+    /// <summary>
+    /// 호출자가 넘긴 리스트를 나중에 바꿔도 상태가 흔들리지 않게 복사한다
+    /// (<see cref="PaneTabsState.Tabs"/> 와 같은 이유).
+    /// </summary>
+    public IReadOnlyList<PaneState>? Panes
+    {
+        get => panes;
+        init => panes = Copy(value);
+    }
+
+    /// <summary>
+    /// 리스트 내용을 비교한다. 저장·복원 왕복은 다른 인스턴스를 내므로 참조 비교로는
+    /// "페인이 바뀌었는가" 를 판정할 수 없다 — 계약 테스트가 왕복을 이 비교로 본다
+    /// (<see cref="PaneTabsState"/>·<see cref="FolderViewState"/> 와 같은 이유).
+    /// </summary>
+    public bool Equals(GlobalViewState? other)
+        => other is not null
+            && SplitterRatio.Equals(other.SplitterRatio)
+            && RowRatio.Equals(other.RowRatio)
+            && PaneCount == other.PaneCount
+            && Window == other.Window
+            && TreeVisible == other.TreeVisible
+            && TreeWidth.Equals(other.TreeWidth)
+            && (Panes is null ? other.Panes is null : other.Panes is not null && Panes.SequenceEqual(other.Panes));
+
+    public override int GetHashCode()
+    {
+        var hash = new HashCode();
+        hash.Add(splitterRatio);
+        hash.Add(rowRatio);
+        hash.Add(paneCount);
+        hash.Add(Window);
+        hash.Add(TreeVisible);
+        hash.Add(TreeWidth);
+
+        foreach (var pane in panes ?? [])
+        {
+            hash.Add(pane);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
+    /// 기억이 없는 것(<see langword="null"/>)과 페인 0개는 다른 사건이므로 <c>null</c> 을
+    /// 빈 리스트로 접지 않는다.
+    /// </summary>
+    private static IReadOnlyList<PaneState>? Copy(IReadOnlyList<PaneState>? value)
+        => value is null ? null : [.. value];
+
+    private static int ClampCount(int value)
+        => value < 1 ? 1 : value > MaxPanes ? MaxPanes : value;
+
+    private static double Validate(double value, string name)
     {
         // 부정형으로 쓴다. NaN 은 모든 관계 비교가 false 라서
         // (value <= 0 || value >= 1) 형태로는 빠져나간다.
         if (value is not (> 0 and < 1))
         {
-            throw new ArgumentOutOfRangeException(nameof(SplitterRatio), value, "스플리터 비율은 0 과 1 사이여야 한다.");
+            throw new ArgumentOutOfRangeException(name, value, "스플리터 비율은 0 과 1 사이여야 한다.");
         }
 
         return value;

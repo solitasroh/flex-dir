@@ -4,6 +4,7 @@ using System.Windows;
 // WinForms(트레이 아이콘)가 암시적 global using 으로 들어와 WPF 쪽 이름과 겹친다.
 using Application = System.Windows.Application;
 
+using FlexDir.App.Tests;
 using FlexDir.App.Tests.Fakes;
 
 using FlexDir.Core.Locations;
@@ -63,9 +64,12 @@ public class AppCompositionTests : IDisposable
 
         await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
+        // 이 테스트가 보는 것은 페인 둘이 서로 다른 인스턴스라는 것이다 — 조립의 기본은
+        // 1분할이므로 (docs/PRD-v2.md §18) 먼저 벌린다.
+        composition.Workspace.Split2();
         Assert.NotNull(composition.Workspace);
         Assert.NotNull(composition.UsageLog);
-        Assert.NotSame(composition.Workspace.Left, composition.Workspace.Right);
+        Assert.NotSame(composition.Workspace.Left(), composition.Workspace.Right());
         Assert.Null(Application.Current);
     }
 
@@ -96,9 +100,9 @@ public class AppCompositionTests : IDisposable
 
         await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
 
-        await composition.Workspace.Left.NavigateAsync(Loc(folder));
+        await composition.Workspace.Left().NavigateAsync(Loc(folder));
 
-        Assert.Equal(["a.txt", "b.txt"], composition.Workspace.Left.Items.Select(row => row.Name));
+        Assert.Equal(["a.txt", "b.txt"], composition.Workspace.Left().Items.Select(row => row.Name));
     }
 
     [Fact]
@@ -111,12 +115,13 @@ public class AppCompositionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
 
         await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
+        composition.Workspace.Split2();
 
-        await composition.Workspace.Left.NavigateAsync(Loc(folder));
+        await composition.Workspace.Left().NavigateAsync(Loc(folder));
 
-        Assert.Single(composition.Workspace.Left.Items);
-        Assert.Empty(composition.Workspace.Right.Items);
-        Assert.Null(composition.Workspace.Right.CurrentLocation);
+        Assert.Single(composition.Workspace.Left().Items);
+        Assert.Empty(composition.Workspace.Right().Items);
+        Assert.Null(composition.Workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -129,8 +134,8 @@ public class AppCompositionTests : IDisposable
         var state = State();
         await using var composition = AppComposition.Create(dispatcher, state, () => 0);
 
-        await composition.Workspace.Left.NavigateAsync(Loc(folder));
-        await composition.Workspace.Left.ChangeViewModeCommand.ExecuteAsync(
+        await composition.Workspace.Left().NavigateAsync(Loc(folder));
+        await composition.Workspace.Left().ChangeViewModeCommand.ExecuteAsync(
             Core.ViewState.ViewMode.LargeIcons);
 
         Assert.NotEmpty(Directory.GetFiles(state));
@@ -170,7 +175,7 @@ public class AppCompositionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
 
         await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
-        var tabs = composition.Workspace.LeftTabs;
+        var tabs = composition.Workspace.LeftTabs();
 
         // 복원을 지나지 않았으므로 첫 탭은 아무 곳도 열지 않았다 — 그래서 새 탭이 복제할
         // 폴더도 없고, 배경에서 도는 열기와 아래 이동이 겹치지 않는다.
@@ -178,7 +183,7 @@ public class AppCompositionTests : IDisposable
         await created.NavigateAsync(Loc(folder));
 
         Assert.Equal(2, tabs.Tabs.Count);
-        Assert.Same(created, composition.Workspace.Left);
+        Assert.Same(created, composition.Workspace.Left());
         Assert.Equal(["a.txt"], created.Items.Select(row => row.Name));
     }
 
@@ -196,9 +201,11 @@ public class AppCompositionTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(folder, "a.txt"), "a");
 
         var composition = AppComposition.Create(dispatcher, State(), () => 0);
+        composition.Workspace.Split2();
+
         var thumbnails = composition.ShellServices.OfType<ShellThumbnailSource>().Single();
 
-        foreach (var tabs in new[] { composition.Workspace.LeftTabs, composition.Workspace.RightTabs })
+        foreach (var tabs in new[] { composition.Workspace.LeftTabs(), composition.Workspace.RightTabs() })
         {
             await tabs.Active.NavigateAsync(Loc(folder));
 
@@ -207,8 +214,16 @@ public class AppCompositionTests : IDisposable
             tabs.NewTab();
         }
 
-        Assert.Equal(2, composition.Workspace.LeftTabs.Tabs.Count);
-        Assert.Equal(2, composition.Workspace.RightTabs.Tabs.Count);
+        Assert.Equal(2, composition.Workspace.LeftTabs().Tabs.Count);
+        Assert.Equal(2, composition.Workspace.RightTabs().Tabs.Count);
+
+        // **1분할로 접는다** (docs/PRD-v2.md §18). 접힌 페인은 화면에서 빠질 뿐 살아 있고,
+        // 그 탭들도 접는 대상이다 — Panes 만 지나면 여기 탭 둘이 shell 구현체가 닫힌 뒤에도
+        // 남는다. 종료가 AllPanes 를 지나는 이유가 이것이다.
+        composition.Workspace.SetSplitCommand.Execute(1);
+
+        Assert.Single(composition.Workspace.Panes);
+        Assert.Equal(2, composition.Workspace.AllPanes.Count);
 
         await composition.DisposeAsync();
 

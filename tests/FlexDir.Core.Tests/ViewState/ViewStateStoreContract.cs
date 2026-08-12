@@ -67,27 +67,79 @@ public abstract class ViewStateStoreContract
         var store = CreateStore();
         var state = GlobalViewState.Default with
         {
-            LeftColumns = new PaneColumns(400, 70, 200, 180),
-            RightColumns = new PaneColumns(200, 60, 90, 100),
+            Panes =
+            [
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\A")), new PaneColumns(400, 70, 200, 180)),
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\B")), new PaneColumns(200, 60, 90, 100)),
+            ],
         };
 
         await store.SaveGlobalAsync(state, CancellationToken.None);
 
         var loaded = await store.LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(new PaneColumns(400, 70, 200, 180), loaded.LeftColumns);
-        Assert.Equal(new PaneColumns(200, 60, 90, 100), loaded.RightColumns);
+        Assert.Equal(new PaneColumns(400, 70, 200, 180), loaded.Panes![0].Columns);
+        Assert.Equal(new PaneColumns(200, 60, 90, 100), loaded.Panes[1].Columns);
     }
 
     [Fact]
-    public async Task SavedGlobalState_WithoutColumns_LoadsThemAsNull()
+    public async Task SavedGlobalState_WithoutColumns_LoadsTheDefaultWidths()
     {
-        // 컬럼이 들어오기 전 파일이다. 없으면 페인이 기본값을 쓴다.
+        // 컬럼이 들어오기 전 파일이거나 방금 만든 페인이다. 없으면 기본 폭으로 뜬다 —
+        // null 을 내면 읽는 쪽이 매번 기본값을 다시 고르게 된다 (PaneState.Columns).
         var store = CreateStore();
 
-        await store.SaveGlobalAsync(GlobalViewState.Default, CancellationToken.None);
+        await store.SaveGlobalAsync(
+            GlobalViewState.Default with { Panes = [new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\A")))] },
+            CancellationToken.None);
 
-        Assert.Null((await store.LoadGlobalAsync(CancellationToken.None)).LeftColumns);
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(PaneColumns.Default, loaded.Panes![0].Columns);
+    }
+
+    // ── 분할 (docs/PRD-v2.md §18) ───────────────────────────────────
+    // 분할 상태를 기억한다 (사용자 결정 2026-08-12). 왕복하지 않으면 매 실행마다 쓰던
+    // 화면을 다시 짜야 한다 — 트리를 접어 둔 것과 같은 자리다.
+
+    [Fact]
+    public async Task SavedGlobalState_KeepsTheSplitShape()
+    {
+        var store = CreateStore();
+        var state = GlobalViewState.Default with { PaneCount = 4, SplitterRatio = 0.4, RowRatio = 0.6 };
+
+        await store.SaveGlobalAsync(state, CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(4, loaded.PaneCount);
+        Assert.Equal(0.4, loaded.SplitterRatio);
+        Assert.Equal(0.6, loaded.RowRatio);
+    }
+
+    [Fact]
+    public async Task SavedGlobalState_KeepsFoldedPanes()
+    {
+        // 접은 페인은 재시작을 건너서도 살아 있어야 한다 (사용자 결정 2026-08-12:
+        // "다시 폄면 그대로"). 보이는 수만 저장하면 접기가 닫기가 된다.
+        var store = CreateStore();
+        var state = GlobalViewState.Default with
+        {
+            PaneCount = 1,
+            Panes =
+            [
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\Shown"))),
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\Folded"))),
+            ],
+        };
+
+        await store.SaveGlobalAsync(state, CancellationToken.None);
+
+        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
+
+        Assert.Equal(1, loaded.PaneCount);
+        Assert.Equal(2, loaded.Panes!.Count);
+        Assert.Equal(Folder(@"C:\Temp\Folded"), loaded.Panes[1].Tabs.Tabs[0].Folder);
     }
 
     // 트리를 접어 둔 것과 폭도 전역 상태다 (docs/PRD-v2.md §10). 왕복하지 않으면 좁은
@@ -107,34 +159,36 @@ public abstract class ViewStateStoreContract
     }
 
     [Fact]
-    public async Task SavedGlobalState_KeepsTheLastFoldersOfBothPanes()
+    public async Task SavedGlobalState_KeepsTheLastFolderOfEveryPane()
     {
         // 시작 폴더 복원의 근거다 — 다음 실행이 여기서 마지막 폴더를 읽는다 (phase B-2).
         var store = CreateStore();
-        var state = new GlobalViewState(
-            0.5,
-            null,
-            PaneTabsState.Single(Folder(@"C:\Temp\Left")),
-            PaneTabsState.Single(Folder(@"C:\Temp\Right")));
+        var state = GlobalViewState.Default with
+        {
+            PaneCount = 2,
+            Panes =
+            [
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\Left"))),
+                new PaneState(PaneTabsState.Single(Folder(@"C:\Temp\Right"))),
+            ],
+        };
 
         await store.SaveGlobalAsync(state, CancellationToken.None);
 
         var loaded = await store.LoadGlobalAsync(CancellationToken.None);
-        Assert.Equal(Folder(@"C:\Temp\Left"), Assert.Single(loaded.LeftTabs!.Tabs).Folder);
-        Assert.Equal(Folder(@"C:\Temp\Right"), Assert.Single(loaded.RightTabs!.Tabs).Folder);
+        Assert.Equal(Folder(@"C:\Temp\Left"), Assert.Single(loaded.Panes![0].Tabs.Tabs).Folder);
+        Assert.Equal(Folder(@"C:\Temp\Right"), Assert.Single(loaded.Panes[1].Tabs.Tabs).Folder);
     }
 
     [Fact]
-    public async Task SavedGlobalState_WithoutFolders_LoadsThemAsNull()
+    public async Task SavedGlobalState_WithoutFolders_LoadsPanesAsNull()
     {
         // 창을 한 번도 띄우지 않고 끝났거나 옛 파일이다 — 복원은 폴백으로 간다.
         var store = CreateStore();
 
         await store.SaveGlobalAsync(new GlobalViewState(0.4, null), CancellationToken.None);
 
-        var loaded = await store.LoadGlobalAsync(CancellationToken.None);
-        Assert.Null(loaded.LeftTabs);
-        Assert.Null(loaded.RightTabs);
+        Assert.Null((await store.LoadGlobalAsync(CancellationToken.None)).Panes);
     }
 
     // 세션 복원은 탭 목록 전부다 — 순서·활성 탭·고정·사용자 제목까지 (docs/PRD-v2.md §17).
@@ -143,7 +197,7 @@ public abstract class ViewStateStoreContract
     public async Task SavedGlobalState_KeepsEveryTabWithItsPinAndTitle()
     {
         var store = CreateStore();
-        var left = new PaneTabsState(
+        var first = new PaneTabsState(
             [
                 new TabState(Folder(@"C:\Temp\Pinned"), IsPinned: true),
                 new TabState(Folder(@"C:\Temp\Named"), Title: "일감"),
@@ -152,13 +206,17 @@ public abstract class ViewStateStoreContract
             ActiveIndex: 2);
 
         await store.SaveGlobalAsync(
-            GlobalViewState.Default with { LeftTabs = left, RightTabs = PaneTabsState.Single(Folder(@"D:\")) },
+            GlobalViewState.Default with
+            {
+                PaneCount = 2,
+                Panes = [new PaneState(first), new PaneState(PaneTabsState.Single(Folder(@"D:\")))],
+            },
             CancellationToken.None);
 
         var loaded = await store.LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(left, loaded.LeftTabs);
-        Assert.Single(loaded.RightTabs!.Tabs);
+        Assert.Equal(first, loaded.Panes![0].Tabs);
+        Assert.Single(loaded.Panes[1].Tabs.Tabs);
     }
 
     // ── 기억이 없는 경우 ────────────────────────────────────────────

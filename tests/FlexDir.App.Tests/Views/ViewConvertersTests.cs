@@ -95,17 +95,17 @@ public class ViewConvertersTests
         Assert.Equal(false, converter.Convert([new object()], typeof(bool), null, Culture));
     }
 
-    // ── 활성 페인 판정 ────────────────────────────────────────────
+    // ── 열거형 비교 ───────────────────────────────────────────────
+    // 활성 페인 판정은 더 이상 여기가 아니다 — 인스턴스 비교라 SameInstanceConverter 다
+    // (분할이 들어오며 PaneSide 열거형이 사라졌다 · docs/PRD-v2.md §18).
 
     [Fact]
     public void EnumEquality_ComparesTheValueToTheParameter()
     {
         var converter = new EnumEqualityConverter();
 
-        Assert.Equal(true, converter.Convert(
-            FlexDir.App.ViewModels.PaneSide.Left, typeof(bool), FlexDir.App.ViewModels.PaneSide.Left, Culture));
-        Assert.Equal(false, converter.Convert(
-            FlexDir.App.ViewModels.PaneSide.Right, typeof(bool), FlexDir.App.ViewModels.PaneSide.Left, Culture));
+        Assert.Equal(true, converter.Convert(ViewMode.Tiles, typeof(bool), ViewMode.Tiles, Culture));
+        Assert.Equal(false, converter.Convert(ViewMode.List, typeof(bool), ViewMode.Tiles, Culture));
     }
 
     [Fact]

@@ -115,17 +115,19 @@ public sealed class JsonViewStateStore : IViewStateStore
             {
                 // 경로는 표시형으로 저장한다 — \\?\ 접두사 없는 쪽이 파일을 읽는 사람에게 낫고
                 // TryParse 가 도로 붙여 준다.
-                // 단수 필드(leftFolder·rightFolder)는 더 이상 쓰지 않는다. 함께 쓰면 어느
-                // 쪽이 진실인지 파일마다 갈리고, 읽는 쪽이 그 판정을 영영 들고 있게 된다.
+                // 좌·우 필드(leftFolder·leftTabs·leftColumns …)는 더 이상 쓰지 않는다. 함께
+                // 쓰면 어느 쪽이 진실인지 파일마다 갈리고, 읽는 쪽이 그 판정을 영영 들고 있게
+                // 된다 — 단수 필드를 접을 때 이미 한 번 지난 자리다.
                 Global = new GlobalRecord(
                     state.SplitterRatio,
                     state.Window,
                     TreeVisible: state.TreeVisible,
                     TreeWidth: state.TreeWidth,
-                    LeftColumns: state.LeftColumns,
-                    RightColumns: state.RightColumns,
-                    LeftTabs: ToRecord(state.LeftTabs),
-                    RightTabs: ToRecord(state.RightTabs)),
+                    // null 과 빈 목록은 다른 사건이다 — 전자는 "기억이 없다" 이고 복원이
+                    // 시작 폴더 규칙으로 간다. 접어서 옮기면 페인이 빈 채로 뜬다.
+                    Panes: state.Panes is null ? null : [.. state.Panes.Select(ToRecord)],
+                    PaneCount: state.PaneCount,
+                    RowRatio: state.RowRatio),
             },
             ct).ConfigureAwait(false);
     }
@@ -159,17 +161,18 @@ public sealed class JsonViewStateStore : IViewStateStore
 
         try
         {
+            var (panes, count) = ToPanes(stored);
+
             // treeVisible·treeWidth 는 트리가 들어오기 전 파일에 없다. 없으면 보이는
-            // 것으로 읽는다 — 기본값과 같은 자리다.
+            // 것으로 읽는다 — 기본값과 같은 자리다. rowRatio 도 같다.
             return new GlobalViewState(
                 stored.SplitterRatio,
                 stored.Window,
-                ToTabs(stored.LeftTabs, stored.LeftFolder),
-                ToTabs(stored.RightTabs, stored.RightFolder),
+                panes,
+                count,
+                stored.RowRatio ?? GlobalViewState.Default.RowRatio,
                 stored.TreeVisible ?? true,
-                stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth,
-                stored.LeftColumns,
-                stored.RightColumns);
+                stored.TreeWidth ?? GlobalViewState.DefaultTreeWidth);
         }
         catch (ArgumentOutOfRangeException)
         {
@@ -177,6 +180,65 @@ public sealed class JsonViewStateStore : IViewStateStore
             return null;
         }
     }
+
+    /// <summary>
+    /// 저장된 페인 목록과 보이는 페인 수 (docs/PRD-v2.md §18).
+    /// <b>분할이 들어오기 전 파일과의 호환이 여기서 끝난다</b> — 좌·우 필드가 페인 둘로
+    /// 접히고, ViewModel 은 두 모양을 구분하지 않는다 (<see cref="ToTabs"/> 와 같은 자리).
+    /// <para>
+    /// <b>옛 파일은 언제나 2분할이었다</b>, 그래서 <c>paneCount</c> 가 없으면 2 다 —
+    /// 이미 쓰던 사람의 화면이 갱신 한 번으로 한 칸이 되면 안 된다 (사용자 결정 2026-08-12:
+    /// 1분할은 <b>기억이 없을 때</b>의 기본이다).
+    /// </para>
+    /// <para>
+    /// 좌·우 중 한쪽만 읽히면 페인이 하나뿐인 목록이 나오지만 수는 그대로 2 다. 모자란 자리는
+    /// ViewModel 이 활성 페인을 복제해 채운다 — 여기서 수를 줄이면 그 사람은 분할을 잃는다.
+    /// </para>
+    /// </summary>
+    private static (IReadOnlyList<PaneState>? Panes, int Count) ToPanes(GlobalRecord stored)
+    {
+        if (stored.Panes is { } records)
+        {
+            var panes = records.ConvertAll(ToPaneState).FindAll(pane => pane is not null);
+
+            // 페인 하나가 깨져도 나머지는 살린다 — 탭 하나의 경로가 깨졌을 때와 같은 판단이다.
+            // 하나도 못 읽었으면 기억이 없는 것으로 본다.
+            return panes.Count == 0
+                ? (null, stored.PaneCount ?? 1)
+                : (panes.ConvertAll(pane => pane!), stored.PaneCount ?? panes.Count);
+        }
+
+        var left = ToTabs(stored.LeftTabs, stored.LeftFolder);
+        var right = ToTabs(stored.RightTabs, stored.RightFolder);
+
+        if (left is null && right is null)
+        {
+            return (null, stored.PaneCount ?? 1);
+        }
+
+        var legacy = new List<PaneState>(2);
+
+        if (left is not null)
+        {
+            legacy.Add(new PaneState(left, stored.LeftColumns ?? PaneColumns.Default));
+        }
+
+        if (right is not null)
+        {
+            legacy.Add(new PaneState(right, stored.RightColumns ?? PaneColumns.Default));
+        }
+
+        return (legacy, stored.PaneCount ?? 2);
+    }
+
+    /// <summary>
+    /// 페인 하나. 읽을 수 있는 탭이 하나도 없으면 <c>null</c> 이고 목록에서 빠진다 —
+    /// 탭 0개짜리 페인은 화면에 그릴 수 없다 (<c>PaneTabsViewModel</c> 은 항상 탭 1개로 선다).
+    /// </summary>
+    private static PaneState? ToPaneState(PaneRecord stored)
+        => ToTabs(stored.Tabs, legacyFolder: null) is { } tabs
+            ? new PaneState(tabs, stored.Columns ?? PaneColumns.Default)
+            : null;
 
     private async ValueTask<Document> ReadAsync(CancellationToken ct)
     {
@@ -289,6 +351,13 @@ public sealed class JsonViewStateStore : IViewStateStore
         return tabs.Count == 0 ? null : new PaneTabsState(tabs, active < 0 ? 0 : active);
     }
 
+    /// <summary>
+    /// 기본 폭은 아예 쓰지 않는다 — 컬럼을 한 번도 안 끈 페인의 기록이 짧게 남는다
+    /// (고정하지 않은 탭의 <c>isPinned</c> 와 같은 규칙).
+    /// </summary>
+    private static PaneRecord ToRecord(PaneState state)
+        => new(ToRecord(state.Tabs), state.Columns == PaneColumns.Default ? null : state.Columns);
+
     private static PaneTabsRecord? ToRecord(PaneTabsState? state)
         => state is null
             ? null
@@ -309,6 +378,16 @@ public sealed class JsonViewStateStore : IViewStateStore
     /// 탭이 들어오기 전 파일의 단수 필드 (docs/PRD-v2.md §17). <b>읽기 전용이다</b> —
     /// 새로 쓰지 않고, 읽을 때만 "탭 1개짜리 목록" 으로 옮긴다 (<see cref="ToTabs"/>).
     /// </param>
+    /// <param name="LeftTabs">
+    /// 분할이 들어오기 전 파일의 좌·우 필드 (docs/PRD-v2.md §18). <c>LeftFolder</c> 와 같이
+    /// <b>읽기 전용이다</b> — 읽을 때만 <see cref="Panes"/> 둘로 접는다 (<see cref="ToPanes"/>).
+    /// <b>넷을 함께 지울 수 없다</b>: 하나라도 남기면 그 파일의 나머지 좌·우 필드도 읽어야
+    /// 하고, 넷 다 지우면 v0.5.0 이하로 만든 파일이 기억을 통째로 잃는다.
+    /// </param>
+    /// <param name="PaneCount">
+    /// 보이는 페인 수. 없으면 <see cref="ToPanes"/> 가 옛 파일의 모양으로 짐작한다 —
+    /// 좌·우 기억이 있으면 2, 없으면 1.
+    /// </param>
     private sealed record GlobalRecord(
         double SplitterRatio,
         WindowPlacement? Window,
@@ -319,7 +398,16 @@ public sealed class JsonViewStateStore : IViewStateStore
         PaneColumns? LeftColumns = null,
         PaneColumns? RightColumns = null,
         PaneTabsRecord? LeftTabs = null,
-        PaneTabsRecord? RightTabs = null);
+        PaneTabsRecord? RightTabs = null,
+        List<PaneRecord>? Panes = null,
+        int? PaneCount = null,
+        double? RowRatio = null);
+
+    /// <summary>
+    /// 페인 하나 (docs/PRD-v2.md §18). <c>Columns</c> 는 선택적이다 — 컬럼을 한 번도 끌지
+    /// 않은 페인이 대부분이라, 없으면 기본 폭으로 읽어 파일을 짧게 유지한다.
+    /// </summary>
+    private sealed record PaneRecord(PaneTabsRecord? Tabs, PaneColumns? Columns = null);
 
     private sealed record PaneTabsRecord(List<TabRecord>? Tabs, int? ActiveIndex = null);
 

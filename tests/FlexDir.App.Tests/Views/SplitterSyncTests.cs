@@ -68,7 +68,7 @@ public class SplitterSyncTests
     }
 
     [Fact]
-    public void DragCompleted_FromTheSplitter_FoldsTheMeasuredWidthsIn()
+    public void DragCompleted_FromTheColumnSplitter_FoldsTheMeasuredWidthsIn()
     {
         OnSta(() =>
         {
@@ -76,15 +76,65 @@ public class SplitterSyncTests
             SplitterSync.SetRatio(grid, 0.3);
             SplitterSync.SetEnabled(grid, true);
 
-            RaiseDragCompleted(grid.Children.OfType<GridSplitter>().Single());
+            RaiseDragCompleted(Splitter(grid, GridResizeDirection.Columns));
 
             Assert.Equal(0.5, SplitterSync.GetRatio(grid), precision: 2);
         });
     }
 
+    // ── 가로 스플리터 (docs/PRD-v2.md §18) ────────────────────────
+    // 3·4분할이 들어오며 축이 둘이 됐다. 어느 축인지는 GridSplitter 가 스스로 말한다
+    // (ResizeDirection) — 한 핸들러가 둘을 받으므로 그것을 안 보면 세로로 끈 것이 열 비율을
+    // 덮어쓴다.
+
+    [Fact]
+    public void DragCompleted_FromTheRowSplitter_FoldsTheMeasuredHeightsIn()
+    {
+        OnSta(() =>
+        {
+            var grid = MeasuredGrid();
+            SplitterSync.SetRowRatio(grid, 0.3);
+            SplitterSync.SetEnabled(grid, true);
+
+            RaiseDragCompleted(Splitter(grid, GridResizeDirection.Rows));
+
+            Assert.Equal(0.5, SplitterSync.GetRowRatio(grid), precision: 2);
+        });
+    }
+
+    [Fact]
+    public void DragCompleted_FromTheRowSplitter_LeavesTheColumnRatioAlone()
+    {
+        OnSta(() =>
+        {
+            var grid = MeasuredGrid();
+            SplitterSync.SetRatio(grid, 0.3);
+            SplitterSync.SetEnabled(grid, true);
+
+            RaiseDragCompleted(Splitter(grid, GridResizeDirection.Rows));
+
+            Assert.Equal(0.3, SplitterSync.GetRatio(grid));
+        });
+    }
+
+    [Fact]
+    public void DragCompleted_FromTheColumnSplitter_LeavesTheRowRatioAlone()
+    {
+        OnSta(() =>
+        {
+            var grid = MeasuredGrid();
+            SplitterSync.SetRowRatio(grid, 0.3);
+            SplitterSync.SetEnabled(grid, true);
+
+            RaiseDragCompleted(Splitter(grid, GridResizeDirection.Columns));
+
+            Assert.Equal(0.3, SplitterSync.GetRowRatio(grid));
+        });
+    }
+
     /// <summary>
-    /// 반반으로 <b>실측된</b> 페인 그리드. 열 셋(좌·스플리터 6·우)은 MainWindow.xaml 과 같다 —
-    /// 실측 폭이 있어야 되쓰기가 무엇을 쓰는지 보인다.
+    /// 반반으로 <b>실측된</b> 페인 그리드. 열 셋·행 셋(각각 <c>*</c>·스플리터 6·<c>*</c>)은
+    /// MainWindow.xaml 과 같다 — 실측 폭이 있어야 되쓰기가 무엇을 쓰는지 보인다.
     /// </summary>
     private static Grid MeasuredGrid()
     {
@@ -94,14 +144,33 @@ public class SplitterSyncTests
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        var splitter = new GridSplitter();
-        Grid.SetColumn(splitter, 1);
-        grid.Children.Add(splitter);
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(6) });
+        grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-        grid.Measure(new Size(1000, 100));
-        grid.Arrange(new Rect(0, 0, 1000, 100));
+        grid.Measure(new Size(1000, 1000));
+        grid.Arrange(new Rect(0, 0, 1000, 1000));
 
         return grid;
+    }
+
+    /// <summary>격자에 스플리터 하나를 끼운다. 축은 <c>ResizeDirection</c> 이 말한다.</summary>
+    private static GridSplitter Splitter(Grid grid, GridResizeDirection direction)
+    {
+        var splitter = new GridSplitter { ResizeDirection = direction };
+
+        if (direction == GridResizeDirection.Columns)
+        {
+            Grid.SetColumn(splitter, 1);
+        }
+        else
+        {
+            Grid.SetRow(splitter, 1);
+        }
+
+        grid.Children.Add(splitter);
+
+        return splitter;
     }
 
     private static void RaiseDragCompleted(UIElement source)
@@ -146,6 +215,18 @@ public class SplitterSyncTests
 
         Assert.Equal(new GridLength(0.3, GridUnitType.Star), left);
         Assert.Equal(new GridLength(0.7, GridUnitType.Star), right);
+    }
+
+    [Fact]
+    public void RowRatio_RoundTripsAndDefaultsToHalf()
+    {
+        var element = new DependencyObject();
+
+        Assert.Equal(0.5, SplitterSync.GetRowRatio(element));
+
+        SplitterSync.SetRowRatio(element, 0.3);
+
+        Assert.Equal(0.3, SplitterSync.GetRowRatio(element));
     }
 
     // ── attached property 왕복 ────────────────────────────────────

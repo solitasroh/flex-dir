@@ -32,7 +32,7 @@ public class FileOperationCommandsTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -73,8 +73,8 @@ public class FileOperationCommandsTests
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var pics = Folder(@"C:\Temp\Pics", "p.jpg");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
 
         await workspace.CopyToOtherPaneCommand.ExecuteAsync(null);
         await workspace.MoveToOtherPaneCommand.ExecuteAsync(null);
@@ -575,9 +575,9 @@ public class FileOperationCommandsTests
         var docs = Folder(@"C:\Temp\Docs", "a.txt", "b.txt");
         var backup = Folder(@"C:\Temp\Backup");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(backup);
-        workspace.Left.Selection.SelectSingle("a.txt");
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(backup);
+        workspace.Left().Selection.SelectSingle("a.txt");
 
         await workspace.CopyToOtherPaneCommand.ExecuteAsync(null);
 
@@ -593,9 +593,9 @@ public class FileOperationCommandsTests
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var backup = Folder(@"C:\Temp\Backup");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(backup);
-        workspace.Left.Selection.SelectSingle("a.txt");
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(backup);
+        workspace.Left().Selection.SelectSingle("a.txt");
 
         await workspace.MoveToOtherPaneCommand.ExecuteAsync(null);
 
@@ -606,15 +606,15 @@ public class FileOperationCommandsTests
     }
 
     [Fact]
-    public async Task PaneToPaneCommands_FollowTheActiveSide()
+    public async Task PaneToPaneCommands_FollowTheActivePane()
     {
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var backup = Folder(@"C:\Temp\Backup", "z.txt");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(backup);
-        workspace.Right.Selection.SelectSingle("z.txt");
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(backup);
+        workspace.Right().Selection.SelectSingle("z.txt");
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         await workspace.CopyToOtherPaneCommand.ExecuteAsync(null);
 
@@ -628,15 +628,15 @@ public class FileOperationCommandsTests
     {
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        workspace.Left.Selection.SelectSingle("a.txt");
+        await workspace.Left().NavigateAsync(docs);
+        workspace.Left().Selection.SelectSingle("a.txt");
 
         await workspace.CopyToOtherPaneCommand.ExecuteAsync(null);
         await workspace.MoveToOtherPaneCommand.ExecuteAsync(null);
 
         Assert.Empty(operations.Copies);
         Assert.Empty(operations.Moves);
-        Assert.Null(workspace.Right.CurrentLocation);
+        Assert.Null(workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -645,9 +645,9 @@ public class FileOperationCommandsTests
         // 제자리 이동은 아무 일도 아니다. 복사는 shell 이 사본을 만든다.
         var folder = Folder(@"C:\Temp", "a.txt");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(folder);
-        await workspace.Right.NavigateAsync(folder);
-        workspace.Left.Selection.SelectSingle("a.txt");
+        await workspace.Left().NavigateAsync(folder);
+        await workspace.Right().NavigateAsync(folder);
+        workspace.Left().Selection.SelectSingle("a.txt");
 
         await workspace.MoveToOtherPaneCommand.ExecuteAsync(null);
 
@@ -667,21 +667,21 @@ public class FileOperationCommandsTests
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
         var pics = Folder(@"C:\Temp\Pics", "p.jpg");
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        workspace.Left.Selection.SelectSingle("a.txt");
+        await workspace.Left().NavigateAsync(docs);
+        workspace.Left().Selection.SelectSingle("a.txt");
 
         var released = new TaskCompletionSource();
         operations.Gate = released.Task;
-        var pending = workspace.Left.DeleteSelectionCommand.ExecuteAsync(null);
+        var pending = workspace.Left().DeleteSelectionCommand.ExecuteAsync(null);
 
         Assert.False(pending.IsCompleted);
 
         // 삭제가 매달려 있는 동안 반대편 페인은 정상적으로 폴더를 연다.
-        await workspace.Right.NavigateAsync(pics);
+        await workspace.Right().NavigateAsync(pics);
 
-        Assert.Equal(pics, workspace.Right.CurrentLocation);
-        Assert.Equal(["p.jpg"], workspace.Right.Items.Select(row => row.Name));
-        Assert.Equal(PaneStatus.Idle, workspace.Right.Status);
+        Assert.Equal(pics, workspace.Right().CurrentLocation);
+        Assert.Equal(["p.jpg"], workspace.Right().Items.Select(row => row.Name));
+        Assert.Equal(PaneStatus.Idle, workspace.Right().Status);
 
         released.SetResult();
         await pending;
@@ -729,7 +729,7 @@ public class FileOperationCommandsTests
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
     private PaneViewModel CreatePane()
         => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator, dispatcher, Culture, TimeZoneInfo.Utc, contextMenus);

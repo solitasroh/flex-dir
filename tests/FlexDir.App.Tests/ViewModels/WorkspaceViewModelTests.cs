@@ -39,7 +39,7 @@ public class WorkspaceViewModelTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -66,9 +66,9 @@ public class WorkspaceViewModelTests
     {
         var workspace = CreateWorkspace();
 
-        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
-        Assert.Same(workspace.Left, workspace.ActivePane);
-        Assert.Same(workspace.Right, workspace.InactivePane);
+        Assert.Same(workspace.LeftTabs(), workspace.ActivePane);
+        Assert.Same(workspace.Left(), workspace.ActiveTab);
+        Assert.Same(workspace.Right(), workspace.OtherTab);
         Assert.Equal(GlobalViewState.Default.SplitterRatio, workspace.SplitterRatio);
         Assert.Null(workspace.WindowPlacement);
     }
@@ -87,11 +87,11 @@ public class WorkspaceViewModelTests
     {
         var workspace = CreateWorkspace();
 
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
-        Assert.Same(workspace.Right, workspace.ActivePane);
-        Assert.Same(workspace.Left, workspace.InactivePane);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
+        Assert.Same(workspace.Right(), workspace.ActiveTab);
+        Assert.Same(workspace.Left(), workspace.OtherTab);
     }
 
     [Fact]
@@ -101,13 +101,13 @@ public class WorkspaceViewModelTests
 
         workspace.SwitchPaneCommand.Execute(null);
 
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
-        Assert.Same(workspace.Right, workspace.ActivePane);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
+        Assert.Same(workspace.Right(), workspace.ActiveTab);
 
         workspace.SwitchPaneCommand.Execute(null);
 
-        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
-        Assert.Same(workspace.Left, workspace.ActivePane);
+        Assert.Same(workspace.LeftTabs(), workspace.ActivePane);
+        Assert.Same(workspace.Left(), workspace.ActiveTab);
     }
 
     [Fact]
@@ -118,21 +118,21 @@ public class WorkspaceViewModelTests
         var changed = new List<string?>();
         workspace.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
 
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
-        Assert.Contains(nameof(WorkspaceViewModel.ActiveSide), changed);
         Assert.Contains(nameof(WorkspaceViewModel.ActivePane), changed);
-        Assert.Contains(nameof(WorkspaceViewModel.InactivePane), changed);
+        Assert.Contains(nameof(WorkspaceViewModel.ActiveTab), changed);
+        Assert.Contains(nameof(WorkspaceViewModel.OtherTab), changed);
     }
 
     [Fact]
-    public void Activate_TheAlreadyActiveSide_StaysQuiet()
+    public void Activate_TheAlreadyActivePane_StaysQuiet()
     {
         var workspace = CreateWorkspace();
         var changed = new List<string?>();
         workspace.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
 
-        workspace.ActivateCommand.Execute(PaneSide.Left);
+        workspace.ActivateCommand.Execute(workspace.LeftTabs());
 
         Assert.Empty(changed);
     }
@@ -144,18 +144,18 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300), ("b.txt", 100));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300), ("p2.jpg", 100));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
-        workspace.Left.Selection.SelectSingle("a.txt");
-        workspace.Right.Selection.SelectSingle("p2.jpg");
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
+        workspace.Left().Selection.SelectSingle("a.txt");
+        workspace.Right().Selection.SelectSingle("p2.jpg");
 
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
         workspace.SwitchPaneCommand.Execute(null);
 
-        Assert.Equal(["a.txt"], workspace.Left.Selection.SelectedNames);
-        Assert.Equal("a.txt", workspace.Left.Selection.Anchor);
-        Assert.Equal(["p2.jpg"], workspace.Right.Selection.SelectedNames);
-        Assert.Equal("p2.jpg", workspace.Right.Selection.Anchor);
+        Assert.Equal(["a.txt"], workspace.Left().Selection.SelectedNames);
+        Assert.Equal("a.txt", workspace.Left().Selection.Anchor);
+        Assert.Equal(["p2.jpg"], workspace.Right().Selection.SelectedNames);
+        Assert.Equal("p2.jpg", workspace.Right().Selection.Anchor);
     }
 
     // ── 마우스 보조 버튼의 뒤로·앞으로 (docs/PRD-v2.md §15) ───────
@@ -168,14 +168,14 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Right.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
+        await workspace.Right().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
 
-        await workspace.GoBackAtAsync(workspace.Right);
+        await workspace.GoBackAtAsync(workspace.Right());
 
-        Assert.Equal(docs, workspace.Right.CurrentLocation);
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Equal(docs, workspace.Right().CurrentLocation);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
+        Assert.Null(workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -184,14 +184,14 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Right.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
-        await workspace.Right.GoBackAsync();
+        await workspace.Right().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
+        await workspace.Right().GoBackAsync();
 
-        await workspace.GoForwardAtAsync(workspace.Right);
+        await workspace.GoForwardAtAsync(workspace.Right());
 
-        Assert.Equal(pics, workspace.Right.CurrentLocation);
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Equal(pics, workspace.Right().CurrentLocation);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
     }
 
     [Fact]
@@ -202,13 +202,13 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Left.NavigateAsync(pics);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(pics);
 
         await workspace.GoBackAtAsync(null);
 
-        Assert.Equal(docs, workspace.Left.CurrentLocation);
-        Assert.Equal(PaneSide.Left, workspace.ActiveSide);
+        Assert.Equal(docs, workspace.Left().CurrentLocation);
+        Assert.Same(workspace.LeftTabs(), workspace.ActivePane);
     }
 
     [Fact]
@@ -218,12 +218,12 @@ public class WorkspaceViewModelTests
         // 구분되지 않는다. 갈 곳이 없는 것은 PaneHistory 가 조용히 판정한다.
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var workspace = CreateWorkspace();
-        await workspace.Right.NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(docs);
 
-        await workspace.GoBackAtAsync(workspace.Right);
+        await workspace.GoBackAtAsync(workspace.Right());
 
-        Assert.Equal(docs, workspace.Right.CurrentLocation);
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
+        Assert.Equal(docs, workspace.Right().CurrentLocation);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
     }
 
     // ── 두 페인의 독립 ────────────────────────────────────────────
@@ -234,18 +234,18 @@ public class WorkspaceViewModelTests
         // docs/PRD.md §4 — 같은 폴더를 양쪽 페인에 열 수 있고 각각 독립적인 뷰 상태를 갖는다.
         var folder = Folder(@"C:\Temp", ("a.txt", 300), ("b.txt", 100), ("c.txt", 200));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(folder);
-        await workspace.Right.NavigateAsync(folder);
+        await workspace.Left().NavigateAsync(folder);
+        await workspace.Right().NavigateAsync(folder);
 
-        await workspace.Left.ChangeSortCommand.ExecuteAsync(SortKey.Size);
-        await workspace.Left.ChangeViewModeCommand.ExecuteAsync(ViewMode.Tiles);
+        await workspace.Left().ChangeSortCommand.ExecuteAsync(SortKey.Size);
+        await workspace.Left().ChangeViewModeCommand.ExecuteAsync(ViewMode.Tiles);
 
-        Assert.Equal([new SortOrder(SortKey.Size)], workspace.Left.Sort);
-        Assert.Equal(["b.txt", "c.txt", "a.txt"], workspace.Left.Items.Select(row => row.Name));
+        Assert.Equal([new SortOrder(SortKey.Size)], workspace.Left().Sort);
+        Assert.Equal(["b.txt", "c.txt", "a.txt"], workspace.Left().Items.Select(row => row.Name));
 
-        Assert.Equal(FolderViewState.Default.Sort, workspace.Right.Sort);
-        Assert.Equal(FolderViewState.Default.Mode, workspace.Right.ViewMode);
-        Assert.Equal(["a.txt", "b.txt", "c.txt"], workspace.Right.Items.Select(row => row.Name));
+        Assert.Equal(FolderViewState.Default.Sort, workspace.Right().Sort);
+        Assert.Equal(FolderViewState.Default.Mode, workspace.Right().ViewMode);
+        Assert.Equal(["a.txt", "b.txt", "c.txt"], workspace.Right().Items.Select(row => row.Name));
     }
 
     [Fact]
@@ -253,19 +253,19 @@ public class WorkspaceViewModelTests
     {
         var folder = Folder(@"C:\Temp", ("a.txt", 300), ("b.txt", 100), ("c.txt", 200));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(folder);
-        await workspace.Right.NavigateAsync(folder);
+        await workspace.Left().NavigateAsync(folder);
+        await workspace.Right().NavigateAsync(folder);
 
-        workspace.Right.Selection.SelectSingle("c.txt");
-        workspace.Left.Selection.SelectSingle("a.txt");
-        workspace.Left.Selection.Toggle("b.txt");
+        workspace.Right().Selection.SelectSingle("c.txt");
+        workspace.Left().Selection.SelectSingle("a.txt");
+        workspace.Left().Selection.Toggle("b.txt");
 
-        Assert.Equal(2, workspace.Left.Selection.Count);
-        Assert.True(workspace.Left.Selection.IsSelected("a.txt"));
-        Assert.True(workspace.Left.Selection.IsSelected("b.txt"));
+        Assert.Equal(2, workspace.Left().Selection.Count);
+        Assert.True(workspace.Left().Selection.IsSelected("a.txt"));
+        Assert.True(workspace.Left().Selection.IsSelected("b.txt"));
 
-        Assert.Equal(["c.txt"], workspace.Right.Selection.SelectedNames);
-        Assert.Equal("c.txt", workspace.Right.Selection.Anchor);
+        Assert.Equal(["c.txt"], workspace.Right().Selection.SelectedNames);
+        Assert.Equal("c.txt", workspace.Right().Selection.Anchor);
     }
 
     [Fact]
@@ -274,18 +274,18 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(docs);
 
-        await workspace.Left.NavigateAsync(pics);
+        await workspace.Left().NavigateAsync(pics);
 
-        Assert.Equal(pics, workspace.Left.CurrentLocation);
-        Assert.True(workspace.Left.CanGoBack);
+        Assert.Equal(pics, workspace.Left().CurrentLocation);
+        Assert.True(workspace.Left().CanGoBack);
 
         // 히스토리도 페인별이다 (docs/PRD.md §2).
-        Assert.Equal(docs, workspace.Right.CurrentLocation);
-        Assert.False(workspace.Right.CanGoBack);
-        Assert.Equal(["a.txt"], workspace.Right.Items.Select(row => row.Name));
+        Assert.Equal(docs, workspace.Right().CurrentLocation);
+        Assert.False(workspace.Right().CanGoBack);
+        Assert.Equal(["a.txt"], workspace.Right().Items.Select(row => row.Name));
     }
 
     // ── 스플리터 비율 ─────────────────────────────────────────────
@@ -385,14 +385,11 @@ public class WorkspaceViewModelTests
 
         var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
 
-        // 컬럼 폭은 페인이 들고 있으므로 손대지 않아도 기본값이 함께 실린다.
-        Assert.Equal(
-            new GlobalViewState(0.4, workspace.WindowPlacement)
-            {
-                LeftColumns = PaneColumns.Default,
-                RightColumns = PaneColumns.Default,
-            },
-            saved);
+        // 아무 폴더도 열지 않은 페인은 담을 것이 없다 — 그러면 컬럼 폭도 함께 빠진다
+        // (docs/PRD-v2.md §18: 컬럼 폭이 PaneState 에 붙어 탭 목록과 한 묶음이 됐다).
+        // "기억이 없다" 로 저장되는 편이 옳다: 다음 실행은 시작 폴더 규칙으로 가야 한다.
+        // 분할 수는 담긴다 — 다음 실행이 쓰던 화면으로 돌아오는 근거다 (docs/PRD-v2.md §18).
+        Assert.Equal(new GlobalViewState(0.4, workspace.WindowPlacement) { PaneCount = 2 }, saved);
     }
 
     [Fact]
@@ -415,35 +412,35 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
 
         await workspace.OpenOtherPaneLocationCommand.ExecuteAsync(null);
 
-        Assert.Equal(pics, workspace.Left.CurrentLocation);
-        Assert.Equal(["p1.jpg"], workspace.Left.Items.Select(row => row.Name));
+        Assert.Equal(pics, workspace.Left().CurrentLocation);
+        Assert.Equal(["p1.jpg"], workspace.Left().Items.Select(row => row.Name));
 
         // 히스토리에 남는다 — 뒤로가 원래 폴더로 돌아간다.
-        Assert.True(workspace.Left.CanGoBack);
+        Assert.True(workspace.Left().CanGoBack);
 
         // 반대편은 움직이지 않는다.
-        Assert.Equal(pics, workspace.Right.CurrentLocation);
+        Assert.Equal(pics, workspace.Right().CurrentLocation);
     }
 
     [Fact]
-    public async Task OpenOtherPaneLocation_FollowsTheActiveSide()
+    public async Task OpenOtherPaneLocation_FollowsTheActivePane()
     {
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var pics = Folder(@"C:\Temp\Pics", ("p1.jpg", 300));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         await workspace.OpenOtherPaneLocationCommand.ExecuteAsync(null);
 
-        Assert.Equal(docs, workspace.Right.CurrentLocation);
-        Assert.Equal(docs, workspace.Left.CurrentLocation);
+        Assert.Equal(docs, workspace.Right().CurrentLocation);
+        Assert.Equal(docs, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -451,13 +448,13 @@ public class WorkspaceViewModelTests
     {
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 300));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(docs);
 
         await workspace.OpenOtherPaneLocationCommand.ExecuteAsync(null);
 
-        Assert.Equal(docs, workspace.Left.CurrentLocation);
-        Assert.Equal(PaneStatus.Idle, workspace.Left.Status);
-        Assert.Null(workspace.Right.CurrentLocation);
+        Assert.Equal(docs, workspace.Left().CurrentLocation);
+        Assert.Equal(PaneStatus.Idle, workspace.Left().Status);
+        Assert.Null(workspace.Right().CurrentLocation);
 
         // 열거를 다시 하지도 않는다.
         Assert.Single(source.EnumerateCalls);
@@ -468,19 +465,20 @@ public class WorkspaceViewModelTests
     [Fact]
     public async Task RestoreAsync_BringsBackEachPaneColumnWidths()
     {
+        // 컬럼 폭은 이제 탭 목록과 한 묶음이다 (PaneState) — 페인이 기억되어야 폭도 있다.
         await viewStates.SaveGlobalAsync(
-            GlobalViewState.Default with
-            {
-                LeftColumns = new PaneColumns(400, 70, 200, 180),
-                RightColumns = new PaneColumns(200, 60, 90, 100),
-            },
+            GlobalViewState.Default.WithTwoPanes(
+                PaneTabsState.Single(Folder(@"C:\A")),
+                PaneTabsState.Single(Folder(@"C:\B")),
+                new PaneColumns(400, 70, 200, 180),
+                new PaneColumns(200, 60, 90, 100)),
             CancellationToken.None);
         var workspace = CreateWorkspace();
 
         await workspace.RestoreAsync(null);
 
-        Assert.Equal(new PaneColumns(400, 70, 200, 180), workspace.Left.Columns);
-        Assert.Equal(new PaneColumns(200, 60, 90, 100), workspace.Right.Columns);
+        Assert.Equal(new PaneColumns(400, 70, 200, 180), workspace.Left().Columns);
+        Assert.Equal(new PaneColumns(200, 60, 90, 100), workspace.Right().Columns);
     }
 
     [Fact]
@@ -490,23 +488,27 @@ public class WorkspaceViewModelTests
 
         await workspace.RestoreAsync(null);
 
-        Assert.Equal(PaneColumns.Default, workspace.Left.Columns);
+        Assert.Equal(PaneColumns.Default, workspace.Left().Columns);
     }
 
     [Fact]
     public async Task PersistAsync_SavesEachPaneSeparately()
     {
+        // 폴더를 연다 — 컬럼 폭은 탭 목록과 한 묶음이라 (PaneState) 담을 탭이 있어야 함께
+        // 실린다. 아무 곳도 열지 않은 페인은 "기억이 없다" 로 저장되는 것이 옳다.
         var workspace = CreateWorkspace();
-        workspace.Left.TypeColumnWidth = 200;
+        await workspace.Left().NavigateAsync(Folder(@"C:\A", ("a.txt", 1)));
+        await workspace.Right().NavigateAsync(Folder(@"C:\B", ("b.txt", 1)));
+        workspace.Left().TypeColumnWidth = 200;
 
         await workspace.PersistAsync();
 
         var saved = await viewStates.LoadGlobalAsync(CancellationToken.None);
 
-        Assert.Equal(200, saved.LeftColumns?.Type);
+        Assert.Equal(200, saved.ColumnsAt(0)?.Type);
 
         // 반대편은 건드리지 않는다 — 한쪽에서 끌 때 다른 쪽이 따라 움직이면 안 된다.
-        Assert.Equal(PaneColumns.Default.Type, saved.RightColumns?.Type);
+        Assert.Equal(PaneColumns.Default.Type, saved.ColumnsAt(1)?.Type);
     }
 
     [Fact]
@@ -514,9 +516,9 @@ public class WorkspaceViewModelTests
     {
         var workspace = CreateWorkspace();
 
-        workspace.Left.NameColumnWidth = 500;
+        workspace.Left().NameColumnWidth = 500;
 
-        Assert.Equal(PaneColumns.Default.Name, workspace.Right.NameColumnWidth);
+        Assert.Equal(PaneColumns.Default.Name, workspace.Right().NameColumnWidth);
     }
 
     // ── 폴더 트리 (docs/PRD-v2.md §10 · 사용자 결정 2026-08-10) ────
@@ -600,7 +602,7 @@ public class WorkspaceViewModelTests
         // 툴바 버튼의 자리다 — 지금 보고 있는 폴더를 한 번에 고정한다.
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
         var (workspace, tree) = CreateWorkspaceWithTree();
-        await workspace.Left.NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(docs);
 
         await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
 
@@ -608,14 +610,14 @@ public class WorkspaceViewModelTests
     }
 
     [Fact]
-    public async Task PinCurrentFolder_FollowsTheActiveSide()
+    public async Task PinCurrentFolder_FollowsTheActivePane()
     {
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
         var pics = Folder(@"C:\Temp\Pics", ("p.jpg", 100));
         var (workspace, tree) = CreateWorkspaceWithTree();
-        await workspace.Left.NavigateAsync(docs);
-        await workspace.Right.NavigateAsync(pics);
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        await workspace.Left().NavigateAsync(docs);
+        await workspace.Right().NavigateAsync(pics);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
 
@@ -637,7 +639,7 @@ public class WorkspaceViewModelTests
     {
         // 툴바 버튼은 트리 없이 조립돼도 눌린다.
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(Folder(@"C:\Temp\Docs", ("a.txt", 100)));
+        await workspace.Left().NavigateAsync(Folder(@"C:\Temp\Docs", ("a.txt", 100)));
 
         await workspace.PinCurrentFolderCommand.ExecuteAsync(null);
     }
@@ -650,11 +652,11 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
         var sub = Subfolder(docs, "Sub");
         var (workspace, tree) = CreateWorkspaceWithTree();
-        await workspace.Left.NavigateAsync(docs);
-        workspace.Left.Selection.SelectSingle("Sub");
+        await workspace.Left().NavigateAsync(docs);
+        workspace.Left().Selection.SelectSingle("Sub");
         contextMenus.ChosenAppCommand = 0;
 
-        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+        await workspace.Left().ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
 
         Assert.Equal([sub], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
 
@@ -669,10 +671,10 @@ public class WorkspaceViewModelTests
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
         Subfolder(Loc(@"C:\Temp"), "Docs");
         var (workspace, tree) = CreateWorkspaceWithTree();
-        await workspace.Left.NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(docs);
         contextMenus.ChosenAppCommand = 0;
 
-        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+        await workspace.Left().ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
 
         Assert.Equal([docs], tree.Roots.Where(node => node.IsFavorite).Select(node => node.Location));
     }
@@ -682,10 +684,10 @@ public class WorkspaceViewModelTests
     {
         var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
         var (workspace, tree) = CreateWorkspaceWithTree();
-        await workspace.Left.NavigateAsync(docs);
+        await workspace.Left().NavigateAsync(docs);
         contextMenus.ChosenAppCommand = null;
 
-        await workspace.Left.ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
+        await workspace.Left().ShowContextMenuCommand.ExecuteAsync(new ScreenPoint(10, 10));
 
         Assert.DoesNotContain(tree.Roots, node => node.IsFavorite);
     }
@@ -700,12 +702,12 @@ public class WorkspaceViewModelTests
 
         tree.Roots[0].IsSelected = true;
 
-        Assert.Equal(docs, workspace.Left.CurrentLocation);
-        Assert.Null(workspace.Right.CurrentLocation);
+        Assert.Equal(docs, workspace.Left().CurrentLocation);
+        Assert.Null(workspace.Right().CurrentLocation);
     }
 
     [Fact]
-    public async Task TreeSelection_FollowsTheActiveSide()
+    public async Task TreeSelection_FollowsTheActivePane()
     {
         // 트리는 창에 하나뿐이고 양쪽을 다 몰 수 있어야 한다 (사용자 결정 2026-08-10) —
         // Tab 으로 옮긴 뒤 고르면 그쪽이 간다.
@@ -713,12 +715,12 @@ public class WorkspaceViewModelTests
         drives.Drives.Add(new DriveEntry(docs, "Docs", null));
         var (workspace, tree) = CreateWorkspaceWithTree();
         await workspace.RestoreAsync(null);
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         tree.Roots[0].IsSelected = true;
 
-        Assert.Equal(docs, workspace.Right.CurrentLocation);
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Equal(docs, workspace.Right().CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
     }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────
@@ -732,14 +734,14 @@ public class WorkspaceViewModelTests
         var right = Folder(@"C:\Temp\Right", ("b.txt", 100));
         var fallback = Folder(@"C:\Users\Me", ("c.txt", 100));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, PaneTabsState.Single(left), PaneTabsState.Single(right)),
+            GlobalViewState.Default.WithTwoPanes(PaneTabsState.Single(left), PaneTabsState.Single(right)),
             CancellationToken.None);
         var workspace = CreateWorkspace();
 
         await workspace.RestoreAsync(fallback);
 
-        Assert.Equal(left, workspace.Left.CurrentLocation);
-        Assert.Equal(right, workspace.Right.CurrentLocation);
+        Assert.Equal(left, workspace.Left().CurrentLocation);
+        Assert.Equal(right, workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -751,8 +753,8 @@ public class WorkspaceViewModelTests
 
         await workspace.RestoreAsync(fallback);
 
-        Assert.Equal(fallback, workspace.Left.CurrentLocation);
-        Assert.Equal(fallback, workspace.Right.CurrentLocation);
+        Assert.Equal(fallback, workspace.Left().CurrentLocation);
+        Assert.Equal(fallback, workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -762,8 +764,8 @@ public class WorkspaceViewModelTests
 
         await workspace.RestoreAsync(null);
 
-        Assert.Null(workspace.Left.CurrentLocation);
-        Assert.Null(workspace.Right.CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
+        Assert.Null(workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -772,14 +774,14 @@ public class WorkspaceViewModelTests
         var left = Folder(@"C:\Temp\Left", ("a.txt", 100));
         var right = Folder(@"C:\Temp\Right", ("b.txt", 100));
         var workspace = CreateWorkspace();
-        await workspace.Left.NavigateAsync(left);
-        await workspace.Right.NavigateAsync(right);
+        await workspace.Left().NavigateAsync(left);
+        await workspace.Right().NavigateAsync(right);
 
         await workspace.PersistAsync();
 
         var state = await viewStates.LoadGlobalAsync(CancellationToken.None);
-        Assert.Equal(left, Assert.Single(state.LeftTabs!.Tabs).Folder);
-        Assert.Equal(right, Assert.Single(state.RightTabs!.Tabs).Folder);
+        Assert.Equal(left, Assert.Single(state.TabsAt(0)!.Tabs).Folder);
+        Assert.Equal(right, Assert.Single(state.TabsAt(1)!.Tabs).Folder);
     }
 
     // ── 클릭에 의한 활성 전환 ─────────────────────────────────────
@@ -791,15 +793,15 @@ public class WorkspaceViewModelTests
         // View 가 페인 전환을 따로 쏘면 클릭 한 번에 바인딩 두 개가 경합한다.
         var folder = Folder(@"C:\Temp", ("a.txt", 100));
         var workspace = CreateWorkspace();
-        await workspace.Right.NavigateAsync(folder);
+        await workspace.Right().NavigateAsync(folder);
 
-        workspace.Right.SelectItemCommand.Execute(workspace.Right.Items[0]);
+        workspace.Right().SelectItemCommand.Execute(workspace.Right().Items[0]);
 
-        Assert.Equal(PaneSide.Right, workspace.ActiveSide);
-        Assert.Equal(["a.txt"], workspace.Right.Selection.SelectedNames);
+        Assert.Same(workspace.RightTabs(), workspace.ActivePane);
+        Assert.Equal(["a.txt"], workspace.Right().Selection.SelectedNames);
     }
 
-    private WorkspaceViewModel CreateWorkspace() => new(CreatePane, viewStates);
+    private WorkspaceViewModel CreateWorkspace() => new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
     /// <summary>트리를 물린 워크스페이스. 트리를 보는 테스트만 이것을 쓴다.</summary>
     private (WorkspaceViewModel Workspace, FolderTreeViewModel Tree) CreateWorkspaceWithTree()
@@ -807,7 +809,7 @@ public class WorkspaceViewModelTests
         var tree = new FolderTreeViewModel(
             drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
-        return (new WorkspaceViewModel(CreatePane, viewStates, update: null, tree), tree);
+        return (new WorkspaceViewModel(CreatePane, viewStates, update: null, tree).Split2(), tree);
     }
 
     /// <summary>

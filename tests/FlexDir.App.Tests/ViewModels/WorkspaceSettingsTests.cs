@@ -33,7 +33,7 @@ public class WorkspaceSettingsTests
     private readonly FakeFolderWatcher watcher = new();
     private readonly FakeTypeNameProvider typeNames = new();
     private readonly FakeThumbnailSource thumbnails = new();
-    private readonly InMemoryViewStateStore viewStates = new();
+    private readonly InMemoryViewStateStore viewStates = new InMemoryViewStateStore().RememberingTwoPanes();
     private readonly FakeFileOperations operations = new();
     private readonly FakeClipboardBridge clipboard = new();
     private readonly FakeItemActivator activator = new();
@@ -52,7 +52,7 @@ public class WorkspaceSettingsTests
 
         var settings = new SettingsViewModel(settingsStore, dispatcher, "0.3.1", StateDirectory);
 
-        return (new WorkspaceViewModel(CreatePane, viewStates, null, tree, settings), settings, tree);
+        return (new WorkspaceViewModel(CreatePane, viewStates, null, tree, settings).Split2(), settings, tree);
     }
 
     private static LocationId Loc(string path)
@@ -86,15 +86,15 @@ public class WorkspaceSettingsTests
         var last = Folder(@"C:\last", ("a.txt", FileItemFlags.None));
         var chosen = Folder(@"C:\work", ("b.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, PaneTabsState.Single(last), PaneTabsState.Single(last)),
+            GlobalViewState.Default.WithTwoPanes(PaneTabsState.Single(last), PaneTabsState.Single(last)),
             CancellationToken.None);
         settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.Fixed, StartFolder = chosen });
 
         var (workspace, _, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(chosen, workspace.Left.CurrentLocation);
-        Assert.Equal(chosen, workspace.Right.CurrentLocation);
+        Assert.Equal(chosen, workspace.Left().CurrentLocation);
+        Assert.Equal(chosen, workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -104,14 +104,14 @@ public class WorkspaceSettingsTests
         var left = Folder(@"C:\left", ("a.txt", FileItemFlags.None));
         var right = Folder(@"C:\right", ("b.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, PaneTabsState.Single(left), PaneTabsState.Single(right)),
+            GlobalViewState.Default.WithTwoPanes(PaneTabsState.Single(left), PaneTabsState.Single(right)),
             CancellationToken.None);
 
         var (workspace, _, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(left, workspace.Left.CurrentLocation);
-        Assert.Equal(right, workspace.Right.CurrentLocation);
+        Assert.Equal(left, workspace.Left().CurrentLocation);
+        Assert.Equal(right, workspace.Right().CurrentLocation);
     }
 
     [Fact]
@@ -120,13 +120,13 @@ public class WorkspaceSettingsTests
         // 조립이 설정 없이 서는 경우가 있다 (트리·업데이트와 같은 이유로 선택 인자다).
         var last = Folder(@"C:\last", ("a.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
-            new GlobalViewState(0.5, null, PaneTabsState.Single(last), PaneTabsState.Single(last)),
+            GlobalViewState.Default.WithTwoPanes(PaneTabsState.Single(last), PaneTabsState.Single(last)),
             CancellationToken.None);
 
-        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates).Split2();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(last, workspace.Left.CurrentLocation);
+        Assert.Equal(last, workspace.Left().CurrentLocation);
     }
 
     [Fact]
@@ -151,8 +151,8 @@ public class WorkspaceSettingsTests
         var (workspace, _, tree) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.True(workspace.Left.ShowHiddenItems);
-        Assert.True(workspace.Right.ShowHiddenItems);
+        Assert.True(workspace.Left().ShowHiddenItems);
+        Assert.True(workspace.Right().ShowHiddenItems);
         Assert.True(tree.ShowHiddenItems);
     }
 
@@ -170,7 +170,7 @@ public class WorkspaceSettingsTests
         var (workspace, _, _) = Create();
         await workspace.RestoreAsync(folder, CancellationToken.None);
 
-        Assert.Equal(2, workspace.Left.Items.Count);
+        Assert.Equal(2, workspace.Left().Items.Count);
 
         // 페인마다 한 번씩이다. 정책을 나중에 밀고 다시 읽으면 여기가 넷이 된다 — 시작
         // 경로에서 폴더를 두 번 읽는 것은 cold start 예산에 그대로 얹힌다 (ADR-003).
@@ -190,8 +190,8 @@ public class WorkspaceSettingsTests
         settings.ShowHiddenItems = true;
         await workspace.HiddenItemsWork;
 
-        Assert.Equal(2, workspace.Left.Items.Count);
-        Assert.Equal(2, workspace.Right.Items.Count);
+        Assert.Equal(2, workspace.Left().Items.Count);
+        Assert.Equal(2, workspace.Right().Items.Count);
     }
 
     [Fact]
@@ -230,12 +230,12 @@ public class WorkspaceSettingsTests
         var stateFolder = Folder(StateDirectory, ("settings.json", FileItemFlags.None));
         var (workspace, settings, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
-        workspace.ActivateCommand.Execute(PaneSide.Right);
+        workspace.ActivateCommand.Execute(workspace.RightTabs());
 
         settings.OpenStateFolderCommand.Execute(null);
 
-        Assert.Equal(stateFolder, workspace.Right.CurrentLocation);
-        Assert.Null(workspace.Left.CurrentLocation);
+        Assert.Equal(stateFolder, workspace.Right().CurrentLocation);
+        Assert.Null(workspace.Left().CurrentLocation);
     }
 
     // ── 현재 폴더로 ───────────────────────────────────────────────
@@ -257,7 +257,7 @@ public class WorkspaceSettingsTests
     [Fact]
     public void UseCurrentFolderAsStart_WithNoSettingsWired_DoesNothing()
     {
-        var workspace = new WorkspaceViewModel(CreatePane, viewStates);
+        var workspace = new WorkspaceViewModel(CreatePane, viewStates).Split2();
 
         workspace.UseCurrentFolderAsStartCommand.Execute(null);
 
