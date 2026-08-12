@@ -1810,6 +1810,11 @@
                 <!-- TreeScroll.Path 는 트리가 따라간 경로다 (docs/PRD-v2.md §10-3).
                      프로그램이 정한 선택으로는 TreeView 가 스크롤하지 않고, 가상화 때문에
                      화면 밖 노드는 컨테이너조차 없어 루트부터 실현하며 내려가야 한다. -->
+                <!-- 가로 스크롤을 끈다 (사용자 결정 2026-08-12). 탐색기 탐색창에도 없다.
+                     Hidden 이 아니라 Disabled 인 이유: Hidden 은 막대만 감출 뿐 내용을 여전히
+                     무한 폭으로 재서, 따라가기의 BringIntoView (TreeScroll) 가 깊은 노드를
+                     가로로 밀고 사용자는 되돌릴 수단이 없다. Disabled 는 내용을 뷰포트 폭에
+                     묶어 밀 곳 자체를 없앤다 — 긴 이름은 라벨의 CharacterEllipsis 가 받는다. -->
                 <TreeView ItemsSource="{Binding Tree.Roots}"
                           ItemContainerStyle="{StaticResource TreeNodeItem}"
                           v:FavoriteDropInput.Enabled="True"
@@ -1817,7 +1822,7 @@
                           Background="Transparent" BorderThickness="0" Padding="4"
                           VirtualizingStackPanel.IsVirtualizing="True"
                           VirtualizingStackPanel.VirtualizationMode="Recycling"
-                          ScrollViewer.HorizontalScrollBarVisibility="Auto">
+                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <TreeView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <v:RealizingStackPanel />
