@@ -27,12 +27,14 @@ public class SettingsViewModelTests
     private readonly FakeSettingsStore store = new();
     private readonly FakeUpdateSource updates = new();
     private readonly InlineUiDispatcher dispatcher = new();
+    private readonly FakeSystemThemeSource systemTheme = new();
 
     private SettingsViewModel Create(string version = "0.3.1") => new(
         store,
         dispatcher,
         version,
         StateDirectory,
+        systemTheme,
         new UpdateViewModel(updates, dispatcher));
 
     private static LocationId Loc(string path) => LocationId.TryParse(path, out var id, out _)
@@ -136,7 +138,7 @@ public class SettingsViewModelTests
     public async Task CheckUpdate_WithNoUpdateWiring_DoesNothingAndDoesNotThrow()
     {
         // 조립이 업데이트 없이 서는 경우가 있다 (WorkspaceViewModel 의 선택 인자와 같은 이유).
-        var settings = new SettingsViewModel(store, dispatcher, "0.3.1", StateDirectory);
+        var settings = new SettingsViewModel(store, dispatcher, "0.3.1", StateDirectory, systemTheme);
 
         await settings.CheckUpdateCommand.ExecuteAsync(null);
 
@@ -367,5 +369,98 @@ public class SettingsViewModelTests
         await settings.SaveWork;
 
         Assert.Equal(Loc(@"C:\work"), settings.Current.ResolveStartFolder(Loc(@"C:\last"), null));
+    }
+
+    // ── 테마 (docs/PRD-v2.md §19) ────────────────────────────────
+
+    [Fact]
+    public void Default_FollowsTheSystemTheme()
+    {
+        var settings = Create();
+
+        Assert.True(settings.IsSystemTheme);
+        Assert.False(settings.IsLightTheme);
+        Assert.False(settings.IsDarkTheme);
+    }
+
+    [Fact]
+    public async Task InSystemMode_IsDarkModeFollowsTheOsValue()
+    {
+        systemTheme.IsDarkMode = true;
+        var settings = await LoadedAsync();
+
+        Assert.True(settings.IsDarkMode);
+    }
+
+    [Fact]
+    public async Task ChoosingDarkTheme_IsSavedImmediatelyAndIgnoresTheOsValue()
+    {
+        systemTheme.IsDarkMode = false;   // OS 는 라이트인데도 다크를 고른다.
+        var settings = await LoadedAsync();
+
+        settings.IsDarkTheme = true;
+        await settings.SaveWork;
+
+        Assert.True(settings.IsDarkMode);
+        Assert.Equal(ThemeMode.Dark, store.Current.Theme);
+        Assert.False(settings.IsSystemTheme);
+    }
+
+    [Fact]
+    public async Task ChoosingLightTheme_IsAlwaysLightRegardlessOfTheOs()
+    {
+        systemTheme.IsDarkMode = true;
+        var settings = await LoadedAsync();
+
+        settings.IsLightTheme = true;
+        await settings.SaveWork;
+
+        Assert.False(settings.IsDarkMode);
+        Assert.Equal(ThemeMode.Light, store.Current.Theme);
+    }
+
+    [Fact]
+    public async Task Load_BringsBackTheSavedTheme()
+    {
+        var settings = await LoadedAsync(new AppSettings { Theme = ThemeMode.Dark });
+
+        Assert.True(settings.IsDarkTheme);
+    }
+
+    [Fact]
+    public async Task RefreshSystemTheme_InSystemMode_PicksUpTheNewOsValue()
+    {
+        // WM_SETTINGCHANGE 를 받았을 때 SystemThemeWatcher 가 부르는 자리다.
+        var settings = await LoadedAsync();
+        Assert.False(settings.IsDarkMode);
+
+        systemTheme.IsDarkMode = true;   // 사용자가 Windows 설정에서 다크로 바꿨다.
+        var announced = 0;
+        settings.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.IsDarkMode))
+            {
+                announced++;
+            }
+        };
+
+        await settings.RefreshSystemTheme(CancellationToken.None);
+
+        Assert.True(settings.IsDarkMode);
+        Assert.Equal(1, announced);
+    }
+
+    [Fact]
+    public async Task RefreshSystemTheme_InDarkMode_IgnoresTheOsValue()
+    {
+        // 사용자가 고정으로 고른 것을 OS 재조회가 뒤집으면 안 된다.
+        var settings = await LoadedAsync();
+        settings.IsDarkTheme = true;
+        await settings.SaveWork;
+
+        systemTheme.IsDarkMode = false;
+        await settings.RefreshSystemTheme(CancellationToken.None);
+
+        Assert.True(settings.IsDarkMode);
     }
 }

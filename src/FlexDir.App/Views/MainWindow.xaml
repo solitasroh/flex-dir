@@ -9,11 +9,19 @@
         Width="1280" Height="800" MinWidth="900" MinHeight="560"
         FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="12"
         UseLayoutRounding="True" SnapsToDevicePixels="True"
-        Background="#F3F3F3"
-        Foreground="#1B1B1B"
+        Background="{DynamicResource WinBgBrush}"
+        Foreground="{DynamicResource TextBrush}"
         v:WindowCaption.Enabled="True"
         v:MaximizedFrame.Enabled="True"
-        v:MouseNavigationInput.Enabled="True">
+        v:MouseNavigationInput.Enabled="True"
+        v:ThemeSync.IsDarkMode="{Binding Settings.IsDarkMode}">
+
+    <!-- ═══ 다크모드 (docs/PRD-v2.md §19 · docs/ADR.md ADR-020) ═══
+         루트의 Background·Foreground 만 DynamicResource 다 — StaticResource 는 파싱 시점에
+         Window.Resources 가 아직 없어 실패한다(파서 순서). DynamicResource 는 지연 조회라
+         상관없다. 나머지 264곳은 여전히 StaticResource 다 — ThemeSync 가 Apply 할 때
+         "같은 브러시 인스턴스의 Color 를 바꾸는" 것이라 조회 방식과 무관하게 갱신된다
+         (Views/ThemePalette.cs 주석 참조). -->
 
     <!-- ═══ 커스텀 크롬 32 (docs/DESIGN.md §1) ═══
          CaptionHeight 가 위 32px 띠를 OS 캡션으로 넘긴다. 그래서 끌어서 옮기기 ·
@@ -101,6 +109,257 @@
         <SolidColorBrush x:Key="FocusRingBrush" Color="#1B1B1B" />
         <SolidColorBrush x:Key="ErrorBrush" Color="#C42B1C" />
 
+        <!-- ═══ WPF 기본 크롬 재도색 (docs/PRD-v2.md §19) ═══
+             암묵적 스타일(x:Key 없음)이다 — TargetType 만 걸린 인스턴스에 자동으로 붙는다.
+             이 파일의 색 있는 스타일은 전부 명시적으로 골라 쓰지만(Style="{StaticResource X}"),
+             그런 골라 쓰기는 여기 스타일을 자동으로 물려받지 않는다 — 그래서 아래 각 명시적
+             MenuItem·CheckBox·RadioButton 스타일에 BasedOn="{StaticResource {x:Type T}}" 를
+             달아 여기로 연결한다. 반대로 ContextMenu·ToolTip·ScrollBar·Separator 는 Style 을
+             직접 걸지 않으므로 여기 있는 것만으로 전부 적용된다. -->
+
+        <Style TargetType="ContextMenu">
+            <Setter Property="Background" Value="{DynamicResource ChromeBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeStrongBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="2" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="Separator">
+            <Setter Property="Background" Value="{DynamicResource StrokeBrush}" />
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="4,4" />
+        </Style>
+
+        <Style TargetType="ToolTip">
+            <Setter Property="Background" Value="{DynamicResource ChromeBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToolTip">
+                        <Border Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 기본 항목 모양 — 아이콘 열은 체크 표시 자리다. 하위 메뉴가 없는 항목이 대부분이라
+             (PinMenuItem·FavoriteMenuItem·GroupOptionItem·SplitOptionItem) Popup 은 열리는 일이
+             드물지만, 언젠가 자식을 다는 항목이 생겨도 구멍이 없도록 갖춰 둔다. -->
+        <Style TargetType="MenuItem">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="10,6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Chrome" Background="Transparent" CornerRadius="4"
+                                Padding="{TemplateBinding Padding}">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="20" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock x:Name="Check" Grid.Column="0" Text="&#xE73E;"
+                                           FontFamily="Segoe Fluent Icons" FontSize="12" Visibility="Collapsed"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           Foreground="{DynamicResource AccentBrush}" />
+
+                                <ContentPresenter Grid.Column="1" ContentSource="Header"
+                                                   VerticalAlignment="Center"
+                                                   TextElement.Foreground="{TemplateBinding Foreground}" />
+
+                                <!-- 하위 항목이 뜨는 자리. MenuItem 템플릿은 Popup 을 직접 들어야 한다 -->
+                                <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" AllowsTransparency="True"
+                                       Focusable="False" Placement="Right" PlacementTarget="{Binding ElementName=Chrome}"
+                                       IsOpen="{TemplateBinding IsSubmenuOpen}">
+                                    <Border Background="{DynamicResource ChromeBgBrush}"
+                                            BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1"
+                                            CornerRadius="6" Padding="2">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="CheckBox">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="Box" Width="16" Height="16" CornerRadius="3"
+                                    Background="{DynamicResource PaneBgBrush}"
+                                    BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1">
+                                <TextBlock x:Name="Check" Text="&#xE73E;" FontFamily="Segoe Fluent Icons" FontSize="11"
+                                           Foreground="{DynamicResource PaneBgBrush}" Visibility="Collapsed"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"
+                                               TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Box" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="RadioButton">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <StackPanel Orientation="Horizontal">
+                            <Grid Width="16" Height="16">
+                                <Ellipse Fill="{DynamicResource PaneBgBrush}"
+                                         Stroke="{DynamicResource StrokeStrongBrush}" StrokeThickness="1" />
+                                <Ellipse x:Name="Dot" Width="8" Height="8" Fill="{DynamicResource AccentBrush}"
+                                         Visibility="Collapsed" />
+                            </Grid>
+                            <ContentPresenter Margin="8,0,0,0" VerticalAlignment="Center"
+                                               TextElement.Foreground="{TemplateBinding Foreground}" />
+                        </StackPanel>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Dot" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 얇은 Fluent 형 — 화살표 없이 트랙+썸뿐이다. PageUp/Down 은 트랙 클릭이 대신한다.
+             크기·정렬은 여기서 정하지 않는다 — 세로/가로에서 반대축이 다르고, 그것은
+             ScrollBar 템플릿의 트리거가 이름으로 찾아 방향에 맞춰 건다 (아래). -->
+        <Style x:Key="ScrollThumb" TargetType="Thumb">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border x:Name="Bar" Background="{DynamicResource StrokeStrongBrush}" CornerRadius="3" />
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bar" Property="Background" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsDragging" Value="True">
+                                <Setter TargetName="Bar" Property="Background" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ScrollTrackButton" TargetType="RepeatButton">
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Border Background="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Width" Value="14" />
+            <Setter Property="MinWidth" Value="14" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid Background="{TemplateBinding Background}">
+                            <Track x:Name="PART_Track" IsDirectionReversed="True" Focusable="False"
+                                   Margin="4,0,4,0">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Style="{StaticResource ScrollTrackButton}"
+                                                  Command="ScrollBar.PageUpCommand" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Style="{StaticResource ScrollTrackButton}"
+                                                  Command="ScrollBar.PageDownCommand" />
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb x:Name="ThumbBar" Style="{StaticResource ScrollThumb}"
+                                           Width="6" HorizontalAlignment="Center" VerticalAlignment="Stretch" />
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Orientation" Value="Horizontal">
+                                <Setter TargetName="PART_Track" Property="IsDirectionReversed" Value="False" />
+                                <Setter TargetName="PART_Track" Property="Margin" Value="0,4,0,4" />
+                                <Setter TargetName="ThumbBar" Property="Width" Value="NaN" />
+                                <Setter TargetName="ThumbBar" Property="Height" Value="6" />
+                                <Setter TargetName="ThumbBar" Property="HorizontalAlignment" Value="Stretch" />
+                                <Setter TargetName="ThumbBar" Property="VerticalAlignment" Value="Center" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="Height" Value="14" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="MinHeight" Value="14" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
         <v:NameMembershipConverter x:Key="NameMembership" />
         <v:NameEqualityConverter x:Key="NameEquality" />
         <v:EnumEqualityConverter x:Key="EnumEquality" />
@@ -118,7 +377,7 @@
             <Setter Property="Height" Value="28" />
             <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
             <Setter Property="FontSize" Value="16" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="False" />
@@ -130,13 +389,13 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -154,7 +413,7 @@
             <Setter Property="Height" Value="32" />
             <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
             <Setter Property="FontSize" Value="10" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="False" />
@@ -172,10 +431,10 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                 </Trigger>
                 <Trigger Property="IsPressed" Value="True">
-                    <Setter Property="Background" Value="{StaticResource PressedBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource PressedBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -197,7 +456,7 @@
             <Setter Property="Content" Value="&#xE8BB;" />
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource ErrorBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource ErrorBrush}" />
                     <Setter Property="Foreground" Value="White" />
                 </Trigger>
             </Style.Triggers>
@@ -210,8 +469,8 @@
                 <!-- Trigger 가 아니라 DataTrigger 다 — Tag 는 object 라 Trigger 의 Value 가
                      문자열 "True" 로 남고 bool 과 영원히 다르다 (실물에서 강조가 안 붙었다) -->
                 <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource SelBrush}" />
-                    <Setter Property="Foreground" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SelBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -219,7 +478,7 @@
         <!-- breadcrumb 한 칸 (목업 .addr .seg). 높이는 주소 입력 영역 24 안에 들어간다 -->
         <Style x:Key="CrumbButton" TargetType="Button">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="False" />
@@ -236,7 +495,7 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -248,20 +507,20 @@
         <Style x:Key="PaneSplitter" TargetType="GridSplitter">
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
                 </Trigger>
                 <Trigger Property="IsDragging" Value="True">
-                    <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="ToolMenu" TargetType="MenuItem">
+        <Style x:Key="ToolMenu" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
             <Setter Property="Width" Value="32" />
             <Setter Property="Height" Value="28" />
             <!-- 아이콘 폰트를 여기 걸면 안 된다 — FontFamily 는 상속되므로 하위 메뉴의
                  한글 항목이 전부 두부(□)가 된다. 글리프를 그리는 TextBlock 에만 건다 -->
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="MenuItem">
@@ -275,8 +534,8 @@
                                 <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False"
                                        Placement="Bottom" PlacementTarget="{Binding ElementName=Chrome}"
                                        IsOpen="{TemplateBinding IsSubmenuOpen}">
-                                    <Border Background="{StaticResource ChromeBgBrush}"
-                                            BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                                    <Border Background="{DynamicResource ChromeBgBrush}"
+                                            BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1"
                                             CornerRadius="6" Padding="2">
                                         <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
                                     </Border>
@@ -285,13 +544,13 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSubmenuOpen" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -302,7 +561,7 @@
         <!-- ═══ 분류 방법 (docs/PRD-v2.md §6-1 · ADR-017) ═══
              항목 다섯은 PaneViewModel.GroupOptions 가 소유한다 — 툴바와 컬럼 헤더 우클릭이
              같은 목록을 쓴다. XAML 두 곳에 두 벌 쓰면 곧 어긋나고 체크 표시도 채점할 수 없다. -->
-        <Style x:Key="GroupOptionItem" TargetType="MenuItem">
+        <Style x:Key="GroupOptionItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
             <Setter Property="Header" Value="{Binding Label}" />
             <!-- 본문 글꼴을 명시한다 (docs/DESIGN.md §4). 툴바 드롭다운은 아이콘 폰트를 쓰는
                  버튼 아래에 달리므로, 비워 두면 상속으로 한글이 두부가 된다 -->
@@ -319,7 +578,7 @@
              항목 넷은 WorkspaceViewModel.SplitOptions 가 소유한다 — 분류 방법과 같은 이유다
              (체크 표시를 채점할 수 있어야 한다). 커맨드는 항목의 DataContext(SplitOption)에
              없으므로 메뉴에서 끌어온다. -->
-        <Style x:Key="SplitOptionItem" TargetType="MenuItem">
+        <Style x:Key="SplitOptionItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
             <Setter Property="Header" Value="{Binding Label}" />
             <!-- 본문 글꼴을 명시한다 (docs/DESIGN.md §4). 아이콘 폰트를 쓰는 버튼 아래에
                  달리므로, 비워 두면 상속으로 한글이 두부가 된다 -->
@@ -355,7 +614,7 @@
         <Style x:Key="HeaderButton" TargetType="Button">
             <Setter Property="ContextMenu" Value="{StaticResource GroupByMenu}" />
             <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Focusable" Value="False" />
@@ -369,7 +628,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -395,15 +654,15 @@
                         <!-- 배경이 있어야 마우스가 잡힌다. 투명이면 히트 테스트가 지나간다. -->
                         <Border x:Name="Grip" Background="Transparent">
                             <Rectangle x:Name="Line" Width="1" HorizontalAlignment="Center"
-                                       Fill="{StaticResource StrokeBrush}" />
+                                       Fill="{DynamicResource StrokeBrush}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Fill" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="Line" Property="Width" Value="2" />
                             </Trigger>
                             <Trigger Property="IsDragging" Value="True">
-                                <Setter TargetName="Line" Property="Fill" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Line" Property="Fill" Value="{DynamicResource AccentBrush}" />
                                 <Setter TargetName="Line" Property="Width" Value="2" />
                             </Trigger>
                         </ControlTemplate.Triggers>
@@ -417,7 +676,7 @@
             <Setter Property="FontSize" Value="8" />
             <Setter Property="Margin" Value="8,0,0,0" />
             <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
             <Setter Property="Text" Value="&#xE70E;" />
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
@@ -443,18 +702,18 @@
             </Setter>
             <Style.Triggers>
                 <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                 </Trigger>
                 <!-- 선택 — 비활성 페인은 강등된다. 뒤에 오는 트리거가 이기므로 순서가 규칙이다 -->
                 <DataTrigger Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource SelInactiveBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SelInactiveBrush}" />
                 </DataTrigger>
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
                         <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
                         <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="Background" Value="{StaticResource SelBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SelBrush}" />
                 </MultiDataTrigger>
                 <MultiDataTrigger>
                     <MultiDataTrigger.Conditions>
@@ -462,7 +721,7 @@
                         <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
                         <Condition Binding="{Binding IsMouseOver, RelativeSource={RelativeSource Self}}" Value="True" />
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="Background" Value="{StaticResource SelHoverBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource SelHoverBrush}" />
                 </MultiDataTrigger>
             </Style.Triggers>
         </Style>
@@ -486,7 +745,7 @@
                         <Condition Binding="{Binding Tag, RelativeSource={RelativeSource Self}}" Value="True" />
                         <Condition Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}" Value="True" />
                     </MultiDataTrigger.Conditions>
-                    <Setter Property="BorderBrush" Value="{StaticResource FocusRingBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource FocusRingBrush}" />
                 </MultiDataTrigger>
             </Style.Triggers>
         </Style>
@@ -523,9 +782,9 @@
             <Setter Property="Height" Value="20" />
             <Setter Property="Padding" Value="2,0" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PaneBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="v:RenameEditor.Enabled" Value="True" />
             <Setter Property="v:RenameEditor.CommitCommand"
@@ -580,11 +839,11 @@
                             <TextBox Grid.Column="1" Style="{StaticResource ItemNameEditor}" Margin="6,0,0,0" />
                         </Grid>
                         <TextBlock Grid.Column="1" Text="{Binding SizeText}" Margin="8,0" VerticalAlignment="Center"
-                                   HorizontalAlignment="Right" Foreground="{StaticResource Text2Brush}" />
+                                   HorizontalAlignment="Right" Foreground="{DynamicResource Text2Brush}" />
                         <TextBlock Grid.Column="2" Text="{Binding TypeText}" Margin="8,0" VerticalAlignment="Center"
-                                   TextTrimming="CharacterEllipsis" Foreground="{StaticResource Text2Brush}" />
+                                   TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Text2Brush}" />
                         <TextBlock Grid.Column="3" Text="{Binding ModifiedText}" Margin="8,0" VerticalAlignment="Center"
-                                   Foreground="{StaticResource Text2Brush}" />
+                                   Foreground="{DynamicResource Text2Brush}" />
                     </Grid>
                 </Border>
             </Border>
@@ -608,7 +867,7 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="{StaticResource HoverBrush}" />
+                                    <Setter Property="Background" Value="{DynamicResource HoverBrush}" />
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -616,12 +875,12 @@
                     <StackPanel Orientation="Horizontal">
                         <!-- Segoe Fluent E70D(▼ 펼침) / E70E(▲ 접힘)  — SortGlyph 와 같은 글꼴 -->
                         <TextBlock x:Name="Chevron" FontFamily="Segoe Fluent Icons" FontSize="8" Text="&#xE70D;"
-                                   VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Text2Brush}" />
                         <TextBlock Text="{Binding Label}" Margin="8,0,0,0" FontSize="12" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" />
                         <!-- 접혀 있을 때 개수가 그 그룹의 유일한 단서다 -->
                         <TextBlock Text="{Binding Count}" Margin="6,0,0,0" FontSize="11"
-                                   VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource Text2Brush}" />
                     </StackPanel>
                 </Button>
 
@@ -679,9 +938,9 @@
                             <TextBlock Style="{StaticResource ItemName}" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                             <TextBox Style="{StaticResource ItemNameEditor}" HorizontalAlignment="Left" MinWidth="140" />
                             <TextBlock Text="{Binding TypeText}" FontSize="11" TextTrimming="CharacterEllipsis"
-                                       Foreground="{StaticResource Text2Brush}" />
+                                       Foreground="{DynamicResource Text2Brush}" />
                             <TextBlock Text="{Binding SizeText}" FontSize="11" TextTrimming="CharacterEllipsis"
-                                       Foreground="{StaticResource Text2Brush}" />
+                                       Foreground="{DynamicResource Text2Brush}" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -758,6 +1017,12 @@
 
         <Style x:Key="PaneList" TargetType="ListBox">
             <Setter Property="Background" Value="Transparent" />
+            <!-- **명시해야 한다** (2026-08-12 · 다크에서 드러났다). ListBox 의 기본 Foreground 는
+                 시스템 색(검정 계열)이고, 그것이 ContentPresenter 를 지나 항목 텍스트에
+                 상속된다 — 자기 Foreground 를 지정하지 않은 TextBlock(ItemName)이 그것을
+                 받는다. 라이트에서는 우연히 맞아 v1 부터 아무도 몰랐고, 다크에서 파일
+                 이름이 배경에 묻혀서야 보였다. 트리는 TreeItemName 이 이미 명시하고 있었다 -->
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -808,7 +1073,7 @@
             <Setter Property="Height" Value="24" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Background" Value="Transparent" />
-            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
             <!-- 활성 표시선의 색을 실어 나른다 — 비활성이면 투명이다. 템플릿 안의 요소는
                  Style 트리거가 TargetName 으로 못 건드리므로 (그것은 ControlTemplate.Triggers
                  의 몫이다) 속성 하나에 얹어 TemplateBinding 으로 내린다. 이 버튼은 테두리를
@@ -829,7 +1094,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -853,9 +1118,9 @@
                             <Binding Path="DataContext.Active" RelativeSource="{RelativeSource AncestorType=ItemsControl}" />
                         </MultiBinding>
                     </DataTrigger.Binding>
-                    <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
-                    <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="Background" Value="{DynamicResource PaneBgBrush}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -869,7 +1134,7 @@
             <Setter Property="FontFamily" Value="Segoe Fluent Icons" />
             <Setter Property="FontSize" Value="8" />
             <Setter Property="Content" Value="&#xE8BB;" />
-            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Template">
@@ -880,7 +1145,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -907,14 +1172,14 @@
              바깥 Border(PaneWithTabs)가 그린다. 여기 다시 두면 1px 이 둘이 되어 2px 로 보인다. -->
         <DataTemplate x:Key="PaneTemplate" DataType="{x:Type vm:PaneViewModel}">
             <!-- Ctrl+L·Alt+D 를 창이 아니라 여기서 받는다 — 키가 온 쪽이 곧 그 페인이다 -->
-            <Border x:Name="PaneRoot" Background="{StaticResource PaneBgBrush}"
+            <Border x:Name="PaneRoot" Background="{DynamicResource PaneBgBrush}"
                     v:AddressFocus.Enabled="True"
                     v:AddressFocus.IsEditing="{Binding IsAddressEditing, Mode=TwoWay}">
                 <DockPanel>
                     <!-- 툴바 36 (docs/DESIGN.md §1·§7) -->
                     <Border x:Name="ToolbarChrome" DockPanel.Dock="Top" Height="36"
-                            Background="{StaticResource WinBgBrush}"
-                            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1">
+                            Background="{DynamicResource WinBgBrush}"
+                            BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1">
                         <StackPanel Orientation="Horizontal" Margin="6,0" VerticalAlignment="Center">
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72B;" ToolTip="뒤로 (Alt+←)"
                                     Command="{Binding GoBackCommand}" IsEnabled="{Binding CanGoBack}" />
@@ -922,10 +1187,10 @@
                                     Command="{Binding GoForwardCommand}" IsEnabled="{Binding CanGoForward}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE74A;" ToolTip="상위 폴더 (Alt+↑)"
                                     Command="{Binding GoUpCommand}" IsEnabled="{Binding CanGoUp}" />
-                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72C;" ToolTip="새로 고침 (F5)"
                                     Command="{Binding RefreshCommand}" />
-                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
                             <Button Style="{StaticResource ViewButton}" Content="&#xE8A4;" ToolTip="자세히 (Ctrl+Shift+1)"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}" />
@@ -944,7 +1209,7 @@
                             <!-- 분류 (docs/PRD-v2.md §6-1). 헤더 우클릭만 두었더니 찾을 수 없었다 —
                                  Menu/MenuItem 은 눌러서 펴지는 것이 내장이라 코드비하인드가 필요 없다.
                                  Details 전용이므로 다른 뷰에서는 비활성이다 -->
-                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{StaticResource StrokeStrongBrush}" />
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
                             <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
                                 <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE8EC;" ToolTip="분류 방법"
                                           ItemsSource="{Binding GroupOptions}"
@@ -962,11 +1227,11 @@
 
                     <!-- 주소줄 28 · 입력 24 (docs/DESIGN.md §1) -->
                     <Border x:Name="AddrChrome" DockPanel.Dock="Top" Height="28"
-                            Background="{StaticResource WinBgBrush}"
-                            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,0,1">
+                            Background="{DynamicResource WinBgBrush}"
+                            BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1">
                         <Border x:Name="AddrBox" Height="24" Margin="6,0,6,4" CornerRadius="4"
-                                Background="{StaticResource PaneBgBrush}"
-                                BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1">
+                                Background="{DynamicResource PaneBgBrush}"
+                                BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1">
                             <Grid>
                                 <!-- breadcrumb (목업 .addr .seg / .chev). 기본은 이쪽이고
                                      편집 중에만 아래 TextBox 로 갈린다. 칸을 누르면 기존
@@ -995,7 +1260,7 @@
                                             <StackPanel Orientation="Horizontal">
                                                 <!-- 구분자는 칸 사이에만. 첫 칸은 IsFirst 로 걸러진다 -->
                                                 <TextBlock Text="&#x203A;" Margin="1,0" VerticalAlignment="Center"
-                                                           FontSize="10" Foreground="{StaticResource Text2Brush}">
+                                                           FontSize="10" Foreground="{DynamicResource Text2Brush}">
                                                     <TextBlock.Style>
                                                         <Style TargetType="TextBlock">
                                                             <Style.Triggers>
@@ -1018,7 +1283,7 @@
                                 <TextBox Text="{Binding AddressEdit, UpdateSourceTrigger=PropertyChanged}"
                                          BorderThickness="0" Background="Transparent" Margin="8,0,8,0"
                                          VerticalContentAlignment="Center"
-                                         Foreground="{StaticResource TextBrush}"
+                                         Foreground="{DynamicResource TextBrush}"
                                          v:AddressFocus.IsAddressBox="True">
                                     <TextBox.Style>
                                         <Style TargetType="TextBox">
@@ -1160,7 +1425,7 @@
                         <!-- 빈 폴더 (docs/UI_GUIDE.md §상태 표현 · 목업 문구 그대로) -->
                         <TextBlock x:Name="EmptyMessage" Text="이 폴더는 비어 있습니다."
                                    HorizontalAlignment="Center" Margin="0,120,0,0"
-                                   Foreground="{StaticResource Text2Brush}" Visibility="Collapsed" />
+                                   Foreground="{DynamicResource Text2Brush}" Visibility="Collapsed" />
                     </Grid>
                 </DockPanel>
             </Border>
@@ -1170,9 +1435,9 @@
                 </DataTrigger>
                 <!-- 활성 페인 — 크롬 배경 승격 + 주소줄 accent (docs/DESIGN.md §6) -->
                 <DataTrigger Binding="{Binding Path=(v:PaneChrome.IsActive), ElementName=PaneRoot}" Value="True">
-                    <Setter TargetName="ToolbarChrome" Property="Background" Value="{StaticResource ChromeBgBrush}" />
-                    <Setter TargetName="AddrChrome" Property="Background" Value="{StaticResource ChromeBgBrush}" />
-                    <Setter TargetName="AddrBox" Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                    <Setter TargetName="ToolbarChrome" Property="Background" Value="{DynamicResource ChromeBgBrush}" />
+                    <Setter TargetName="AddrChrome" Property="Background" Value="{DynamicResource ChromeBgBrush}" />
+                    <Setter TargetName="AddrBox" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                     <Setter TargetName="AddrBox" Property="BorderThickness" Value="1,1,1,2" />
                 </DataTrigger>
             </DataTemplate.Triggers>
@@ -1188,14 +1453,14 @@
              줄을 그 안에 두면 지금 누르고 있는 그것이 매 전환마다 새로 서고, 가로 스크롤
              위치와 드래그 상태가 함께 사라진다. -->
         <DataTemplate x:Key="PaneWithTabs" DataType="{x:Type vm:PaneTabsViewModel}">
-            <Border BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1"
-                    CornerRadius="6,6,0,0" Background="{StaticResource WinBgBrush}">
+            <Border BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1"
+                    CornerRadius="6,6,0,0" Background="{DynamicResource WinBgBrush}">
                 <DockPanel>
                     <!-- 줄 28 = 탭 24 + 위 여백 4 (docs/DESIGN.md §1-1).
                          탭이 1개여도 접히지 않는다 — '+' 진입점이 늘 같은 자리에 있어야 하고,
                          줄이 생겼다 사라지면 목록이 위아래로 튄다. -->
                     <Border x:Name="StripChrome" DockPanel.Dock="Top" Height="28" Padding="6,4,4,0"
-                            Background="{StaticResource WinBgBrush}" CornerRadius="6,6,0,0">
+                            Background="{DynamicResource WinBgBrush}" CornerRadius="6,6,0,0">
                         <DockPanel>
                             <!-- 새 탭 — 줄 오른쪽 끝 고정이고 스크롤 영역 밖이다 -->
                             <!-- 글리프 버튼은 이름이 비어 UIA·화면 낭독기에 아무것도 주지
@@ -1231,7 +1496,7 @@
                                              DataContext 상속에만 기대면 이 자리에서 조용히
                                              null 이 되고, 활성 탭이 스크롤로 끌려오지 않는 것이
                                              유일한 증상이라 화면만 봐서는 원인이 안 보인다. -->
-                                        <v:TabStripPanel InsertionBrush="{StaticResource AccentBrush}"
+                                        <v:TabStripPanel InsertionBrush="{DynamicResource AccentBrush}"
                                                          ActiveTab="{Binding DataContext.Active, RelativeSource={RelativeSource AncestorType=ItemsControl}}"
                                                          v:TabStripInput.Enabled="True"
                                                          v:TabDragInput.Enabled="True">
@@ -1247,7 +1512,7 @@
                                                              페인을 건너간다는 것이 줄 단위로 보여야 한다 -->
                                                         <DataTrigger Value="True"
                                                                      Binding="{Binding Path=(v:TabDragInput.IsDropTarget), RelativeSource={RelativeSource Self}}">
-                                                            <Setter Property="Background" Value="{StaticResource SelBrush}" />
+                                                            <Setter Property="Background" Value="{DynamicResource SelBrush}" />
                                                         </DataTrigger>
                                                     </Style.Triggers>
                                                 </Style>
@@ -1303,7 +1568,7 @@
                                                     <MenuItem Command="{Binding Tag.DataContext.TogglePinOnTabCommand}"
                                                               CommandParameter="{Binding DataContext}">
                                                         <MenuItem.Style>
-                                                            <Style TargetType="MenuItem">
+                                                            <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
                                                                 <Setter Property="Header" Value="탭 고정" />
                                                                 <Style.Triggers>
                                                                     <DataTrigger Binding="{Binding DataContext.IsPinned}" Value="True">
@@ -1361,7 +1626,7 @@
                                                 <TextBox x:Name="TabTitleEditor" Margin="6,0,0,0"
                                                          VerticalContentAlignment="Center" FontSize="12"
                                                          BorderThickness="0" Padding="0" Visibility="Collapsed"
-                                                         Foreground="{StaticResource TextBrush}"
+                                                         Foreground="{DynamicResource TextBrush}"
                                                          v:RenameEditor.Enabled="True"
                                                          v:RenameEditor.CommitCommand="{Binding CommitTitleRenameCommand}"
                                                          v:RenameEditor.CancelCommand="{Binding CancelTitleRenameCommand}" />
@@ -1407,7 +1672,7 @@
                      활성일 때만 chrome-bg 로 올라간다 — 툴바·주소줄과 같은 수다. -->
                 <DataTrigger Value="True"
                              Binding="{Binding Path=(v:PaneChrome.IsActive), RelativeSource={RelativeSource Self}}">
-                    <Setter TargetName="StripChrome" Property="Background" Value="{StaticResource ChromeBgBrush}" />
+                    <Setter TargetName="StripChrome" Property="Background" Value="{DynamicResource ChromeBgBrush}" />
                 </DataTrigger>
             </DataTemplate.Triggers>
         </DataTemplate>
@@ -1426,14 +1691,14 @@
                         <Border Background="{TemplateBinding Background}">
                             <TextBlock x:Name="Glyph" FontFamily="Segoe Fluent Icons" FontSize="8"
                                        Text="&#xE76C;" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       Foreground="{StaticResource Text2Brush}" />
+                                       Foreground="{DynamicResource Text2Brush}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Glyph" Property="Text" Value="&#xE70D;" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource TextBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -1451,7 +1716,7 @@
 
              x:Shared="False" 도 쓰지 않는다. 메뉴는 한 번에 하나만 열리므로 공유해도 되고,
              위 GroupByMenu 가 그것을 쓰는 이유는 페인 둘에 각각 붙기 때문이다. -->
-        <Style x:Key="PinMenuItem" TargetType="MenuItem">
+        <Style x:Key="PinMenuItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsFavorite}" Value="False">
@@ -1460,7 +1725,7 @@
             </Style.Triggers>
         </Style>
 
-        <Style x:Key="FavoriteMenuItem" TargetType="MenuItem">
+        <Style x:Key="FavoriteMenuItem" TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsFavorite}" Value="True">
@@ -1546,7 +1811,7 @@
                                     <TextBlock x:Name="Glyph" Grid.Column="1"
                                                FontFamily="Segoe Fluent Icons" FontSize="12"
                                                Text="&#xE8B7;" Margin="2,0,6,0" VerticalAlignment="Center"
-                                               Foreground="{StaticResource Text2Brush}" />
+                                               Foreground="{DynamicResource Text2Brush}" />
 
                                     <ContentPresenter Grid.Column="2" ContentSource="Header" VerticalAlignment="Center" />
                                 </Grid>
@@ -1583,14 +1848,14 @@
 
                             <DataTrigger Binding="{Binding IsFavorite}" Value="True">
                                 <Setter TargetName="Glyph" Property="Text" Value="&#xE735;" />
-                                <Setter TargetName="Glyph" Property="Foreground" Value="{StaticResource AccentBrush}" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
                             </DataTrigger>
 
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Row" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Row" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Row" Property="Background" Value="{StaticResource SelBrush}" />
+                                <Setter TargetName="Row" Property="Background" Value="{DynamicResource SelBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -1602,7 +1867,7 @@
              Enter·Esc·포커스 상실이 두 곳에서 다르게 동작할 이유가 없다. -->
         <Style x:Key="TreeItemName" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsEditing}" Value="True">
@@ -1616,9 +1881,9 @@
             <Setter Property="Height" Value="20" />
             <Setter Property="Padding" Value="2,0" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
-            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PaneBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="v:RenameEditor.Enabled" Value="True" />
 
@@ -1651,33 +1916,33 @@
         <Style x:Key="SettingsHeading" TargetType="TextBlock">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Margin" Value="0,0,0,8" />
         </Style>
 
         <!-- 곁들이는 설명·결과 문구. 본문보다 작고 흐리다. -->
         <Style x:Key="SettingsNote" TargetType="TextBlock">
             <Setter Property="FontSize" Value="11" />
-            <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+            <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
 
-        <Style x:Key="SettingsChoice" TargetType="RadioButton">
+        <Style x:Key="SettingsChoice" TargetType="RadioButton" BasedOn="{StaticResource {x:Type RadioButton}}">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
 
-        <Style x:Key="SettingsToggle" TargetType="CheckBox">
+        <Style x:Key="SettingsToggle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
         </Style>
 
         <!-- 패널 안의 누름 버튼. 툴바 버튼은 아이콘 전용이라 글자가 들어가지 않는다. -->
         <Style x:Key="SettingsButton" TargetType="Button">
             <Setter Property="FontSize" Value="12" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Background" Value="{StaticResource ChromeBgBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource ChromeBgBrush}" />
             <Setter Property="Padding" Value="10,4" />
             <Setter Property="Focusable" Value="False" />
             <Setter Property="Template">
@@ -1685,19 +1950,19 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Chrome" CornerRadius="4"
                                 Background="{TemplateBinding Background}"
-                                BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                                BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource PressedBrush}" />
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{StaticResource TextDisabledBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -1709,14 +1974,14 @@
         <Style x:Key="SettingsPathBox" TargetType="TextBox">
             <Setter Property="FontSize" Value="12" />
             <Setter Property="Padding" Value="6,4" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="Background" Value="{StaticResource PaneBgBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource StrokeStrongBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="{DynamicResource PaneBgBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource StrokeStrongBrush}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="VerticalContentAlignment" Value="Center" />
             <Style.Triggers>
                 <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                    <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
                 </Trigger>
             </Style.Triggers>
         </Style>
@@ -1773,7 +2038,7 @@
                         AutomationProperties.Name="설정"
                         ToolTip="설정" Command="{Binding OpenSettingsCommand}" />
                 <TextBlock Text="flex-dir" Margin="6,0,0,0" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextBrush}" />
+                           Foreground="{DynamicResource TextBrush}" />
             </StackPanel>
 
             <!-- 캡션 위에 놓인 것은 OS 가 먼저 가져간다. 버튼만 다시 꺼내 온다 —
@@ -1804,8 +2069,8 @@
                 <ColumnDefinition Width="*" MinWidth="646" />
             </Grid.ColumnDefinitions>
 
-            <Border Background="{StaticResource PaneBgBrush}"
-                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
+            <Border Background="{DynamicResource PaneBgBrush}"
+                    BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
                 <!-- 가상화를 명시한다. TreeView 의 기본 패널은 StackPanel 이라 그대로 두면
                      펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
                 <!-- TreeScroll.Path 는 트리가 따라간 경로다 (docs/PRD-v2.md §10-3).
@@ -1838,10 +2103,10 @@
                     <Style TargetType="GridSplitter">
                         <Style.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
                             </Trigger>
                             <Trigger Property="IsDragging" Value="True">
-                                <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+                                <Setter Property="Background" Value="{DynamicResource AccentBrush}" />
                             </Trigger>
                         </Style.Triggers>
                     </Style>
@@ -1943,13 +2208,13 @@
         <!-- 새 버전 알림 (docs/PRD-v2.md §9 · 사용자 결정 2026-08-07: 뜨고 사용자가 고른다).
              상태표시줄 바로 위다 — 목록을 밀어내지만 가리지는 않는다. 받아 둔 뒤에만 뜨므로
              '지금 설치' 는 곧바로 적용된다. -->
-        <Border Grid.Row="2" Background="{StaticResource SelBrush}"
-                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0"
+        <Border Grid.Row="2" Background="{DynamicResource SelBrush}"
+                BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0"
                 Padding="12,6"
                 Visibility="{Binding Update.IsAvailable, Converter={StaticResource BoolToVisibility}}">
             <DockPanel LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
-                           Foreground="{StaticResource TextBrush}">
+                           Foreground="{DynamicResource TextBrush}">
                     <Run Text="새 버전" />
                     <Run Text="{Binding Update.Version, Mode=OneWay}" FontWeight="SemiBold" />
                     <Run Text="이 준비됐습니다." />
@@ -1971,8 +2236,8 @@
              크롬은 업데이트 알림과 같고 글자만 ErrorBrush 다. 배경 토큰을 새로 만들지
              않는 이유: docs/DESIGN.md §5 는 그 색을 '오류 텍스트' 로 정의한다. 같은 종류의
              바인데 심각도만 다르다는 것이 이 모양으로 읽혀야 한다. -->
-        <Border Grid.Row="3" Background="{StaticResource SelBrush}"
-                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0"
+        <Border Grid.Row="3" Background="{DynamicResource SelBrush}"
+                BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0"
                 Padding="12,6"
                 Visibility="{Binding Crash.IsVisible, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}">
             <DockPanel LastChildFill="False">
@@ -1981,7 +2246,7 @@
                 <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center"
                            Text="{Binding Crash.Message}"
                            TextTrimming="CharacterEllipsis"
-                           Foreground="{StaticResource ErrorBrush}" />
+                           Foreground="{DynamicResource ErrorBrush}" />
 
                 <Button DockPanel.Dock="Right" Style="{StaticResource CrumbButton}"
                         Content="닫기" Command="{Binding Crash.DismissCommand}" />
@@ -1989,23 +2254,23 @@
         </Border>
 
         <!-- 상태표시줄 24 — 활성 페인의 문구 (docs/DESIGN.md §1·§6) -->
-        <Border Grid.Row="4" Background="{StaticResource WinBgBrush}"
-                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
+        <Border Grid.Row="4" Background="{DynamicResource WinBgBrush}"
+                BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,1,0,0">
           <Grid>
             <!-- 여유 용량은 오른쪽 끝이다 (목업 .free 의 margin-left:auto). 활성 페인의
                  드라이브이고, 모르면 빈 문자열이라 자리가 조용히 비워진다. 겹쳐 두는 것이
                  의도다 — 왼쪽 문구가 길어지면 밀려나는 대신 뒤로 지나간다. -->
             <TextBlock Text="{Binding ActivePane.FreeSpaceText}" Margin="12,0" FontSize="11"
                        HorizontalAlignment="Right" VerticalAlignment="Center"
-                       Foreground="{StaticResource Text2Brush}" />
+                       Foreground="{DynamicResource Text2Brush}" />
 
             <TextBlock Text="{Binding ActivePane.StatusText}" Margin="12,0" VerticalAlignment="Center" FontSize="11">
                 <TextBlock.Style>
                     <Style TargetType="TextBlock">
-                        <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+                        <Setter Property="Foreground" Value="{DynamicResource Text2Brush}" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding ActivePane.Status}" Value="Error">
-                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
@@ -2039,13 +2304,13 @@
             </Button>
 
             <Border Width="460" VerticalAlignment="Center" HorizontalAlignment="Center"
-                    Background="{StaticResource WinBgBrush}"
-                    BorderBrush="{StaticResource StrokeStrongBrush}" BorderThickness="1"
+                    Background="{DynamicResource WinBgBrush}"
+                    BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1"
                     CornerRadius="8" Padding="20,16">
                 <StackPanel>
                     <DockPanel LastChildFill="False" Margin="0,0,0,16">
                         <TextBlock DockPanel.Dock="Left" Text="설정" FontSize="14" FontWeight="SemiBold"
-                                   VerticalAlignment="Center" Foreground="{StaticResource TextBrush}" />
+                                   VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" />
                         <Button DockPanel.Dock="Right" Style="{StaticResource ToolButton}"
                                 Content="&#xE8BB;" FontSize="12"
                                 Command="{Binding Settings.CloseCommand}" />
@@ -2056,7 +2321,7 @@
 
                     <DockPanel LastChildFill="False" Margin="0,0,0,6">
                         <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" FontSize="12"
-                                   Foreground="{StaticResource TextBrush}">
+                                   Foreground="{DynamicResource TextBrush}">
                             <Run Text="버전" />
                             <Run Text="{Binding Settings.Version, Mode=OneWay}" FontWeight="SemiBold" />
                         </TextBlock>
@@ -2085,7 +2350,22 @@
                     <TextBlock Style="{StaticResource SettingsNote}" Margin="0,4,0,0"
                                Text="{Binding Settings.StateFolderText}" />
 
-                    <Separator Margin="0,16" Background="{StaticResource StrokeBrush}" />
+                    <Separator Margin="0,16" Background="{DynamicResource StrokeBrush}" />
+
+                    <!-- ── 테마 (docs/PRD-v2.md §19) ───────────────────── -->
+                    <TextBlock Style="{StaticResource SettingsHeading}" Text="테마" />
+
+                    <RadioButton Style="{StaticResource SettingsChoice}" GroupName="Theme"
+                                 Content="시스템 설정 사용"
+                                 IsChecked="{Binding Settings.IsSystemTheme, Mode=TwoWay}" />
+                    <RadioButton Style="{StaticResource SettingsChoice}" GroupName="Theme"
+                                 Content="라이트"
+                                 IsChecked="{Binding Settings.IsLightTheme, Mode=TwoWay}" />
+                    <RadioButton Style="{StaticResource SettingsChoice}" GroupName="Theme"
+                                 Content="다크"
+                                 IsChecked="{Binding Settings.IsDarkTheme, Mode=TwoWay}" />
+
+                    <Separator Margin="0,16" Background="{DynamicResource StrokeBrush}" />
 
                     <!-- ── 시작 폴더 ────────────────────────────────────── -->
                     <TextBlock Style="{StaticResource SettingsHeading}" Text="시작 폴더" />
@@ -2125,7 +2405,7 @@
                     <TextBlock Text="{Binding Settings.StartFolderError}" Margin="20,4,0,0">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock" BasedOn="{StaticResource SettingsNote}">
-                                <Setter Property="Foreground" Value="{StaticResource ErrorBrush}" />
+                                <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Settings.StartFolderError}" Value="{x:Null}">
                                         <Setter Property="Visibility" Value="Collapsed" />
@@ -2135,7 +2415,7 @@
                         </TextBlock.Style>
                     </TextBlock>
 
-                    <Separator Margin="0,16" Background="{StaticResource StrokeBrush}" />
+                    <Separator Margin="0,16" Background="{DynamicResource StrokeBrush}" />
 
                     <!-- ── 숨김·시스템 파일 ─────────────────────────────── -->
                     <CheckBox Style="{StaticResource SettingsToggle}"

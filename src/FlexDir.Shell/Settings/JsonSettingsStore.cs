@@ -97,6 +97,7 @@ public sealed class JsonSettingsStore : ISettingsStore
             StartMode = settings.StartMode.ToString(),
             StartFolder = settings.StartFolder?.DisplayPath,
             ShowHiddenItems = settings.ShowHiddenItems,
+            Theme = settings.Theme.ToString(),
         };
 
         await writeGate.WaitAsync(ct).ConfigureAwait(false);
@@ -130,11 +131,16 @@ public sealed class JsonSettingsStore : ISettingsStore
             ? location
             : null;
 
+        var theme = Enum.TryParse<ThemeMode>(document.Theme, ignoreCase: true, out var chosen)
+            ? chosen
+            : AppSettings.Default.Theme;
+
         return new AppSettings
         {
             StartMode = mode,
             StartFolder = folder,
             ShowHiddenItems = document.ShowHiddenItems ?? AppSettings.Default.ShowHiddenItems,
+            Theme = theme,
         };
     }
 
@@ -152,7 +158,12 @@ public sealed class JsonSettingsStore : ISettingsStore
 
     // 저장 형식은 Core 의 타입과 분리한다 — LocationId 는 문자열이 아니고 StartFolderMode 는
     // 숫자가 아니다. 역직렬화가 곧바로 검증에 걸리면 깨진 값 하나가 설정 전체를 막는다.
-    // 셋 다 nullable 인 것은 "없음" 과 "기본값" 을 여기서 가르기 위해서다.
+    // 전부 nullable 인 것은 "없음" 과 "기본값" 을 여기서 가르기 위해서다.
+    //
+    // ⚠ **AppSettings 에 항목을 늘리면 이 record 와 SaveAsync·Parse 를 함께 고친다.**
+    // 2026-08-12 에 그것을 잊고 다크모드를 넣었고, 화면에서는 골라지지만 저장도 복원도 되지
+    // 않았다 — FakeSettingsStore 는 AppSettings 를 객체째로 들고 있어 계약 테스트가 통과한다
+    // (docs/PRD-v2.md §19). 새 설정의 라운드트립은 JsonSettingsStoreTests 가 지킨다.
     private sealed record Document
     {
         public string? StartMode { get; init; }
@@ -161,5 +172,8 @@ public sealed class JsonSettingsStore : ISettingsStore
         public string? StartFolder { get; init; }
 
         public bool? ShowHiddenItems { get; init; }
+
+        /// <summary>열거형 이름으로 저장한다 (<c>"System"</c>·<c>"Light"</c>·<c>"Dark"</c>).</summary>
+        public string? Theme { get; init; }
     }
 }

@@ -34,6 +34,7 @@ public sealed partial class SettingsViewModel : ObservableObject
 {
     private readonly ISettingsStore store;
     private readonly IUiDispatcher dispatcher;
+    private readonly ISystemThemeSource systemTheme;
     private readonly LocationId? stateFolder;
 
     /// <summary>
@@ -47,6 +48,15 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string startFolderText = string.Empty;
     private string? startFolderError;
     private bool showHiddenItems = AppSettings.Default.ShowHiddenItems;
+
+    private ThemeMode themeMode = AppSettings.Default.Theme;
+
+    /// <summary>
+    /// OS 가 마지막으로 읽힌 값. <see cref="LoadAsync"/> 와 <see cref="RefreshSystemTheme"/>
+    /// 가 채운다 — 매 바인딩마다 레지스트리를 다시 읽으면 <see cref="IsDarkMode"/> 를
+    /// 조회하는 곳마다(색 토큰 열여섯 곳) 저장소 호출이 나간다.
+    /// </summary>
+    private bool systemIsDark;
 
     private bool isOpen;
     private bool isCheckingUpdate;
@@ -63,6 +73,11 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// 뷰 상태·설정·기록이 쌓이는 폴더 (<c>%APPDATA%\flex-dir</c>). 문자열로 받아 여기서
     /// 판정한다 — 조립이 이것 하나 때문에 파싱 실패를 다루게 만들지 않는다.
     /// </param>
+    /// <param name="themeSource">
+    /// OS 가 라이트인지 다크인지 묻는 포트 (docs/PRD-v2.md §19). <b>선택이 아니다</b> — 항상
+    /// 실물이 있다(<c>update</c> 와 다르다). 이 값이 <see cref="ThemeMode.System"/> 일 때만
+    /// 쓰인다.
+    /// </param>
     /// <param name="update">
     /// 새 버전 확인. <b>선택이다</b> — 없으면 '확인' 이 아무 일도 하지 않고 나머지는 그대로
     /// 돈다. <c>WorkspaceViewModel</c> 이 같은 자리에서 같은 이유로 선택을 쓴다.
@@ -72,15 +87,18 @@ public sealed partial class SettingsViewModel : ObservableObject
         IUiDispatcher uiDispatcher,
         string version,
         string stateDirectory,
+        ISystemThemeSource themeSource,
         UpdateViewModel? update = null)
     {
         ArgumentNullException.ThrowIfNull(settingsStore);
         ArgumentNullException.ThrowIfNull(uiDispatcher);
         ArgumentException.ThrowIfNullOrWhiteSpace(version);
         ArgumentException.ThrowIfNullOrWhiteSpace(stateDirectory);
+        ArgumentNullException.ThrowIfNull(themeSource);
 
         store = settingsStore;
         dispatcher = uiDispatcher;
+        systemTheme = themeSource;
         Version = version;
         StateFolderText = stateDirectory;
         Update = update;
@@ -223,6 +241,71 @@ public sealed partial class SettingsViewModel : ObservableObject
         private set => SetProperty(ref startFolderError, value);
     }
 
+    /// <summary>OS 설정을 따라가는가. <see cref="IsLightTheme"/>·<see cref="IsDarkTheme"/> 와 짝이다.</summary>
+    public bool IsSystemTheme
+    {
+        get => themeMode == ThemeMode.System;
+        set
+        {
+            if (value)
+            {
+                Theme = ThemeMode.System;
+            }
+        }
+    }
+
+    /// <summary>OS 와 무관하게 늘 라이트인가.</summary>
+    public bool IsLightTheme
+    {
+        get => themeMode == ThemeMode.Light;
+        set
+        {
+            if (value)
+            {
+                Theme = ThemeMode.Light;
+            }
+        }
+    }
+
+    /// <summary>OS 와 무관하게 늘 다크인가.</summary>
+    public bool IsDarkTheme
+    {
+        get => themeMode == ThemeMode.Dark;
+        set
+        {
+            if (value)
+            {
+                Theme = ThemeMode.Dark;
+            }
+        }
+    }
+
+    private ThemeMode Theme
+    {
+        get => themeMode;
+        set
+        {
+            if (themeMode == value)
+            {
+                return;
+            }
+
+            themeMode = value;
+
+            OnPropertyChanged(nameof(IsSystemTheme));
+            OnPropertyChanged(nameof(IsLightTheme));
+            OnPropertyChanged(nameof(IsDarkTheme));
+            OnPropertyChanged(nameof(IsDarkMode));
+
+            Persist();
+        }
+    }
+
+    /// <summary>
+    /// 지금 화면을 다크로 그려야 하는가. <c>v:ThemeSync.IsDarkMode</c> 가 이것을 바인딩한다.
+    /// </summary>
+    public bool IsDarkMode => Current.ResolveIsDarkMode(systemIsDark);
+
     /// <summary>숨김·시스템 파일을 목록과 트리에 보이는가.</summary>
     public bool ShowHiddenItems
     {
@@ -251,6 +334,7 @@ public sealed partial class SettingsViewModel : ObservableObject
         StartMode = startMode,
         StartFolder = startFolder,
         ShowHiddenItems = showHiddenItems,
+        Theme = themeMode,
     };
 
     /// <summary>진행 중인 저장. 테스트가 "남았는가" 를 보는 자리다.</summary>
@@ -274,8 +358,12 @@ public sealed partial class SettingsViewModel : ObservableObject
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
-            return;   // 기본값 그대로 간다.
+            loaded = AppSettings.Default;   // 저장된 설정은 못 읽어도 OS 테마는 마저 읽는다.
         }
+
+        // 창이 뜨기 전에 한 번은 실물을 읽어야 한다 — 안 그러면 System 모드가 항상
+        // "읽은 적 없음"(라이트) 로 보인다. 실패해도 던지지 않는다 (Update).
+        var isDark = await ReadSystemThemeAsync(ct).ConfigureAwait(false);
 
         await dispatcher.InvokeAsync(() =>
         {
@@ -286,6 +374,8 @@ public sealed partial class SettingsViewModel : ObservableObject
                 StartMode = loaded.StartMode;
                 StartFolderText = loaded.StartFolder?.DisplayPath ?? string.Empty;
                 ShowHiddenItems = loaded.ShowHiddenItems;
+                systemIsDark = isDark;
+                Theme = loaded.Theme;
 
                 // 세터가 텍스트에서 다시 파싱했다. 읽어 온 값을 정본으로 되돌린다 —
                 // 저장된 경로는 이미 판정을 지난 것이다.
@@ -295,7 +385,43 @@ public sealed partial class SettingsViewModel : ObservableObject
             {
                 loading = false;
             }
+
+            OnPropertyChanged(nameof(IsDarkMode));
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// <c>WM_SETTINGCHANGE</c>(<c>ImmersiveColorSet</c>) 를 받았을 때 부른다
+    /// (<c>Views/SystemThemeWatcher</c>). <see cref="ThemeMode.System"/> 이 아니면 OS 값이
+    /// 바뀌어도 화면은 그대로다 — 사용자가 고정으로 고른 것을 재조회가 뒤집으면 안 된다.
+    /// </summary>
+    public async Task RefreshSystemTheme(CancellationToken ct = default)
+    {
+        var isDark = await ReadSystemThemeAsync(ct).ConfigureAwait(false);
+
+        await dispatcher.InvokeAsync(() =>
+        {
+            if (systemIsDark == isDark)
+            {
+                return;
+            }
+
+            systemIsDark = isDark;
+            OnPropertyChanged(nameof(IsDarkMode));
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>못 읽으면 라이트로 접는다 — 테마 하나 때문에 시작·재조회가 죽으면 안 된다.</summary>
+    private async Task<bool> ReadSystemThemeAsync(CancellationToken ct)
+    {
+        try
+        {
+            return await systemTheme.ReadAsync(ct).ConfigureAwait(false);
+        }
+        catch (Exception error) when (error is not OperationCanceledException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

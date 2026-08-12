@@ -785,7 +785,7 @@ public class WorkspaceTabsTests
 
     private (WorkspaceViewModel Workspace, SettingsViewModel Settings, object? Unused) CreateWithSettings()
     {
-        var settings = new SettingsViewModel(settingsStore, dispatcher, "0.4.3", StateDirectory);
+        var settings = new SettingsViewModel(settingsStore, dispatcher, "0.4.3", StateDirectory, new FakeSystemThemeSource());
 
         return (new WorkspaceViewModel(CreatePane, viewStates, null, null, settings).Split2(), settings, null);
     }

@@ -15,6 +15,21 @@ public enum StartFolderMode
 }
 
 /// <summary>
+/// 색을 라이트·다크 중 무엇으로 그릴 것인가 (docs/PRD-v2.md §19).
+/// </summary>
+public enum ThemeMode
+{
+    /// <summary>OS 설정을 따라간다. 기본값이다 — 다크로 쓰던 사람 앞에 라이트 창이 뜨면 안 된다.</summary>
+    System,
+
+    /// <summary>OS 와 무관하게 늘 라이트.</summary>
+    Light,
+
+    /// <summary>OS 와 무관하게 늘 다크.</summary>
+    Dark,
+}
+
+/// <summary>
 /// 사용자가 정해 둔 것 (docs/PRD-v2.md §12). <b>뷰 상태와 다른 파일에 산다</b> —
 /// 아래 <see cref="ISettingsStore"/> 참조.
 /// </summary>
@@ -41,6 +56,27 @@ public sealed record AppSettings
     /// </para>
     /// </summary>
     public bool ShowHiddenItems { get; init; }
+
+    /// <summary>
+    /// 라이트·다크·시스템 중 무엇을 쓰는가. 기본은 <see cref="ThemeMode.System"/> —
+    /// 처음 켠 사람은 OS 를 따라간다 (<see cref="ResolveIsDarkMode"/>).
+    /// </summary>
+    public ThemeMode Theme { get; init; } = ThemeMode.System;
+
+    /// <summary>
+    /// 지금 화면을 다크로 그려야 하는가. <paramref name="systemIsDark"/> 는 OS 설정이고
+    /// <see cref="ThemeMode.System"/> 일 때만 쓰인다.
+    /// <para>
+    /// Host 와 <c>SettingsViewModel</c> 양쪽이 같은 답을 내야 해서 여기 있다 —
+    /// <see cref="ResolveStartFolder"/> 와 같은 이유다.
+    /// </para>
+    /// </summary>
+    public bool ResolveIsDarkMode(bool systemIsDark) => Theme switch
+    {
+        ThemeMode.Dark => true,
+        ThemeMode.Light => false,
+        _ => systemIsDark,
+    };
 
     /// <summary>
     /// 페인 하나가 시작할 폴더. <paramref name="lastFolder"/> 는 그 페인이 마지막으로 보던

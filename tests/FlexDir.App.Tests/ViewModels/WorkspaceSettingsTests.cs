@@ -50,7 +50,7 @@ public class WorkspaceSettingsTests
         var tree = new FolderTreeViewModel(
             drives, new FakeNetworkPlaceList(), new FakeFavoriteStore(), source, dispatcher);
 
-        var settings = new SettingsViewModel(settingsStore, dispatcher, "0.3.1", StateDirectory);
+        var settings = new SettingsViewModel(settingsStore, dispatcher, "0.3.1", StateDirectory, new FakeSystemThemeSource());
 
         return (new WorkspaceViewModel(CreatePane, viewStates, null, tree, settings).Split2(), settings, tree);
     }

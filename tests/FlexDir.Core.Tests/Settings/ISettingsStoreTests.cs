@@ -39,6 +39,13 @@ public class FakeSettingsStoreTests
     }
 
     [Fact]
+    public void Default_FollowsTheSystemTheme()
+    {
+        // 처음 켠 사람은 OS 를 따라간다 — 다크로 쓰던 사람 앞에 라이트 창이 뜨면 안 된다.
+        Assert.Equal(ThemeMode.System, AppSettings.Default.Theme);
+    }
+
+    [Fact]
     public async Task SavedSettings_AreLoadedBack()
     {
         var store = new FakeSettingsStore();
@@ -47,11 +54,48 @@ public class FakeSettingsStoreTests
             StartMode = StartFolderMode.Fixed,
             StartFolder = Path(@"C:\work"),
             ShowHiddenItems = true,
+            Theme = ThemeMode.Dark,
         };
 
         await store.SaveAsync(settings, CancellationToken.None);
 
         Assert.Equal(settings, await store.LoadAsync(CancellationToken.None));
+    }
+
+    // ── 다크모드 판정 ───────────────────────────────────────────────
+    //
+    // 실제 화면(브러시)에 닿지 않는 순수 규칙이다 — App 의 SettingsViewModel 과 Host 양쪽이
+    // 같은 답을 내야 하므로 여기 Core 에 둔다 (ResolveStartFolder 와 같은 이유).
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveIsDarkMode_InSystemMode_TakesTheSystemValue(bool systemIsDark)
+    {
+        var settings = new AppSettings { Theme = ThemeMode.System };
+
+        Assert.Equal(systemIsDark, settings.ResolveIsDarkMode(systemIsDark));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveIsDarkMode_InLightMode_IsAlwaysLight(bool systemIsDark)
+    {
+        // 사용자가 라이트를 골랐으면 OS 가 다크여도 라이트다 — 그것이 이 모드를 고르는 이유다.
+        var settings = new AppSettings { Theme = ThemeMode.Light };
+
+        Assert.False(settings.ResolveIsDarkMode(systemIsDark));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ResolveIsDarkMode_InDarkMode_IsAlwaysDark(bool systemIsDark)
+    {
+        var settings = new AppSettings { Theme = ThemeMode.Dark };
+
+        Assert.True(settings.ResolveIsDarkMode(systemIsDark));
     }
 
     // ── 시작 폴더 규칙 ──────────────────────────────────────────────

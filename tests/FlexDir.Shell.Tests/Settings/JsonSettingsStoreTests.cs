@@ -58,11 +58,60 @@ public class JsonSettingsStoreTests : IDisposable
             StartMode = StartFolderMode.Fixed,
             StartFolder = Loc(@"C:\work"),
             ShowHiddenItems = true,
+            Theme = ThemeMode.Dark,
         };
 
         await store.SaveAsync(settings, CancellationToken.None);
 
         Assert.Equal(settings, await CreateStore().LoadAsync(CancellationToken.None));
+    }
+
+    // ── 테마 (docs/PRD-v2.md §19) ────────────────────────────────
+    //
+    // **이 저장소는 저장 형식을 Core 타입과 분리한다** (아래 Document record). 그래서
+    // AppSettings 에 항목을 늘리는 것만으로는 저장되지 않는다 — 2026-08-12 에 실물에서
+    // 그것을 밟았다: 다크를 골라도 settings.json 에 아무것도 안 남고, 파일에 손으로
+    // theme 을 써도 안 읽혔다. FakeSettingsStore 는 AppSettings 를 객체째로 들고 있어
+    // 무엇을 늘려도 통과하므로, **새 설정은 이 파일에서 라운드트립을 봐야 한다.**
+
+    [Fact]
+    public async Task SavedTheme_SurvivesARoundTrip()
+    {
+        await CreateStore().SaveAsync(
+            new AppSettings { Theme = ThemeMode.Dark }, CancellationToken.None);
+
+        Assert.Equal(ThemeMode.Dark, (await CreateStore().LoadAsync(CancellationToken.None)).Theme);
+    }
+
+    [Fact]
+    public async Task SavedTheme_IsWrittenAsAReadableName()
+    {
+        // 사람이 열어 고칠 수 있어야 한다 — 숫자 2 로 남으면 그러지 못한다.
+        await CreateStore().SaveAsync(
+            new AppSettings { Theme = ThemeMode.Dark }, CancellationToken.None);
+
+        Assert.Contains("\"theme\": \"Dark\"", await File.ReadAllTextAsync(FilePath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnknownTheme_FallsBackToTheSystemTheme()
+    {
+        // 손으로 고치다 오타가 났거나 옛/새 버전이 남긴 값이다. 던지면 설정 전체를 잃는다.
+        WriteRawFile("""{ "theme": "Blah", "showHiddenItems": true }""");
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(ThemeMode.System, loaded.Theme);
+        Assert.True(loaded.ShowHiddenItems);
+    }
+
+    [Fact]
+    public async Task NoThemeField_TakesTheSystemTheme()
+    {
+        // v0.6.1 이전 파일이다 — 그 형식에는 theme 이 없다.
+        WriteRawFile("""{ "startMode": "Fixed", "showHiddenItems": true }""");
+
+        Assert.Equal(ThemeMode.System, (await CreateStore().LoadAsync(CancellationToken.None)).Theme);
     }
 
     [Fact]

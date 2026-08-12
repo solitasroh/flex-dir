@@ -70,6 +70,12 @@ internal static class Program
         // 상주 규약(닫기 = 숨기기 · 배치 복원)은 ResidentWindow 가 건다.
         var window = new MainWindow { DataContext = composition.Workspace };
         ResidentWindow.Attach(window, composition.Workspace);
+
+        if (composition.Workspace.Settings is { } settings)
+        {
+            SystemThemeWatcher.Attach(window, settings);
+        }
+
         ownerWindow.Track(window);
 
         // 계측이 쌓이는 파일은 하나다 (perf.log). 지점마다 만들면 같은 곳을 두 번 연다.

@@ -122,9 +122,10 @@ public sealed class AppComposition : IAsyncDisposable
         var contextMenus = new ShellContextMenuProvider(ownerWindow);
 
         // STA 도 정리도 필요 없다 — COM 이 아니라 GetDiskFreeSpaceEx 다. 그래서 아래
-        // 정리 목록에 들어가지 않는다. 드라이브 목록(mpr.dll)도 같은 자리다.
+        // 정리 목록에 들어가지 않는다. 드라이브 목록(mpr.dll)·테마(레지스트리)도 같은 자리다.
         var driveSpace = new FileSystemDriveSpace();
         var driveList = new SystemDriveList();
+        var systemTheme = new RegistrySystemThemeSource();
 
         // 이쪽은 COM 이라 STA 워커를 든다 — 아래 정리 목록에 들어간다.
         var networkPlaces = new ShellNetworkPlaceList();
@@ -173,6 +174,7 @@ public sealed class AppComposition : IAsyncDisposable
             dispatcher,
             ProductVersion.Current,
             stateDirectory,
+            systemTheme,
             update);
 
         // 팩토리를 넘긴다 (docs/PRD-v2.md §17). 탭이 런타임에 늘어나므로 조립 시점에
