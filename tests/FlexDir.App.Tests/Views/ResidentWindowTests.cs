@@ -78,6 +78,36 @@ public class ResidentWindowTests
         Assert.Equal(WindowState.Normal, state);
     }
 
+    // ── 최대화는 창이 뜬 뒤에 건다 ────────────────────────────────
+
+    [Fact]
+    public void FirstState_AMaximizedPlacement_StartsNormalWhileTheWindowIsUnseen()
+    {
+        // 2026-08-12 실측: 보조 모니터(x=2700)에 최대화로 저장해 두고 다시 켜면 창이
+        // **주 모니터**에 최대화되어 떴다. 뜨기 전의 창에는 아직 모니터가 없어서 WPF 가
+        // 주 모니터의 작업영역으로 크기를 정하고, 저장해 둔 좌표는 버려진다.
+        Assert.Equal(
+            WindowState.Normal,
+            ResidentWindow.FirstState(WindowState.Maximized, alreadyShown: false));
+    }
+
+    [Fact]
+    public void FirstState_AMaximizedPlacement_StaysMaximizedOnceTheWindowIsShown()
+    {
+        // 이미 뜬 창은 자기 모니터를 안다. 여기까지 미루지 않으면 트레이에서 되살릴 때마다
+        // 최대화가 풀린 채로 보인다.
+        Assert.Equal(
+            WindowState.Maximized,
+            ResidentWindow.FirstState(WindowState.Maximized, alreadyShown: true));
+    }
+
+    [Fact]
+    public void FirstState_ANormalPlacement_IsNeverTouched()
+    {
+        Assert.Equal(WindowState.Normal, ResidentWindow.FirstState(WindowState.Normal, alreadyShown: false));
+        Assert.Equal(WindowState.Normal, ResidentWindow.FirstState(WindowState.Normal, alreadyShown: true));
+    }
+
     // ── 인수 검사 ─────────────────────────────────────────────────
 
     [Fact]

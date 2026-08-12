@@ -12,6 +12,7 @@
         Background="#F3F3F3"
         Foreground="#1B1B1B"
         v:WindowCaption.Enabled="True"
+        v:MaximizedFrame.Enabled="True"
         v:MouseNavigationInput.Enabled="True">
 
     <!-- ═══ 커스텀 크롬 32 (docs/DESIGN.md §1) ═══
@@ -24,12 +25,12 @@
          우리 배경 위에 회색 띠가 남는다. ResizeBorderThickness 는 기본값을 그대로 둔다 —
          숫자를 박으면 배율이 다른 모니터에서 잡히는 폭이 달라진다.
 
-         **최대화 여백은 손대지 않는다 (2026-08-06 실측).** 최대화하면 창 rect 가
-         (-8,-8)-(2568,1400) 으로 작업영역(0,0)-(2560,1392) 밖으로 나가지만, 보이는 내용은
-         창 기준 (8,8) 에서 시작해 화면 좌표로 정확히 작업영역과 맞는다 — 잘리지 않는다.
-         WM_GETMINMAXINFO 훅을 붙여 봤고 값도 맞게 왔지만 결과가 한 픽셀도 달라지지 않아
-         걷어냈다. 대신 그 훅의 MaxTrackSize 클램프는 모니터를 옮길 때 새 회귀를 만든다.
-         다른 배율·작업표시줄 위치에서 실제로 잘리는 것을 보면 그때 다시 판단한다. -->
+         **최대화 여백은 MaximizedFrame 이 덜어낸다 (2026-08-12 · 앞의 판단을 뒤집었다).**
+         최대화하면 창 rect 가 작업영역보다 사방 8px 크고, WindowChrome 은 클라이언트를 창
+         rect 전체로 넓히므로 **내용의 바깥 8px 이 그대로 화면 밖으로 나간다** — 32px 캡션
+         줄이 24px 만 보인다. 2026-08-06 에 "잘리지 않는다" 로 적었던 것은 PrintWindow 가
+         잘린 자리를 검은 테두리로 덮어써서 생긴 착시다. 가른 방법과 WM_GETMINMAXINFO 를
+         쓰지 않은 이유는 Views/MaximizedFrame.cs 주석에 있다. -->
     <WindowChrome.WindowChrome>
         <WindowChrome CaptionHeight="32"
                       GlassFrameThickness="0"

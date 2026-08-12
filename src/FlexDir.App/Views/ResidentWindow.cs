@@ -89,6 +89,18 @@ public static class ResidentWindow
         => (new Rect(placement.X, placement.Y, placement.Width, placement.Height),
             placement.Maximized ? WindowState.Maximized : WindowState.Normal);
 
+    /// <summary>
+    /// 복원이 창에 <b>처음</b> 거는 상태. 최대화는 창이 뜬 뒤로 미룬다.
+    /// <para>
+    /// 뜨기 전의 창에는 아직 모니터가 없다 — 그 상태에서 <c>WindowState.Maximized</c> 를
+    /// 걸면 WPF 가 <b>주 모니터</b>의 작업영역으로 크기를 정하고, 방금 넣은
+    /// <c>Left</c>/<c>Top</c> 은 버려진다. 보조 모니터에 최대화해 두고 껐다 켜면 창이
+    /// 통째로 주 모니터로 옮겨가 있었다 (2026-08-12 실측).
+    /// </para>
+    /// </summary>
+    internal static WindowState FirstState(WindowState restored, bool alreadyShown)
+        => restored == WindowState.Maximized && !alreadyShown ? WindowState.Normal : restored;
+
     private static void Apply(Window window, WindowPlacement? placement)
     {
         if (placement is null)
@@ -105,6 +117,24 @@ public static class ResidentWindow
         window.Top = bounds.Y;
         window.Width = bounds.Width;
         window.Height = bounds.Height;
-        window.WindowState = state;
+        window.WindowState = FirstState(state, window.IsLoaded);
+
+        if (state != WindowState.Maximized || window.IsLoaded)
+        {
+            return;
+        }
+
+        // 뜬 뒤에 최대화한다 (FirstState). 두 번 걸리지 않게 먼저 뗀다 — 복원은 생성 때와
+        // 배치가 도착할 때 두 번 올 수 있다.
+        window.Loaded -= Maximize;
+        window.Loaded += Maximize;
+    }
+
+    private static void Maximize(object sender, RoutedEventArgs e)
+    {
+        var window = (Window)sender;
+
+        window.Loaded -= Maximize;
+        window.WindowState = WindowState.Maximized;
     }
 }
