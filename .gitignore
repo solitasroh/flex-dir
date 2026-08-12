@@ -15,3 +15,8 @@ TestResults/
 # API 키. 제품 아이콘 생성에 OpenAI 이미지 API 를 쓴다 — 키는 이 파일에만 있고
 # 저장소에 들어가지 않는다. 키 이름은 .env.example 이 적는다.
 .env
+
+# 코드서명 인증서 (scripts/new-signing-cert.ps1). .pfx 는 개인 키라 저장소에 들어가면
+# 누구나 이 앱의 이름으로 서명할 수 있다. 공개 .cer 도 여기 두고 함께 막는다 —
+# 배포는 GPO 로 하지 저장소로 하지 않는다.
+signing/

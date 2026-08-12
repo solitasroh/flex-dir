@@ -22,7 +22,21 @@ param(
     [string]$Repo = 'solitasroh/flex-dir',
 
     # 패키지만 굽고 올리지 않는다. 처음 굽는 것을 눈으로 보고 싶을 때.
-    [switch]$NoUpload
+    [switch]$NoUpload,
+
+    # 코드서명 인증서의 지문 (scripts/new-signing-cert.ps1 이 만들어 낸다).
+    #
+    # **선택이다.** 주지 않으면 서명 없이 굽는다 — vpk 가 "N file(s) will not be signed" 로
+    # 경고하고 그대로 진행한다. 인증서는 이 기계의 CurrentUser\My 에만 있으므로, 없는
+    # 기계에서 필수로 만들면 굽는 길이 통째로 막힌다.
+    #
+    # 지문으로 가리키고 .pfx 경로+비밀번호를 받지 않는 이유: 명령줄 인자는 프로세스 목록과
+    # 셸 히스토리에 남는다.
+    [string]$SignThumbprint,
+
+    # 타임스탬프 서버. 서명 시각을 제3자가 보증하므로 **인증서가 만료돼도 이미 서명한
+    # 것은 계속 유효하다**. 자체 서명이어도 타임스탬프 자체는 공개 TSA 를 쓴다.
+    [string]$TimestampUrl = 'http://timestamp.digicert.com'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,6 +87,29 @@ if (Test-Path $packages) { Remove-Item $packages -Recurse -Force }
     -o $publish
 if ($LASTEXITCODE -ne 0) { throw "publish 실패 ($LASTEXITCODE)" }
 
+# 서명은 있으면 하고 없으면 건너뛴다. vpk 가 --signParams 를 signtool.exe 에 그대로 넘긴다.
+# /sha1 은 저장소에서 지문으로 인증서를 고른다 — 파일도 비밀번호도 명령줄에 오르지 않는다.
+$signArgs = @()
+
+if ($SignThumbprint) {
+    $found = Get-ChildItem Cert:\CurrentUser\My |
+        Where-Object { $_.Thumbprint -eq $SignThumbprint }
+
+    if (-not $found) {
+        throw "지문 $SignThumbprint 인 인증서가 CurrentUser\My 에 없다. scripts/new-signing-cert.ps1 참조."
+    }
+
+    if ($found.NotAfter -lt (Get-Date)) {
+        throw "그 인증서는 $($found.NotAfter.ToString('yyyy-MM-dd')) 에 만료됐다."
+    }
+
+    Write-Host "서명: $($found.Subject)" -ForegroundColor Cyan
+    $signArgs = @('--signParams', "/sha1 $SignThumbprint /fd sha256 /tr $TimestampUrl /td sha256")
+}
+else {
+    Write-Host '서명하지 않는다 (-SignThumbprint 없음).' -ForegroundColor Yellow
+}
+
 # --packTitle 은 시작 메뉴·제어판에 뜨는 이름이다. packId 는 바뀌면 안 된다 —
 # Velopack 이 그것으로 "같은 앱인가" 를 판정하고, 바꾸면 기존 설치가 갱신 대상에서 빠진다.
 & vpk pack `
@@ -82,7 +119,8 @@ if ($LASTEXITCODE -ne 0) { throw "publish 실패 ($LASTEXITCODE)" }
     --mainExe FlexDir.Host.exe `
     --packTitle 'flex-dir' `
     --icon (Join-Path $root 'assets\flex-dir.ico') `
-    --outputDir $packages
+    --outputDir $packages `
+    @signArgs
 if ($LASTEXITCODE -ne 0) { throw "vpk pack 실패 ($LASTEXITCODE)" }
 
 Write-Host "`n패키지:" -ForegroundColor Green
