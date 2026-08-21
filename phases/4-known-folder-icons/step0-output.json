@@ -1,0 +1,8 @@
+{
+  "step": 0,
+  "name": "folder-icon-port",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 0 완료 — AC 셋 다 exit 0 (빌드 경고 0 · 테스트 2079/2079 통과, 이전 2073 대비 +6 · 구조 게이트 통과).\n\n`★ Insight ─────────────────────────────────────`\n- fake 의 `GetItemIconAsync` 는 기록 → 취소 관측 → 값 반환 순서를 기존 `GetTypeIconAsync` 와 동일하게 맞췄습니다. \"불렸는데 취소됐다\" 와 \"아예 안 불렸다\" 를 구분하는 이 fake 의 기존 철학(요청 기록이 항상 먼저)이 새 메서드에도 그대로 적용됩니다.\n- `ShellThumbnailSource` 의 임시 구현은 `worker.RunAsync` 를 타지 않고 동기로 `null` 을 반환합니다 — STA 워커를 태울 실제 조회가 없으므로, step 1 이 red 테스트(STA 검증 등)를 만들며 그 경로로 바꿉니다.\n`─────────────────────────────────────────────────`\n\n변경 파일 4개:\n\n1. `src/FlexDir.Core/Presentation/IThumbnailSource.cs` — `GetItemIconAsync(LocationId, int, CancellationToken)` 추가. XML 주석에 계약 다섯(썸네일과의 차이 · 형식 아이콘과의 차이와 \"항목마다 부르지 않는다\" · 실패는 null · UI 스레드 금지 · 크기는 요청일 뿐) 명시. `KnownFolder` 라는 말 없음.\n2. `tests/FlexDir.Core.Tests/Fakes/FakeThumbnailSource.cs` — `ItemIcons` 딕셔너리(경로별 주입, 미주입은 null), `ItemIconRequests` 기록, `CountItemIconRequests`, `ItemIconMark(0x33)`. 기존 멤버는 손대지 않아 페인 테스트 1066개 포함 전부 초록.\n3. `tests/FlexDir.Core.Tests/Presentation/IThumbnailSourceTests.cs` — 테스트 5개(케이스 6개) 추가: 주입 아이콘 반환 · 미주입 null · 취소 관측 · 크기 0/-1 검증 · 경로별 호출 횟수 기록.\n4. `src/FlexDir.Shell/Presentation/ShellThumbnailSource.cs` — 인자 검증만 하고 `null` 을 내는 최소 구현. 실제 조회는 step 1 자리.\n\n`index.json` step 0 은 `completed` 로 갱신했고, summary 에 시그니처와 임시 구현 위치를 적어 두었습니다. 커밋은 규칙대로 하지 않았습니다.\n",
+  "stderr": ""
+}

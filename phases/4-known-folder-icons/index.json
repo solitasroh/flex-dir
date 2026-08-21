@@ -2,10 +2,34 @@
   "project": "flex-dir",
   "phase": "4-known-folder-icons",
   "steps": [
-    { "step": 0, "name": "folder-icon-port", "status": "pending" },
-    { "step": 1, "name": "shell-folder-icon", "status": "pending" },
-    { "step": 2, "name": "known-folder-icon-option", "status": "pending" },
-    { "step": 3, "name": "known-folder-menu-icons", "status": "pending" },
-    { "step": 4, "name": "release-0.8.1", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "folder-icon-port",
+      "status": "completed",
+      "started_at": "2026-08-21T17:17:11+0900",
+      "summary": "IThumbnailSource 에 ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct) 추가 (계약: 실패는 null·취소만 예외·requestedSize 양수·경로별 캐시라 항목마다 부르지 않음). FakeThumbnailSource 에 ItemIcons(LocationId→ThumbnailBitmap 주입)·ItemIconRequests·CountItemIconRequests·ItemIconMark(0x33) 추가, 미주입 경로는 null. ShellThumbnailSource.GetItemIconAsync 는 인자 검증 후 null 을 내는 최소 구현 (Dispose 바로 위, GetTypeIconAsync 다음) — step 1 이 실제 shell 조회로 바꾼다. 테스트 2073→2079.",
+      "completed_at": "2026-08-21T17:21:55+0900"
+    },
+    {
+      "step": 1,
+      "name": "shell-folder-icon",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "known-folder-icon-option",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "known-folder-menu-icons",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "release-0.8.1",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-08-21T17:17:11+0900"
 }
