@@ -22,7 +22,8 @@
     },
     {
       "dir": "4-known-folder-icons",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-08-21T17:44:01+0900"
     }
   ]
 }
