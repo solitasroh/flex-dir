@@ -209,6 +209,76 @@ public class FakeThumbnailSourceTests
         Assert.NotNull(await port.GetThumbnailAsync(Loc(@"C:\Temp\a.png"), 96, CancellationToken.None));
     }
 
+    // ── GetItemIconAsync ──────────────────────────────────────────
+
+    [Fact]
+    public async Task GetItemIconAsync_ReturnsTheIconInjectedForThatPath()
+    {
+        var source = new FakeThumbnailSource();
+        var item = Loc(@"C:\Users\x\Downloads");
+        source.ItemIcons[item] = FakeThumbnailSource.Bitmap(IconSize, FakeThumbnailSource.ItemIconMark);
+
+        var icon = await source.GetItemIconAsync(item, IconSize, CancellationToken.None);
+
+        Assert.NotNull(icon);
+        Assert.Equal(IconSize, icon.Width);
+
+        // 형식 아이콘·썸네일과 갈려야 호출자가 엉뚱한 그림을 꽂아도 테스트가 눈치챈다.
+        Assert.Equal(FakeThumbnailSource.ItemIconMark, icon.Pixels[0]);
+    }
+
+    [Fact]
+    public async Task GetItemIconAsync_WithoutAnInjectedIcon_YieldsNull_NotAnException()
+    {
+        var source = new FakeThumbnailSource();
+
+        // 포트 계약이다: 없거나 실패하면 null 이다.
+        Assert.Null(await source.GetItemIconAsync(Loc(@"C:\Temp\없는곳"), IconSize, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task GetItemIconAsync_WhenAlreadyCanceled_ObservesCancellation()
+    {
+        var source = new FakeThumbnailSource();
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await source.GetItemIconAsync(Loc(@"C:\Users\x\Downloads"), IconSize, cts.Token));
+
+        Assert.Equal(1, source.CancellationsObserved);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public async Task GetItemIconAsync_NonPositiveSize_Throws(int size)
+    {
+        var source = new FakeThumbnailSource();
+
+        // 구현체(ShellThumbnailSource)가 같은 검증을 던진다. fake 만 관대하면
+        // 테스트는 초록인데 실물에서 터지는 자리가 된다.
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            async () => await source.GetItemIconAsync(Loc(@"C:\Users\x\Downloads"), size, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task CountItemIconRequests_RecordsEveryInvocationPerPath()
+    {
+        var source = new FakeThumbnailSource();
+        var downloads = Loc(@"C:\Users\x\Downloads");
+        var pictures = Loc(@"C:\Users\x\Pictures");
+
+        await source.GetItemIconAsync(downloads, IconSize, CancellationToken.None);
+        await source.GetItemIconAsync(downloads, IconSize, CancellationToken.None);
+        await source.GetItemIconAsync(pictures, IconSize, CancellationToken.None);
+
+        // 경로마다 캐시가 잘 듣는지("한 번만 묻는가")는 호출자의 규칙이고, 그 채점은
+        // 이 기록에 의존한다. fake 가 캐시해버리면 중복 조회가 보이지 않는다.
+        Assert.Equal(2, source.CountItemIconRequests(downloads));
+        Assert.Equal(1, source.CountItemIconRequests(pictures));
+    }
+
     private static LocationId Loc(string path)
     {
         Assert.True(LocationId.TryParse(path, out var location, out var error), $"파싱 실패: {error}");

@@ -89,6 +89,20 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
             worker.RunAsync(() => Guarded(() => typeIcon(key, isDirectory, requestedSize)), ct));
     }
 
+    /// <summary>
+    /// 아직 조회하지 않는다 — <c>null</c> 은 "아이콘이 없다" 라는 이 포트의 정상 상태로
+    /// 접히므로 호출자는 이대로도 안전하다. 던지는 임시 구현을 두지 않는 이유다: 실제
+    /// 조회가 채워지기 전에 불려도 사건이 되면 안 된다. 인자 검증만 계약대로 먼저 한다.
+    /// </summary>
+    public ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedSize);
+        ct.ThrowIfCancellationRequested();
+
+        return ValueTask.FromResult<ThumbnailBitmap?>(null);
+    }
+
     public void Dispose() => worker.Dispose();
 
     /// <summary>

@@ -84,4 +84,36 @@ public interface IThumbnailSource
         bool isDirectory,
         int requestedSize,
         CancellationToken ct);
+
+    /// <summary>
+    /// 그 위치의 <b>아이콘</b>. 썸네일이 아니라 shell 이 그 항목에 붙여 둔 그림이다.
+    /// 없거나 실패하면 <c>null</c> 이다.
+    /// <para>
+    /// <see cref="GetThumbnailAsync"/> 로는 안 된다 — 그쪽은 내용의 <b>미리보기</b>라
+    /// 실제 썸네일이 없으면 일부러 <c>null</c> 을 낸다 (그 계약이 있어야 호출자가 형식
+    /// 아이콘으로 대체할지 정할 수 있다). 폴더에는 썸네일이 없으므로 항상 <c>null</c> 이다.
+    /// 이쪽은 <b>아이콘</b>이라 거의 언제나 있다.
+    /// </para>
+    /// <para>
+    /// <see cref="GetTypeIconAsync"/> 로도 안 된다 — 그쪽은 확장자마다 하나라 캐시가 잘
+    /// 듣지만, 모든 폴더가 같은 일반 폴더 아이콘을 받는다. 이쪽은 <b>경로마다</b> 다를 수
+    /// 있고(알려진 폴더 · 사용자 지정 아이콘 · <c>desktop.ini</c>) 캐시 키가 경로다.
+    /// <b>그래서 목록의 항목마다 부르면 안 된다</b> — 대용량 폴더에서 확장자마다 한 번이
+    /// 가장 큰 승리였던 것(docs/SHELL_NOTES.md §아이콘)이 무너진다. 부르는 쪽은
+    /// <b>개수가 정해진 곳</b>이다.
+    /// </para>
+    /// <para>
+    /// 실패는 던지지 않는다 — <c>null</c> 이다. 아이콘이 없다고 폴더를 못 여는 사건이
+    /// 되면 안 된다. 취소만 예외로 나온다 — 이 포트의 다른 둘과 같다.
+    /// </para>
+    /// <para>
+    /// UI 스레드에서 부르지 않는다 (CLAUDE.md §3). shell 조회는 동기 블로킹이고
+    /// 네트워크·클라우드 항목에서 초 단위로 멈춘다.
+    /// </para>
+    /// <para>
+    /// 크기는 요청일 뿐 보장이 아니다 — shell 이 가진 가장 가까운 크기가 온다.
+    /// <paramref name="requestedSize"/> 는 양수여야 한다 (다른 둘과 같은 검증).
+    /// </para>
+    /// </summary>
+    ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct);
 }
