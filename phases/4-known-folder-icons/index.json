@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "known-folder-menu-icons",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T17:33:58+0900",
+      "summary": "알려진 폴더 메뉴 ItemContainerStyle 에 MenuItem.Icon 추가 (MainWindow.xaml) — 16×16 표시(원본 32 를 HighQuality 로 축소), 기존 ThumbnailImageConverter 를 값 하나짜리 MultiBinding(Path=Icon)으로 재사용. x:Shared=\"False\" 줬다 — 단 인라인 Setter.Value 가 아니라 Style.Resources 항목으로 (x:Shared 는 ResourceDictionary 에서만 유효) + Icon Setter 는 DynamicResource (StaticResource 는 파스 타임 1회 조회라 x:Shared=False 가 무효 — 컨테이너마다 조회해야 컨테이너당 새 Image). 아이콘 null 이면 빈칸, 항목은 유지. 코드비하인드·새 변환기·새 템플릿·» 쪽 변경 없음. ViewConvertersTests 에 하나짜리 배열 테스트 2개 추가 (2091→2093).",
+      "completed_at": "2026-08-21T17:37:41+0900"
     },
     {
       "step": 4,

@@ -1,0 +1,8 @@
+{
+  "step": 3,
+  "name": "known-folder-menu-icons",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 3 완료. AC 셋 다 exit 0 — 빌드 경고 0, 테스트 2093개 전부 통과(2091 → 2093), 구조 게이트 통과.\n\n**한 것:**\n\n1. `MainWindow.xaml` 알려진 폴더 메뉴의 `ItemContainerStyle` 에 `Icon` Setter 추가 — 16×16 `Image`, `HighQuality` 축소, 기존 `ThumbnailImageConverter` 를 값 하나짜리 `MultiBinding`(`Path=\"Icon\"`, record 속성명과 글자 그대로 일치)으로 재사용.\n2. `ViewConvertersTests.cs` 에 테스트 2개 추가 — `[ThumbnailBitmap]` 하나짜리 배열이면 그림, `[null]` 이면 `null`.\n3. `index.json` step 3 을 `completed` 로 갱신.\n\n**step 지시서와 한 군데 다르게 한 것 (이유 포함):** `x:Shared=\"False\"` 는 줬지만 스니펫처럼 `Setter.Value` 인라인 `Image` 에 걸 수 없었습니다 — `x:Shared` 는 컴파일된 ResourceDictionary 항목에서만 유효해서 인라인은 컴파일 에러입니다. 그래서 저장소 전례(`GroupByMenu`)와 같은 수로 `Style.Resources` 항목에 걸고, `Icon` Setter 는 `DynamicResource` 로 물었습니다. `StaticResource` 면 파스 타임에 한 번만 조회돼 `x:Shared=\"False\"` 가 무효가 되고 결국 인스턴스 하나를 다섯 컨테이너가 나눠 쓰게 됩니다 — 컨테이너마다 조회하는 `DynamicResource` 라야 컨테이너당 새 `Image` 가 생깁니다. 이 결정은 `summary` 와 XAML 주석 양쪽에 남겼습니다.\n\n**체크리스트:** `MainWindow.xaml.cs` 무변경(diff 에 없음) · 새 변환기 없음 · `»` 쪽 무변경 · 아이콘 `null` 이면 빈칸이고 항목은 유지.\n\n**남은 확인 하나 (사람 몫):** 다섯 항목 전부에 아이콘이 뜨는지는 눈으로 세어야 합니다 — CLAUDE.md §5 대로 shell interop 화면 확인은 자율 채점 대상이 아닙니다. 앱을 띄워 알려진 폴더 메뉴(E707)를 열고 홈·바탕화면·문서·다운로드·사진 다섯을 세면 됩니다.\n",
+  "stderr": ""
+}
