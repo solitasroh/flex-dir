@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "toolbar-overflow-panel",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T15:15:57+0900",
+      "summary": "src/FlexDir.App/Views/ToolbarOverflowPanel.cs — 첨부 속성 FoldOrder(0=절대 안 접힘, 1부터 작은 번호 먼저·같은 번호는 한 덩어리)·IsOverflowHead(» 머리, 접힌 것이 있을 때만 Visible)·AlignRight(오른쪽 정렬, 📍·» 가 켬), 판정은 internal static Folded(순수 값만, 접기 시작하면 available-overflowWidth 예산·무리 소진 시 넘침), FoldedOrders 는 읽기 전용 DependencyProperty(값이 바뀔 때만 새 인스턴스). 자연 폭은 Collapsed 전에 캐시(진동 방지), ClipToBounds. ViewConverters.cs 에 FoldedOrderToVisibility 추가(FoldedOrders 에 ConverterParameter 번호가 있으면 Visible). 주의: step 지시서의 시나리오 예시(260→뷰모드만 접힘)는 명세된 오름차순 알고리즘과 모순이라 정직 계산으로 확정 — 260 이면 분류(2)+뷰모드(3) 둘 다 접히고, 분류만 접히는 중간 폭은 [338,347) (테스트는 340 사용). 테스트 ToolbarOverflowPanelTests.cs 14개 + ViewConvertersTests 3개.",
+      "completed_at": "2026-08-21T15:24:53+0900"
     },
     {
       "step": 3,
