@@ -37,7 +37,10 @@
     {
       "step": 4,
       "name": "toolbar-wiring",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T15:29:19+0900",
+      "summary": "MainWindow.xaml 툴바 StackPanel 을 v:ToolbarOverflowPanel(x:Name=PaneToolbar)로 교체. FoldOrder 배정표: 뒤로E72B·앞으로E72A·상위E74A·구분자·새로고침E72C=0(기본), 구분자+뷰모드 4종(E8A4·E8FD·E8A9·E15B)=3, 구분자+분류 Menu(E8EC)=2, 1은 2구간 외부도구용으로 비움. 알려진 폴더 Menu(E707, AlignRight, ItemsSource=KnownFolderOptions, OpenKnownFolderCommand)와 » 머리(AlignRight+IsOverflowHead, 서브메뉴 '보기 모드'=ChangeViewModeCommand 4종·'분류 방법'=GroupOptions+ChangeGroupCommand, FoldedOrderToVisibility 를 ElementName=PaneToolbar 로 바인딩, Window.Resources 에 컨버터 등록) 추가. AppComposition 에 var knownFolders = new KnownFolderList() (정리 목록 제외) + Pane() 에 knownFolders: 주입, AppCompositionTests.Create_OpensARealFolder 에 KnownFolderOptions 도달 단정 추가. 테스트 2073개(587+326+1066+94) 전부 통과·경고 0·check-structure 통과.",
+      "completed_at": "2026-08-21T15:35:29+0900"
     },
     {
       "step": 5,
