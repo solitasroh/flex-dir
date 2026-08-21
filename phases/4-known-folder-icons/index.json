@@ -1,0 +1,11 @@
+{
+  "project": "flex-dir",
+  "phase": "4-known-folder-icons",
+  "steps": [
+    { "step": 0, "name": "folder-icon-port", "status": "pending" },
+    { "step": 1, "name": "shell-folder-icon", "status": "pending" },
+    { "step": 2, "name": "known-folder-icon-option", "status": "pending" },
+    { "step": 3, "name": "known-folder-menu-icons", "status": "pending" },
+    { "step": 4, "name": "release-0.8.1", "status": "pending" }
+  ]
+}
