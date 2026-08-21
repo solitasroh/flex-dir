@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "shell-folder-icon",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T17:22:11+0900",
+      "summary": "ShellThumbnailSource.GetItemIconAsync 를 실제 조회로 교체: 주입 델리게이트 itemIcon(내부 생성자 3-델리게이트로 확장) → worker.RunAsync(STA) → Guarded → QueryItemIcon. QueryItemIcon 은 DisplayPath 를 SHGFI_SYSICONINDEX 단독 플래그(SHGFI_USEFILEATTRIBUTES 없음)로 SHGetFileInfo 에 넘기고 ShellInfoGate.Query 로 직렬화, 인덱스는 기존 ImageListFor→FromImageList 사슬 재사용(HICON 해제 포함). 테스트 6개 추가(2079→2085): 이 기계에서 Downloads·Pictures 아이콘 픽셀이 실제로 갈렸다(ItemIcon_KnownFolders_Differ 통과).",
+      "completed_at": "2026-08-21T17:27:31+0900"
     },
     {
       "step": 2,
