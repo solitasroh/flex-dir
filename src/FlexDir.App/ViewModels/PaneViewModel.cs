@@ -86,6 +86,14 @@ public sealed class RowViewModel
 public sealed record GroupOption(string Label, SortKey? Key, bool IsSelected);
 
 /// <summary>
+/// 알려진 폴더 메뉴의 항목 하나. <see cref="KnownFolder"/> 와 달리 <see cref="Location"/> 이
+/// nullable 이 아니다 — 없는 폴더는 <see cref="PaneViewModel.ToOptions"/> 가 걸러 여기까지
+/// 오지 않는다. View 에 null 검사를 남기면 WPF 바인딩은 런타임 조회라 그 검사가 조용히
+/// 실패한다 (docs/PRD-v2.md §17).
+/// </summary>
+public sealed record KnownFolderOption(string Label, LocationId Location);
+
+/// <summary>
 /// 그룹화를 켠 Details 의 한 줄 — 그룹 헤더이거나 항목이다 (docs/PRD-v2.md §6-1).
 /// <para>
 /// 전작은 그룹핑으로 데이터 가상화를 깨뜨렸다 (docs/PRD.md §3). <b>헤더도 행이면</b>
@@ -198,6 +206,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>여유 용량 포트. 주입되지 않으면 그 자리를 비운다 (선택 주입).</summary>
     private readonly IDriveSpace? driveSpace;
+
+    /// <summary>알려진 폴더 포트. 주입되지 않으면 메뉴만 빈 채로 나머지가 돈다 (선택 주입).</summary>
+    private readonly IKnownFolderList? knownFolders;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -280,6 +291,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private bool isAddressEditing;
 
     private Task freeSpaceWork = Task.CompletedTask;
+    private Task knownFoldersWork = Task.CompletedTask;
+
+    /// <summary>이미 물었다. 알려진 폴더는 프로세스가 사는 동안 바뀌지 않는다 (ADR-003 상주).</summary>
+    private bool knownFoldersAsked;
     private string? renamingName;
     private string? focusedName;
     private string addressEdit = string.Empty;
@@ -340,7 +355,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         TimeProvider? timeProvider = null,
         // 선택 주입이다 (timeProvider 와 같은 자리). 주지 않으면 여유 용량 자리가 빈 채로
         // 나머지가 그대로 돈다 — 이 포트 하나 때문에 페인 테스트 수백 개를 고치지 않는다.
-        IDriveSpace? driveSpace = null)
+        IDriveSpace? driveSpace = null,
+        // 같은 이유로 선택이다. 주지 않으면 알려진 폴더 메뉴가 빈 채로 나머지가 돈다.
+        IKnownFolderList? knownFolders = null)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(folderWatcher);
@@ -356,6 +373,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(contextMenus);
 
         this.driveSpace = driveSpace;
+        this.knownFolders = knownFolders;
 
         // 감시 알림을 받은 항목은 다시 읽어야 한다 (TryGetItemAsync) — 세션은 폴더 열거만 안다.
         this.folderSource = folderSource;
@@ -776,6 +794,41 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 폴더 열기는 이 조회를 기다리지 않는다.
     /// </summary>
     internal Task FreeSpaceWork => freeSpaceWork;
+
+    /// <summary>알려진 폴더 메뉴에 올릴 항목. 포트를 주지 않았거나 아직 못 읽었으면 빈 목록이다.</summary>
+    public IReadOnlyList<KnownFolderOption> KnownFolderOptions { get; private set; } = [];
+
+    /// <summary>
+    /// 진행 중인 알려진 폴더 조회가 끝나면 완료된다. 테스트의 관측 지점이다
+    /// (<see cref="FreeSpaceWork"/> 와 같은 수).
+    /// </summary>
+    internal Task KnownFoldersWork => knownFoldersWork;
+
+    /// <summary>
+    /// 포트가 낸 목록에서 메뉴에 올릴 것을 고른다. 판정만 갈라 채점한다
+    /// (<c>TabStripPanel.Widths</c> 와 같은 수).
+    /// <para>
+    /// <see cref="KnownFolder.Location"/> 이 없는 항목은 뺀다 — 눌러도 갈 곳이 없는 항목은
+    /// <c>Command</c> 가 null 인 <c>MenuItem</c> 과 같은 자리가 된다 (docs/PRD-v2.md §17).
+    /// 순서는 입력 그대로다: 순서의 정본은 <see cref="KnownFolderKind"/> 선언 순서 하나여야 한다.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyList<KnownFolderOption> ToOptions(IReadOnlyList<KnownFolder> folders)
+    {
+        ArgumentNullException.ThrowIfNull(folders);
+
+        var options = new List<KnownFolderOption>(folders.Count);
+
+        foreach (var folder in folders)
+        {
+            if (folder.Location is { } location)
+            {
+                options.Add(new KnownFolderOption(folder.Label, location));
+            }
+        }
+
+        return options;
+    }
 
     /// <summary>
     /// 주소줄 breadcrumb 의 칸들. 폴더를 열기 전에는 비어 있다 (목업 <c>.addr .seg</c>).
@@ -1257,6 +1310,15 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private Task OpenAddressAsync(string? address, CancellationToken ct)
         => address is null ? Task.CompletedTask : NavigateAsync(address, ct);
+
+    /// <summary>
+    /// 알려진 폴더 메뉴의 항목으로 이동한다. <b>현재 탭에서</b> 이동하고 (새 탭을 열지
+    /// 않는다 — 사용자 확정 사항), <see cref="NavigateAsync(LocationId, CancellationToken)"/>
+    /// 를 지나므로 히스토리에 남는다 — 뒤로가기가 원래 자리로 돌아와야 한다.
+    /// </summary>
+    [RelayCommand]
+    public Task OpenKnownFolderAsync(KnownFolderOption? option, CancellationToken ct = default)
+        => option is null ? Task.CompletedTask : NavigateAsync(option.Location, ct);
 
     /// <summary>
     /// 목록의 빈 곳 클릭 — 선택 해제 (탐색기와 같다). 비활성 페인이었다면 활성 전환도 된다.
@@ -2108,6 +2170,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 열거가 끝난 뒤에 묻는다. 앞에 두면 저장소에 닿는 조회(네트워크에서 초 단위)가
         // 첫 항목 도착을 뒤로 민다 — 그것이 이 앱의 예산 항목이다 (docs/PRD.md §5).
         MeasureFreeSpace(run, location, ct);
+        LoadKnownFolders(ct);
 
         return new LoadResult(false, null);
     }
@@ -2150,6 +2213,56 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 {
                     FreeSpaceText = text;
                 }
+            }).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 알려진 폴더 메뉴를 뒤에서 채운다 (<see cref="MeasureFreeSpace"/> 와 같은 수 —
+    /// 기다리지 않는다). <b>한 번만 묻는다</b>: 알려진 폴더는 프로세스가 사는 동안 바뀌지
+    /// 않고 이 앱은 상주라(ADR-003), 탐색마다 물으면 폴더를 열 때마다 저장소 조회가 하나씩
+    /// 더 붙는다. 리디렉션된 폴더(OneDrive · 로밍 프로필)는 네트워크로 내려가므로 이 경로는
+    /// UI 스레드 밖이어야 한다 (CLAUDE.md §3).
+    /// </summary>
+    private void LoadKnownFolders(CancellationToken ct)
+    {
+        if (knownFolders is null || knownFoldersAsked)
+        {
+            return;
+        }
+
+        knownFoldersAsked = true;
+        knownFoldersWork = Load();
+
+        async Task Load()
+        {
+            IReadOnlyList<KnownFolder> folders;
+
+            try
+            {
+                folders = await knownFolders.ListAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 취소된 폴더 열기에 얹혀 있었을 뿐이다. 다음 열기가 다시 묻는다.
+                knownFoldersAsked = false;
+                return;
+            }
+            catch (Exception)
+            {
+                // 계약은 던지지 않는 것이지만 (IKnownFolderList), 새면 메뉴만 빈 채로 간다 —
+                // 알려진 폴더를 못 읽는 것이 폴더를 못 여는 사건이 되면 안 된다.
+                return;
+            }
+
+            var options = ToOptions(folders);
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                KnownFolderOptions = options;
+
+                // 자동 속성이라 스스로 알리지 않는다 — 이것이 없으면 메뉴가 영원히 비어 있다.
+                OnPropertyChanged(nameof(KnownFolderOptions));
             }).ConfigureAwait(false);
         }
     }
