@@ -301,6 +301,26 @@ public class ViewConvertersTests
     }
 
     [Fact]
+    public void ThumbnailImage_WithASingleValue_MakesTheImage()
+    {
+        // 알려진 폴더 메뉴는 값 하나짜리 MultiBinding 으로 이 변환기를 쓴다 (phase 4 step 3).
+        var converter = new ThumbnailImageConverter();
+
+        var image = converter.Convert([Bitmap(3, 3)], typeof(object), null, Culture);
+
+        Assert.Equal(3, Assert.IsAssignableFrom<System.Windows.Media.Imaging.BitmapSource>(image).PixelWidth);
+    }
+
+    [Fact]
+    public void ThumbnailImage_WithASingleNull_IsNull()
+    {
+        // 아이콘이 아직 안 왔으면 빈칸이 남는다 — 항목을 숨기지 않는다.
+        var converter = new ThumbnailImageConverter();
+
+        Assert.Null(converter.Convert([null!], typeof(object), null, Culture));
+    }
+
+    [Fact]
     public void ConvertBack_IsNotSupported()
     {
         // 전부 단방향 표시용이다. 역방향이 생기면 View→ViewModel 동기화가 부활한다 (ADR-011).

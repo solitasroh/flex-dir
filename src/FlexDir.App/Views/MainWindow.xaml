@@ -1244,7 +1244,26 @@
                                           ItemsSource="{Binding KnownFolderOptions}">
                                     <MenuItem.ItemContainerStyle>
                                         <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                            <Style.Resources>
+                                                <!-- x:Shared="False" — Style 의 값은 컨테이너들이 나눠 쓰므로
+                                                     같은 Image 하나면 마지막 항목에만 남는다. x:Shared 는
+                                                     ResourceDictionary 항목에만 걸 수 있어 리소스로 뺐고,
+                                                     컨테이너마다 새로 조회하도록 아래 Icon 은 DynamicResource 다.
+                                                     원본 32(step 2)를 16 으로 줄여 그린다 — 150% 배율에서
+                                                     선명하고, 축소는 HighQuality 가 맡는다. 아이콘이 아직
+                                                     null 이면 변환기가 null 을 내고 빈칸이 남는다 — 정상이다. -->
+                                                <Image x:Key="KnownFolderIcon" x:Shared="False"
+                                                       Width="16" Height="16"
+                                                       RenderOptions.BitmapScalingMode="HighQuality">
+                                                    <Image.Source>
+                                                        <MultiBinding Converter="{StaticResource ThumbnailImage}">
+                                                            <Binding Path="Icon" />
+                                                        </MultiBinding>
+                                                    </Image.Source>
+                                                </Image>
+                                            </Style.Resources>
                                             <Setter Property="Header" Value="{Binding Label}" />
+                                            <Setter Property="Icon" Value="{DynamicResource KnownFolderIcon}" />
                                             <Setter Property="Command"
                                                     Value="{Binding DataContext.OpenKnownFolderCommand,
                                                             RelativeSource={RelativeSource AncestorType=Menu}}" />
