@@ -59,6 +59,7 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | `IUsageLog` | 실행·사용 시간 기록 |
 | `IItemActivator` | 더블클릭 시 연결 프로그램 실행 |
 | `IDriveSpace` | 위치가 속한 볼륨의 여유/전체 용량 (상태표시줄) |
+| `IKnownFolderList` | 알려진 폴더 다섯(홈·바탕화면·문서·다운로드·사진)의 위치. **조회가 저장소에 닿는다** — 리디렉션된 폴더(OneDrive·도메인 로밍)에서는 네트워크로 내려간다. 구현 `Shell/Locations/KnownFolderList.cs` 는 COM 이 아니라 STA 도 정리도 필요 없다 (`AppComposition` 정리 목록에 없다) |
 
 포트는 **경로를 문자열이 아니라 `LocationId` 로** 주고받는다. v1 은 로컬
 파일시스템 경로만 담지만, v2 의 UNC·shell 네임스페이스(PIDL)를 같은 타입으로
