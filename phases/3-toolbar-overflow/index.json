@@ -29,7 +29,10 @@
     {
       "step": 3,
       "name": "shell-known-folders",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T15:25:09+0900",
+      "summary": "FlexDir.Shell.Locations.KnownFolderList (IDisposable 미구현 — COM 아님, RegistrySystemThemeSource·SystemDriveList 와 같은 자리라 AppComposition 정리 목록에 넣지 않는다). ListAsync 는 Task.Run 경유, 넷은 Environment.GetFolderPath(Home=UserProfile·Desktop=DesktopDirectory·Documents=MyDocuments·Pictures=MyPictures), Downloads 만 SHGetKnownFolderPath(FOLDERID_Downloads, LibraryImport, finally 에서 FreeCoTaskMem). 라벨 고정 홈·바탕화면·문서·다운로드·사진, 없는 폴더는 Location=null 로 다섯 자리 유지, 실패는 삼키고 취소만 던짐. 테스트 tests/FlexDir.Shell.Tests/Locations/KnownFolderListTests.cs 8개(Theory 포함 11케이스).",
+      "completed_at": "2026-08-21T15:29:03+0900"
     },
     {
       "step": 4,
