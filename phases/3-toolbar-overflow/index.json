@@ -2,11 +2,39 @@
   "project": "flex-dir",
   "phase": "3-toolbar-overflow",
   "steps": [
-    { "step": 0, "name": "known-folder-port", "status": "pending" },
-    { "step": 1, "name": "known-folder-menu", "status": "pending" },
-    { "step": 2, "name": "toolbar-overflow-panel", "status": "pending" },
-    { "step": 3, "name": "shell-known-folders", "status": "pending" },
-    { "step": 4, "name": "toolbar-wiring", "status": "pending" },
-    { "step": 5, "name": "release-0.8.0", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "known-folder-port",
+      "status": "completed",
+      "started_at": "2026-08-21T15:03:10+0900",
+      "summary": "src/FlexDir.Core/Locations/IKnownFolderList.cs (KnownFolderKind 순서 Home·Desktop·Documents·Downloads·Pictures + KnownFolder record(Label 은 구현체가 채움, Location=null=없는 폴더) + IKnownFolderList.ListAsync 한 파일) · tests/FlexDir.Core.Tests/Locations/IKnownFolderListTests.cs · tests/FlexDir.Core.Tests/Fakes/FakeKnownFolderList.cs (Folders 주입 · Asked 카운터 · 취소 관측)",
+      "completed_at": "2026-08-21T15:06:28+0900"
+    },
+    {
+      "step": 1,
+      "name": "known-folder-menu",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "toolbar-overflow-panel",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "shell-known-folders",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "toolbar-wiring",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "release-0.8.0",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-08-21T15:03:10+0900"
 }
