@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "known-folder-menu",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T15:08:13+0900",
+      "summary": "PaneViewModel 에 KnownFolderOption record(Location non-null) · internal static ToOptions(null Location 제외, 입력 순서 유지) · KnownFolderOptions 속성(빈 목록 기본, 채워지면 OnPropertyChanged) · OpenKnownFolderCommand(NavigateAsync 경유라 히스토리에 남음, null 이면 무시) 추가. 포트는 생성자 선택 주입(IKnownFolderList? knownFolders = null), FillAsync 끝 MeasureFreeSpace 옆에서 fire-and-forget 으로 딱 한 번 읽음(관측 지점 internal KnownFoldersWork, 실패는 삼킴). 테스트 tests/FlexDir.App.Tests/ViewModels/PaneKnownFoldersTests.cs 10개.",
+      "completed_at": "2026-08-21T15:15:42+0900"
     },
     {
       "step": 2,
