@@ -91,7 +91,10 @@ public sealed record GroupOption(string Label, SortKey? Key, bool IsSelected);
 /// 오지 않는다. View 에 null 검사를 남기면 WPF 바인딩은 런타임 조회라 그 검사가 조용히
 /// 실패한다 (docs/PRD-v2.md §17).
 /// </summary>
-public sealed record KnownFolderOption(string Label, LocationId Location);
+/// <param name="Icon">그 폴더의 shell 아이콘. 아직 안 왔거나 못 읽었으면 <c>null</c> 이다 —
+/// 거르는 기준은 경로 하나라 아이콘이 없어도 항목은 남는다. 기본값이 있는 마지막 자리인
+/// 이유: 아이콘 없이 두 인자로 만드는 자리(<c>ToOptions</c>)가 먼저 있었다.</param>
+public sealed record KnownFolderOption(string Label, LocationId Location, ThumbnailBitmap? Icon = null);
 
 /// <summary>
 /// 그룹화를 켠 Details 의 한 줄 — 그룹 헤더이거나 항목이다 (docs/PRD-v2.md §6-1).
@@ -194,6 +197,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private const double LargeIconRowPitch = 148;
 
+    /// <summary>
+    /// 알려진 폴더 아이콘의 요청 크기. 메뉴 슬롯은 16 DIP 지만 150% 배율에서는 24 장치
+    /// 픽셀이라 16 원본은 뭉갠다 — 32 를 받아 View 가 줄이는 쪽이 선명하다.
+    /// </summary>
+    private const int KnownFolderIconSize = 32;
+
     private readonly IFolderSource folderSource;
     private readonly IFolderWatcher folderWatcher;
     private readonly EnumerationSession session;
@@ -225,6 +234,13 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </para>
     /// </summary>
     private readonly ThumbnailRequestScheduler thumbnails;
+
+    /// <summary>
+    /// 알려진 폴더 메뉴의 아이콘 조회에 쓴다. 목록 항목의 그림은 <see cref="thumbnails"/> 가
+    /// 스케줄링하지만, 이쪽은 다섯 개뿐이라 정책 없이 포트를 바로 부른다 — 부르는 곳이
+    /// 개수가 정해진 곳이어야 한다는 <see cref="IThumbnailSource.GetItemIconAsync"/> 의 계약이다.
+    /// </summary>
+    private readonly IThumbnailSource thumbnailSource;
 
     /// <summary>
     /// 확장자 → 유형 이름. 확장자마다 한 번만 조회한다 (docs/SHELL_NOTES.md §아이콘).
@@ -392,6 +408,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 시계만 기본값이 있다 — 실물은 시스템 시계면 충분하고, 바꿔 넣는 쪽은 TypeAhead 의
         // 리셋 판정을 결정적으로 채점하는 테스트뿐이다 (docs/DESIGN.md §9).
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.thumbnailSource = thumbnailSource;
         thumbnails = new ThumbnailRequestScheduler(thumbnailSource, dispatcher);
 
         // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
@@ -2262,6 +2279,50 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 KnownFolderOptions = options;
 
                 // 자동 속성이라 스스로 알리지 않는다 — 이것이 없으면 메뉴가 영원히 비어 있다.
+                OnPropertyChanged(nameof(KnownFolderOptions));
+            }).ConfigureAwait(false);
+
+            if (options.Count == 0)
+            {
+                return;
+            }
+
+            // 아이콘은 목록이 뜬 뒤에 잇는다 — 다섯 번의 shell 조회가 리디렉션된 폴더에서
+            // 초 단위로 걸릴 수 있고, 그동안 메뉴가 비면 기능이 없는 것처럼 보인다.
+            var withIcons = new List<KnownFolderOption>(options.Count);
+
+            foreach (var option in options)
+            {
+                ThumbnailBitmap? icon;
+
+                try
+                {
+                    icon = await thumbnailSource
+                        .GetItemIconAsync(option.Location, KnownFolderIconSize, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // 취소된 폴더 열기에 얹혀 있었을 뿐이다. 다음 열기가 다시 묻는다.
+                    knownFoldersAsked = false;
+                    return;
+                }
+                catch (Exception)
+                {
+                    // 계약은 던지지 않는 것이지만 (IThumbnailSource), 새면 그 항목만 아이콘
+                    // 없이 남는다 — 거르는 기준은 경로 하나라 항목은 빠지지 않는다.
+                    icon = null;
+                }
+
+                withIcons.Add(option with { Icon = icon });
+            }
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                // record 는 불변이다. 인스턴스를 두고 속성만 바꾸면 View 가 다시 그릴 신호를
+                // 못 받으므로 목록을 통째로 새로 만들어 교체하고 다시 알린다 (GroupOptions 와
+                // 같은 자리).
+                KnownFolderOptions = withIcons;
                 OnPropertyChanged(nameof(KnownFolderOptions));
             }).ConfigureAwait(false);
         }

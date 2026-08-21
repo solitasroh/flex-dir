@@ -5,6 +5,7 @@ using FlexDir.App.ViewModels;
 
 using FlexDir.Core.Locations;
 using FlexDir.Core.Model;
+using FlexDir.Core.Presentation;
 using FlexDir.Core.Tests.Fakes;
 
 using Xunit;
@@ -206,8 +207,139 @@ public class PaneKnownFoldersTests
         Assert.False(pane.CanGoBack);
     }
 
-    private PaneViewModel CreatePane(IKnownFolderList? port = null)
-        => new(source, watcher, typeNames, thumbnails, viewStates, operations, clipboard, activator,
+    [Fact]
+    public async Task OpeningAFolder_FillsTheIconsAfterTheList()
+    {
+        var home = Location(@"C:\Users\Me");
+        var desktop = Location(@"C:\Users\Me\Desktop");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Desktop, "바탕 화면", desktop));
+        var homeIcon = FakeThumbnailSource.Bitmap(32, FakeThumbnailSource.ItemIconMark);
+        var desktopIcon = FakeThumbnailSource.Bitmap(32, FakeThumbnailSource.ItemIconMark);
+        thumbnails.ItemIcons[home] = homeIcon;
+        thumbnails.ItemIcons[desktop] = desktopIcon;
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Equal(
+            [
+                new KnownFolderOption("홈", home, homeIcon),
+                new KnownFolderOption("바탕 화면", desktop, desktopIcon),
+            ],
+            pane.KnownFolderOptions);
+    }
+
+    [Fact]
+    public async Task AFolderWhoseIconIsMissing_StaysInTheMenu()
+    {
+        // 거르는 기준은 경로 하나다 — 아이콘은 곁다리라 못 읽어도(null) 항목은 남는다.
+        var home = Location(@"C:\Users\Me");
+        var desktop = Location(@"C:\Users\Me\Desktop");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Desktop, "바탕 화면", desktop));
+        var homeIcon = FakeThumbnailSource.Bitmap(32, FakeThumbnailSource.ItemIconMark);
+        thumbnails.ItemIcons[home] = homeIcon;
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Equal(
+            [
+                new KnownFolderOption("홈", home, homeIcon),
+                new KnownFolderOption("바탕 화면", desktop),
+            ],
+            pane.KnownFolderOptions);
+    }
+
+    [Fact]
+    public async Task WhenTheIconSourceThrows_TheFolderStillOpens_AndTheRestKeepTheirIcons()
+    {
+        var home = Location(@"C:\Users\Me");
+        var desktop = Location(@"C:\Users\Me\Desktop");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Desktop, "바탕 화면", desktop));
+        var desktopIcon = FakeThumbnailSource.Bitmap(32, FakeThumbnailSource.ItemIconMark);
+        thumbnails.ItemIcons[desktop] = desktopIcon;
+        var pane = CreatePane(icons: new ThrowingItemIconSource(thumbnails, home));
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Single(pane.Items);
+        Assert.Equal(PaneStatus.Idle, pane.Status);
+
+        // 던진 항목만 아이콘 없이 남는다 — 목록에서 빠지지 않는다.
+        Assert.Equal(
+            [
+                new KnownFolderOption("홈", home),
+                new KnownFolderOption("바탕 화면", desktop, desktopIcon),
+            ],
+            pane.KnownFolderOptions);
+    }
+
+    [Fact]
+    public async Task NavigatingAgain_DoesNotAskForTheIconsTwice()
+    {
+        // 알려진 폴더의 아이콘은 프로세스가 사는 동안 사실상 바뀌지 않고 이 앱은 상주다
+        // (ADR-003) — 목록과 같은 수로, 탐색마다 shell 조회를 다섯 개씩 붙이지 않는다.
+        var home = Location(@"C:\Users\Me");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+        await pane.NavigateAsync(Folder(@"C:\Other", "b.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Equal(1, thumbnails.CountItemIconRequests(home));
+    }
+
+    [Fact]
+    public async Task FoldersWithoutALocation_AreNotAskedForAnIcon()
+    {
+        // 다섯 중 둘이 없으면 조회는 셋이다 — 갈 곳 없는 자리에 shell 조회를 내보내지 않는다.
+        var home = Location(@"C:\Users\Me");
+        var desktop = Location(@"C:\Users\Me\Desktop");
+        var pictures = Location(@"C:\Users\Me\Pictures");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Desktop, "바탕 화면", desktop));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Documents, "문서", null));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Downloads, "다운로드", null));
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Pictures, "사진", pictures));
+        var pane = CreatePane();
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Equal(3, thumbnails.ItemIconRequests.Count);
+        Assert.Equal(1, thumbnails.CountItemIconRequests(home));
+        Assert.Equal(1, thumbnails.CountItemIconRequests(desktop));
+        Assert.Equal(1, thumbnails.CountItemIconRequests(pictures));
+    }
+
+    [Fact]
+    public async Task FillingTheIcons_RaisesTheChangeAgain()
+    {
+        // 아이콘 없이 한 번, 채운 뒤 한 번. 두 번째 알림이 없으면 WPF 바인딩은 런타임
+        // 조회라 아이콘이 조용히 영원히 안 보인다.
+        var home = Location(@"C:\Users\Me");
+        knownFolders.Folders.Add(new KnownFolder(KnownFolderKind.Home, "홈", home));
+        thumbnails.ItemIcons[home] = FakeThumbnailSource.Bitmap(32, FakeThumbnailSource.ItemIconMark);
+        var pane = CreatePane();
+        var changed = new List<string?>();
+        pane.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+        await pane.KnownFoldersWork;
+
+        Assert.Equal(2, changed.Count(name => name == nameof(PaneViewModel.KnownFolderOptions)));
+    }
+
+    private PaneViewModel CreatePane(IKnownFolderList? port = null, IThumbnailSource? icons = null)
+        => new(source, watcher, typeNames, icons ?? thumbnails, viewStates, operations, clipboard, activator,
             dispatcher, Culture, TimeZoneInfo.Utc, contextMenus, knownFolders: port ?? knownFolders);
 
     private LocationId Folder(string path, string name)
@@ -232,5 +364,24 @@ public class PaneKnownFoldersTests
     {
         public ValueTask<IReadOnlyList<KnownFolder>> ListAsync(CancellationToken ct)
             => throw new InvalidOperationException("계약 위반");
+    }
+
+    /// <summary>
+    /// 계약(실패는 null)을 어기고 한 경로만 던지는 아이콘 소스. 나머지는 fake 에 위임한다 —
+    /// 새는 예외가 그 항목 하나만 아이콘 없이 남기는지 본다 (<see cref="ThrowingKnownFolderList"/> 와 같은 수).
+    /// </summary>
+    private sealed class ThrowingItemIconSource(FakeThumbnailSource inner, LocationId failing) : IThumbnailSource
+    {
+        public ValueTask<ThumbnailBitmap?> GetThumbnailAsync(LocationId item, int requestedSize, CancellationToken ct)
+            => inner.GetThumbnailAsync(item, requestedSize, ct);
+
+        public ValueTask<ThumbnailBitmap?> GetTypeIconAsync(
+            string extension, bool isDirectory, int requestedSize, CancellationToken ct)
+            => inner.GetTypeIconAsync(extension, isDirectory, requestedSize, ct);
+
+        public ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct)
+            => item.Equals(failing)
+                ? throw new InvalidOperationException("계약 위반")
+                : inner.GetItemIconAsync(item, requestedSize, ct);
     }
 }
