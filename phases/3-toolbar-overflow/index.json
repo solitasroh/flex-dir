@@ -1,0 +1,12 @@
+{
+  "project": "flex-dir",
+  "phase": "3-toolbar-overflow",
+  "steps": [
+    { "step": 0, "name": "known-folder-port", "status": "pending" },
+    { "step": 1, "name": "known-folder-menu", "status": "pending" },
+    { "step": 2, "name": "toolbar-overflow-panel", "status": "pending" },
+    { "step": 3, "name": "shell-known-folders", "status": "pending" },
+    { "step": 4, "name": "toolbar-wiring", "status": "pending" },
+    { "step": 5, "name": "release-0.8.0", "status": "pending" }
+  ]
+}
