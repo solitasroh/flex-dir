@@ -45,7 +45,10 @@
     {
       "step": 5,
       "name": "release-0.8.0",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T15:35:44+0900",
+      "summary": "1구간 마감 — 코드 변경 없음. ADR-021(무리 접힘·» 별도 선언·자연 폭 캐시) · PRD-v2 §20(접힘 규칙·알려진 폴더 다섯·E707 사유) · DESIGN §1/§7(E707 행 + 아이콘 규칙 한 겹 확장) · ARCHITECTURE 포트 표 IKnownFolderList · HANDOFF(17/17, 테스트 2073, 다음 작업=v0.9.0 외부 도구, FoldOrder 1 비움) · HISTORY v0.8.0 항목 · Directory.Build.props 0.8.0. AC 4종 exit 0·경고 0, 최종 테스트 총계 2073 (Core 587·Shell 326·App 1066·Host 94). 패키지: artifacts\\packages\\flex-dir-win-Setup.exe (78.6MB, 서명 CN=Rootech 8+1 파일, -NoUpload — GitHub 미업로드, 사람 확인 12번은 이 설치본으로).",
+      "completed_at": "2026-08-21T15:45:13+0900"
     }
   ],
   "created_at": "2026-08-21T15:03:10+0900"
