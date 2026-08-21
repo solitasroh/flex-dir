@@ -88,14 +88,17 @@ public class DragDropInputTests
     [Fact]
     public void HasLeftTheStartingPoint_OnlyBeyondTheSystemThreshold()
     {
-        var origin = new Point(100, 100);
+        // 원점은 (0,0) 이다 — 임계값이 DPI 배율로 나뉘어 3.2 같은 값이 되면 이진수로
+        // 표현되지 않아 (100 + 3.2) - 100 이 3.2 를 2.8e-15 만큼 넘는다. 그러면 '정확히
+        // 임계값' 이어야 할 점이 임계값 밖이 되어 배율 125% 인 기계에서만 실패한다.
+        var origin = new Point(0, 0);
         var dx = SystemParameters.MinimumHorizontalDragDistance;
         var dy = SystemParameters.MinimumVerticalDragDistance;
 
         Assert.False(DragDropInput.HasLeftTheStartingPoint(origin, origin));
-        Assert.False(DragDropInput.HasLeftTheStartingPoint(origin, new Point(100 + dx, 100 + dy)));
-        Assert.True(DragDropInput.HasLeftTheStartingPoint(origin, new Point(100 + dx + 1, 100)));
-        Assert.True(DragDropInput.HasLeftTheStartingPoint(origin, new Point(100, 100 - dy - 1)));
+        Assert.False(DragDropInput.HasLeftTheStartingPoint(origin, new Point(dx, dy)));
+        Assert.True(DragDropInput.HasLeftTheStartingPoint(origin, new Point(dx + 1, 0)));
+        Assert.True(DragDropInput.HasLeftTheStartingPoint(origin, new Point(0, -dy - 1)));
     }
 
     // ── 무엇을 싣는가 ─────────────────────────────────────────────
