@@ -55,6 +55,7 @@ public sealed class ShellThumbnailSourceTests : IDisposable
 
                 return null;
             },
+            (_, _) => null,
             (_, _) => null);
 
         await source.GetTypeIconAsync("txt", false, 16, CancellationToken.None);
@@ -74,11 +75,41 @@ public sealed class ShellThumbnailSourceTests : IDisposable
                 apartment = Thread.CurrentThread.GetApartmentState();
 
                 return null;
-            });
+            },
+            (_, _) => null);
 
         await source.GetThumbnailAsync(Location("a.txt"), 96, CancellationToken.None);
 
         Assert.Equal(ApartmentState.STA, apartment);
+    }
+
+    // GetItemIconAsync 도 SHGetFileInfo 위에 선다 — 다른 둘과 같이 STA 워커를 거쳐야 한다.
+    [Fact]
+    public async Task ItemIcon_PassesItemAndSizeToTheLookup_OnAnStaThread()
+    {
+        var apartment = ApartmentState.Unknown;
+        LocationId? seenItem = null;
+        var seenSize = 0;
+
+        using var source = new ShellThumbnailSource(
+            (_, _, _) => null,
+            (_, _) => null,
+            (item, size) =>
+            {
+                apartment = Thread.CurrentThread.GetApartmentState();
+                seenItem = item;
+                seenSize = size;
+
+                return null;
+            });
+
+        var location = Location("폴더");
+
+        await source.GetItemIconAsync(location, 48, CancellationToken.None);
+
+        Assert.Equal(ApartmentState.STA, apartment);
+        Assert.Equal(location, seenItem);
+        Assert.Equal(48, seenSize);
     }
 
     // ── 형식 아이콘 (실제 shell 에 물어본다) ────────────────────────
@@ -176,6 +207,60 @@ public sealed class ShellThumbnailSourceTests : IDisposable
         Assert.NotNull(await source.GetTypeIconAsync("존재하지않는확장자", false, 16, CancellationToken.None));
     }
 
+    // ── 항목 아이콘 (실제 shell 에 물어본다) ────────────────────────
+
+    [Fact]
+    public async Task ItemIcon_ForARealFolder_HasPixels()
+    {
+        var profile = Parse(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+        using var source = new ShellThumbnailSource();
+
+        var icon = await source.GetItemIconAsync(profile, 32, CancellationToken.None);
+
+        Assert.NotNull(icon);
+        Assert.True(icon.Width > 0);
+        Assert.True(icon.Height > 0);
+        Assert.Equal(icon.Width * icon.Height * 4, icon.Pixels.Length);
+    }
+
+    // <b>이 step 의 진짜 판정이다.</b> SHGFI_USEFILEATTRIBUTES 를 남기면 shell 이 실제
+    // 항목을 보지 않아 모든 폴더가 같은 아이콘이 되고, 이 테스트만 그것을 잡는다.
+    // 픽셀 값은 단정하지 않는다 — 테마·Windows 버전·DPI 에 따라 그림이 다르다.
+    // 두 폴더 중 하나라도 없는 기계에서는 단정을 건너뛴다 (Skip 이 아니다 — 게이트를 막지 않는다).
+    [Fact]
+    public async Task ItemIcon_KnownFolders_Differ()
+    {
+        var downloads = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var pictures = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+
+        if (!Directory.Exists(downloads) || !Directory.Exists(pictures))
+        {
+            return;
+        }
+
+        using var source = new ShellThumbnailSource();
+
+        var first = await source.GetItemIconAsync(Parse(downloads), 32, CancellationToken.None);
+        var second = await source.GetItemIconAsync(Parse(pictures), 32, CancellationToken.None);
+
+        Assert.NotNull(first);
+        Assert.NotNull(second);
+        Assert.False(first.Pixels.AsSpan().SequenceEqual(second.Pixels));
+    }
+
+    [Fact]
+    public async Task ItemIcon_LookupYieldsNull_IsNull()
+    {
+        using var source = new ShellThumbnailSource(
+            (_, _, _) => null,
+            (_, _) => null,
+            (_, _) => null);
+
+        Assert.Null(await source.GetItemIconAsync(Location("폴더"), 32, CancellationToken.None));
+    }
+
     // ── 썸네일 ──────────────────────────────────────────────────────
 
     [Fact]
@@ -250,6 +335,7 @@ public sealed class ShellThumbnailSourceTests : IDisposable
     {
         using var source = new ShellThumbnailSource(
             (_, _, _) => throw new InvalidOperationException("shell 실패"),
+            (_, _) => null,
             (_, _) => null);
 
         Assert.Null(await source.GetTypeIconAsync("txt", false, 16, CancellationToken.None));
@@ -260,9 +346,21 @@ public sealed class ShellThumbnailSourceTests : IDisposable
     {
         using var source = new ShellThumbnailSource(
             (_, _, _) => null,
-            (_, _) => throw new InvalidOperationException("shell 실패"));
+            (_, _) => throw new InvalidOperationException("shell 실패"),
+            (_, _) => null);
 
         Assert.Null(await source.GetThumbnailAsync(Location("a.bmp"), 96, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task FailedItemIconLookup_YieldsNull()
+    {
+        using var source = new ShellThumbnailSource(
+            (_, _, _) => null,
+            (_, _) => null,
+            (_, _) => throw new InvalidOperationException("shell 실패"));
+
+        Assert.Null(await source.GetItemIconAsync(Location("폴더"), 32, CancellationToken.None));
     }
 
     // 취소는 실패와 다르다. 조용히 null 로 돌아오면 호출자가 그것을 "시도했고 없었다" 로
@@ -283,6 +381,15 @@ public sealed class ShellThumbnailSourceTests : IDisposable
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
             async () => await source.GetThumbnailAsync(Location("a.bmp"), 96, new CancellationToken(canceled: true)));
+    }
+
+    [Fact]
+    public async Task ItemIcon_CanceledToken_Throws()
+    {
+        using var source = new ShellThumbnailSource();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await source.GetItemIconAsync(Location("폴더"), 32, new CancellationToken(canceled: true)));
     }
 
     [Fact]
@@ -317,6 +424,9 @@ public sealed class ShellThumbnailSourceTests : IDisposable
 
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
             async () => await source.GetThumbnailAsync(Location("a.bmp"), size, CancellationToken.None));
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(
+            async () => await source.GetItemIconAsync(Location("폴더"), size, CancellationToken.None));
     }
 
     [Fact]
@@ -332,6 +442,13 @@ public sealed class ShellThumbnailSourceTests : IDisposable
     private LocationId Location(string name)
     {
         Assert.True(LocationId.TryParse(Path.Combine(root, name), out var location, out _), name);
+
+        return location;
+    }
+
+    private static LocationId Parse(string path)
+    {
+        Assert.True(LocationId.TryParse(path, out var location, out _), path);
 
         return location;
     }
