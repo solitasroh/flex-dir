@@ -53,13 +53,15 @@
 ## 현재 상태
 
 ```
-브랜치   feat-3-toolbar-overflow  ·  **origin/main 은 7b6bcc2** (2026-08-13 푸시).
+브랜치   feat-4-known-folder-icons  ·  **origin/main 은 7b6bcc2** (2026-08-13 푸시).
                  푸시는 사용자 지시가 있을 때만 한다
-작업트리 1구간(툴바 오버플로 · 알려진 폴더)이 **step 단위 커밋**으로 들어갔다
-                 (2026-08-21 · 하네스가 커밋했다). step 목록과 산출물 요약의 정본은
-                 `phases/3-toolbar-overflow/index.json` 이다
-버전     0.8.0   릴리스는 v0.1.0 ~ v0.7.0 까지 나갔다. **v0.8.0 은 패키지만 구웠다**
-                 (2026-08-21 · `pack.ps1 -NoUpload -SignThumbprint` · 서명본).
+작업트리 알려진 폴더 메뉴의 **shell 항목 아이콘**(v0.8.1)이 **step 단위 커밋**으로
+                 들어갔다 (2026-08-21 · 하네스가 커밋했다). step 목록과 산출물 요약의
+                 정본은 `phases/4-known-folder-icons/index.json` 이다. 그 앞 1구간은
+                 `phases/3-toolbar-overflow/index.json`
+버전     0.8.1   릴리스는 v0.1.0 ~ v0.7.0 까지 나갔다. **v0.8.0·v0.8.1 은 패키지만
+                 구웠다** (2026-08-21 · `pack.ps1 -NoUpload -SignThumbprint` · 서명본 ·
+                 v0.8.1 이 최신 — 알려진 폴더 항목 아이콘을 얹었다).
                  업로드·푸시는 사용자 지시가 있을 때만 한다 — 서명 설치본이 실제로
                  뜨는지(사람 확인 12번)를 이 설치본으로 밟는다.
                  그 앞은 0.7.0(다크모드 §19 · 첫 서명본 · 알림 경로 확인) ·
@@ -67,10 +69,11 @@
                  ⚠ `Get-AuthenticodeSignature` 는 `UnknownError` 를 내는데, **서명은 붙어
                  있고 이 기계의 신뢰 루트에 자체 서명 인증서가 없어서**다 — 결함이 아니다
                  (`HISTORY.md` §v0.7.0)
-테스트   2073 통과   Core 587 · Shell 326 · App 1066 · Host 94
-                 (툴바 오버플로·알려진 폴더가 +45. 그 앞: 다크모드 +38 · 분할 +89)
+테스트   2093 통과   Core 593 · Shell 332 · App 1074 · Host 94
+                 (알려진 폴더 아이콘이 +20. 그 앞: 툴바 오버플로·알려진 폴더 +45 ·
+                 다크모드 +38)
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
-         full (Release build -warnaserror) ✅ **0.8.0 패키징 전에 다시 돌렸다 (2026-08-21).**
+         full (Release build -warnaserror) ✅ **0.8.1 패키징 전에 다시 돌렸다 (2026-08-21).**
          ⚠ `PaneTabsViewModelTests.Reactivating_RefreshesOnceThenWatchesAgain` 이 전체
          병렬 실행에서 한 번 플레이키했다 (5초 상한 초과 · 단독 70ms 통과). 감시 스트림이
          배경에서 도는 테스트라 부하를 탄다 — 고치지 않았다
@@ -80,7 +83,8 @@
          ⚠ **저장소 Debug 빌드로 앱을 띄우면 산출물을 잠근다** — 확인이 끝나면 반드시
          죽인다. 설치본은 잠그지 않는다 (위 §배포 절차 의 경고)
          ⛔ 도그푸딩 게이트는 없다 — 스크립트를 지웠다 (ADR-007 §폐기)
-phases/  0-core-model · 1-core-pipeline · 2-viewmodel · 3-toolbar-overflow 모두 completed
+phases/  0-core-model · 1-core-pipeline · 2-viewmodel · 3-toolbar-overflow ·
+         4-known-folder-icons 모두 completed
 ```
 
 
@@ -148,7 +152,7 @@ dotnet build -c Release --nologo -warnaserror
 | `IFolderWatcher` | `Shell/Watching/FileSystemFolderWatcher.cs` | 계약 4 + 실물 5 |
 | `IFolderSource` | `Shell/Enumeration/RoutingFolderSource.cs` → `FileSystemFolderSource` · `NetworkShareSource` | 계약 6 + 실물 10 + 라우팅 5 + 공유 5 |
 | `ITypeNameProvider` | `Shell/Presentation/ShellTypeNameProvider.cs` | 13 |
-| `IThumbnailSource` | `Shell/Presentation/ShellThumbnailSource.cs` | 23 |
+| `IThumbnailSource` | `Shell/Presentation/ShellThumbnailSource.cs` — 메서드 셋: `GetThumbnailAsync`(내용 미리보기) · `GetTypeIconAsync`(확장자별 형식 아이콘) · `GetItemIconAsync`(경로별 항목 아이콘 · v0.8.1). **포트 개수는 안 늘었다** — 메서드가 는 것이다 | 23 |
 | `IItemActivator` | `Shell/Activation/ShellItemActivator.cs` | 16 |
 | `IFileOperations` | `Shell/Operations/ShellFileOperations.cs` | 48 |
 | `IClipboardBridge` | `Shell/Operations/ShellClipboardBridge.cs` | 24 |
@@ -212,11 +216,17 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 - **실패는 `StatusText` 한 줄** — 대화상자를 띄우지 않는다 (UI_GUIDE 의 모달 금지와 같은 수).
 - 툴바 자리는 이미 있다: **`FoldOrder 1` 은 비어 있고, 가장 먼저 접히는 무리가 된다** (§20).
 
-### 0-0. 1구간(v0.8.0) 툴바 오버플로·알려진 폴더 — 코드는 끝났다. **사람 확인 전**
+### 0-0. 1구간(v0.8.0→v0.8.1) 툴바 오버플로·알려진 폴더·항목 아이콘 — 코드는 끝났다. **사람 확인 전**
 
-게이트 4종 ✅ · 테스트 2073 ✅ · **패키지를 구웠고 업로드는 안 했다** (`-NoUpload`).
-남은 것: 서명 설치본이 실제로 뜨는가(12번) · 좁은 페인에서 접힘/펼침이 손에 붙는가 ·
-`E707` 메뉴 다섯이 실제 폴더로 가는가 — 전부 사람이 실물로 본다 (CLAUDE.md §5).
+게이트 4종 ✅ · 테스트 2093 ✅ · **v0.8.1 패키지를 구웠고 업로드는 안 했다** (`-NoUpload`).
+v0.8.0 의 사람 확인이 안 끝난 채로 v0.8.1(알려진 폴더 항목 아이콘 · `docs/PRD-v2.md` §20)
+이 그 위에 얹혔다 — **이 설치본 하나로 둘을 함께 밟는다.** 아직 안 끝난 것:
+
+- **라이트 테마 대비** — 픽셀·대비는 자동 채점되지 않는다 (CLAUDE.md §5)
+- **창 900 언저리 4분할에서 `»` 접힘** — 접힘이 실제로 일어나는 유일한 상태다 (§20 실측)
+- **페인 우클릭 크래시 없음** — §10 의 `StaticResource` 크래시가 컴파일·테스트를 다
+  통과하고 첫 우클릭에서 터진 전례가 있다
+- **📍(`E707`) 실루엣 판정** — 실제 크기 16px 툴바 맥락에서 눈에 멈추는가 (`DESIGN.md` §7)
 
 ### 창 결함 둘 — 끝났고 나갔다 (v0.6.1). **열린 항목 없음**
 

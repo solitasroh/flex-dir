@@ -50,7 +50,7 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | 포트 | 책임 |
 |---|---|
 | `IFolderSource` | 경로를 받아 항목을 **비동기 스트림**으로 낸다. 취소 가능 |
-| `IThumbnailSource` | 항목의 썸네일/아이콘. 비동기, 취소 가능 |
+| `IThumbnailSource` | 항목의 썸네일/아이콘. 비동기, 취소 가능. 메서드 셋이 각각 다른 것을 답한다 — `GetThumbnailAsync`(내용 미리보기) · `GetTypeIconAsync`(확장자별 형식 아이콘) · `GetItemIconAsync`(경로별 항목 아이콘 — 알려진 폴더 메뉴가 쓴다, v0.8.1 · docs/PRD-v2.md §20) |
 | `IContextMenuProvider` | shell 컨텍스트 메뉴 표시와 명령 실행 |
 | `IClipboardBridge` | 탐색기 호환 복사/잘라내기/붙여넣기 |
 | `IFileOperations` | 복사·이동·삭제(휴지통)·이름변경·새 폴더 |
