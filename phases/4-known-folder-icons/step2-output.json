@@ -1,0 +1,8 @@
+{
+  "step": 2,
+  "name": "known-folder-icon-option",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 2 완료. AC 셋 다 exit 0 — 빌드 경고 0, 테스트 2091개 전부 통과 (step 1 직후 2085 → +6), 구조 게이트 통과.\n\n**바뀐 것**\n\n1. `KnownFolderOption` → `(string Label, LocationId Location, ThumbnailBitmap? Icon = null)`. 기본값 있는 마지막 자리라 기존 두-인자 생성 자리(`ToOptions`·기존 테스트)가 그대로 산다.\n2. `PaneViewModel.LoadKnownFolders` 의 배경 경로 확장: 목록을 아이콘 없이 먼저 공지 → 남은 항목마다 `GetItemIconAsync(location, KnownFolderIconSize=32, ct)` → `with { Icon }` 으로 통째 새 목록 교체 + `PropertyChanged` 한 번 더. 걸러진 항목(경로 null)에는 조회를 안 내보내고, 실패는 그 항목만 `null` 로 삼키고, 취소는 `knownFoldersAsked` 리셋(기존 `ListAsync` 취소 경로와 같은 수).\n3. 원본 `IThumbnailSource` 를 필드로 보관 — 생성자 매개변수는 그대로, 새 주입 없음. 스케줄러를 안 거치는 이유는 주석에 남김(다섯 개 고정이라 \"개수가 정해진 곳\" 계약 그대로).\n4. 테스트 6개 추가: 아이콘 적재 · null 아이콘 항목 잔존 · 소스가 던져도 폴더 열기 성공 · 경로당 조회 1회 · 걸러진 둘 제외하고 조회 셋 · 알림 2회. `ToOptions` 기존 판정 넷은 손대지 않고 통과. 던지는 소스는 테스트 파일 안 지역 클래스(`ThrowingItemIconSource`)로 둬서 공용 fake 를 안 건드렸다.\n5. `index.json` step 2 → `completed` + step 3 용 summary (새 시그니처·`KnownFolderIconSize` 상수명 포함).\n\n체크리스트: App→Shell 참조 없음(둘 다 미수정), 아이콘 조회는 `ConfigureAwait(false)` 뒤 배경 스레드, XAML 미수정. 커밋은 규칙대로 하네스 몫으로 남겨뒀다.\n",
+  "stderr": ""
+}

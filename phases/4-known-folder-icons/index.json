@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "known-folder-icon-option",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T17:27:47+0900",
+      "summary": "KnownFolderOption 을 (string Label, LocationId Location, ThumbnailBitmap? Icon = null) 로 확장 — step 3 은 Icon 으로 바인딩한다. ToOptions 는 순수 변환 그대로. PaneViewModel.LoadKnownFolders 의 배경 경로에서 목록 공지 직후 걸러진 항목 제외하고 thumbnailSource.GetItemIconAsync 를 KnownFolderIconSize(=32, private const — 150% 배율 24px 슬롯에서 16 원본이 뭉개져서) 로 순차 호출, with { Icon } 새 목록으로 교체 후 PropertyChanged 한 번 더 (아이콘 없이 먼저 한 번, 채운 뒤 한 번). 실패는 그 항목만 null 로 삼키고, 취소는 knownFoldersAsked 리셋 (기존 ListAsync 취소와 같은 수). 조회는 knownFoldersAsked 가드 덕에 경로당 프로세스 수명에 한 번. 테스트 6개 추가(2085→2091), ThrowingItemIconSource 는 테스트 파일 내 지역 클래스.",
+      "completed_at": "2026-08-21T17:33:42+0900"
     },
     {
       "step": 3,
