@@ -195,6 +195,44 @@ public class ViewConvertersTests
     private static IReadOnlyList<DetailRowViewModel> Grouped(int headers = 0)
         => [.. Enumerable.Range(0, headers).Select(index => DetailRowViewModel.Header($"G{index}", 1, false))];
 
+    // ── 접힌 무리 → » 서브메뉴 표시 (phase 3 step 2) ──────────────
+
+    [Fact]
+    public void FoldedOrder_WhenTheOrderIsFolded_IsVisible()
+    {
+        // » 안의 서브메뉴가 "내 무리가 접혔나" 를 묻는다 — 접힌 무리의 것만 뜬다.
+        var converter = new FoldedOrderToVisibility();
+        IReadOnlyList<int> folded = [2, 3];
+
+        Assert.Equal(System.Windows.Visibility.Visible, converter.Convert(
+            folded, typeof(System.Windows.Visibility), "3", Culture));
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            folded, typeof(System.Windows.Visibility), "1", Culture));
+    }
+
+    [Fact]
+    public void FoldedOrder_WithNothingFolded_IsCollapsed()
+    {
+        var converter = new FoldedOrderToVisibility();
+
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            (IReadOnlyList<int>)[], typeof(System.Windows.Visibility), "2", Culture));
+    }
+
+    [Fact]
+    public void FoldedOrder_WithUnsetInputs_IsCollapsed()
+    {
+        // 바인딩이 아직 붙지 않으면 UnsetValue 가 들어온다. 예외를 내면 메뉴 전체가 죽는다.
+        var converter = new FoldedOrderToVisibility();
+
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            System.Windows.DependencyProperty.UnsetValue, typeof(System.Windows.Visibility), "2", Culture));
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            (IReadOnlyList<int>)[2], typeof(System.Windows.Visibility), null, Culture));
+        Assert.Equal(System.Windows.Visibility.Collapsed, converter.Convert(
+            (IReadOnlyList<int>)[2], typeof(System.Windows.Visibility), "not-a-number", Culture));
+    }
+
     // ── 썸네일 픽셀 → 그릴 수 있는 그림 (phase B-3) ───────────────
 
     [Fact]
@@ -276,6 +314,8 @@ public class ViewConvertersTests
             new ViewSourceConverter().ConvertBack(true, [typeof(object)], null, Culture));
         Assert.Throws<NotSupportedException>(() =>
             new ThumbnailImageConverter().ConvertBack(true, [typeof(object)], null, Culture));
+        Assert.Throws<NotSupportedException>(() =>
+            new FoldedOrderToVisibility().ConvertBack(true, typeof(object), null, Culture));
     }
 
     /// <summary>픽셀마다 다른 값을 넣는다 — 왕복이 뒤섞여도 드러나게.</summary>
