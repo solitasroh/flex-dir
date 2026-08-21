@@ -37,7 +37,10 @@
     {
       "step": 4,
       "name": "release-0.8.1",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-21T17:37:56+0900",
+      "summary": "v0.8.1 마감 (코드 변경 없음): Directory.Build.props 0.8.0→0.8.1 · docs/PRD-v2.md §20 에 소절 '항목 아이콘은 shell 에서 온다'(§알려진 폴더 다섯 바로 뒤) · DESIGN.md §7 탭 아이콘 예외 블록에 비용 곱셈 기준 문단 · ARCHITECTURE.md IThumbnailSource 행에 메서드 셋 구분 · HANDOFF §현재 상태(0.8.1·테스트 2093)/§다음 작업 0-0(사람 확인 넷)/§포트 현황(17/17 유지) · HISTORY §배포 기록 v0.8.1 항목. 게이트 4종 exit 0·경고 0, 테스트 총계 2093 (Core 593·Shell 332·App 1074·Host 94). 패키지 artifacts/packages/flex-dir-win-Setup.exe (78.6MB · 서명 지문 81DB29…, -NoUpload — 업로드·푸시 안 함). 사람 확인은 이 설치본으로 v0.8.0 잔여 항목까지 함께 밟는다.",
+      "completed_at": "2026-08-21T17:43:46+0900"
     }
   ],
   "created_at": "2026-08-21T17:17:11+0900"
