@@ -11,6 +11,7 @@ using FlexDir.Host.Startup;
 using FlexDir.Shell.Activation;
 using FlexDir.Shell.Enumeration;
 using FlexDir.Shell.Favorites;
+using FlexDir.Shell.Locations;
 using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
 using FlexDir.Shell.Settings;
@@ -122,10 +123,12 @@ public sealed class AppComposition : IAsyncDisposable
         var contextMenus = new ShellContextMenuProvider(ownerWindow);
 
         // STA 도 정리도 필요 없다 — COM 이 아니라 GetDiskFreeSpaceEx 다. 그래서 아래
-        // 정리 목록에 들어가지 않는다. 드라이브 목록(mpr.dll)·테마(레지스트리)도 같은 자리다.
+        // 정리 목록에 들어가지 않는다. 드라이브 목록(mpr.dll)·테마(레지스트리)·알려진
+        // 폴더(Environment·SHGetKnownFolderPath)도 같은 자리다.
         var driveSpace = new FileSystemDriveSpace();
         var driveList = new SystemDriveList();
         var systemTheme = new RegistrySystemThemeSource();
+        var knownFolders = new KnownFolderList();
 
         // 이쪽은 COM 이라 STA 워커를 든다 — 아래 정리 목록에 들어간다.
         var networkPlaces = new ShellNetworkPlaceList();
@@ -148,7 +151,8 @@ public sealed class AppComposition : IAsyncDisposable
             culture,
             timeZone,
             contextMenus,
-            driveSpace: driveSpace);
+            driveSpace: driveSpace,
+            knownFolders: knownFolders);
 
         // 새 버전 알림. 확인·받기는 여기서 시작하지 않는다 — 조립은 화면 없이 서야 하고
         // (위 §요약) 네트워크에 닿는 것은 Program 이 시작 뒤에 건다.

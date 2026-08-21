@@ -103,6 +103,17 @@ public class AppCompositionTests : IDisposable
         await composition.Workspace.Left().NavigateAsync(Loc(folder));
 
         Assert.Equal(["a.txt", "b.txt"], composition.Workspace.Left().Items.Select(row => row.Name));
+
+        // 알려진 폴더 포트가 실제로 페인에 닿는가 (phase 3) — 조립이 이것을 빠뜨리면 메뉴만
+        // 조용히 빈다. 열기 끝의 fire-and-forget 이 채우므로 관측될 때까지 기다린다.
+        var pane = composition.Workspace.Left();
+
+        for (var waited = 0; pane.KnownFolderOptions.Count == 0 && waited < 100; waited++)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.NotEmpty(pane.KnownFolderOptions);
     }
 
     [Fact]
