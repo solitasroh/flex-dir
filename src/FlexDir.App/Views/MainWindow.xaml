@@ -1294,7 +1294,12 @@
                             <Menu Background="Transparent" VerticalAlignment="Center" Padding="0"
                                   v:ToolbarOverflowPanel.AlignRight="True"
                                   v:ToolbarOverflowPanel.IsOverflowHead="True">
-                                <MenuItem Style="{StaticResource ToolMenu}" Header="&#x00BB;"
+                                <!-- 글리프는 E712(More, ···)다. **» (U+00BB) 는 못 쓴다** —
+                                     ToolMenu 템플릿의 글리프 TextBlock 이 FontFamily 를
+                                     "Segoe Fluent Icons" 로 하드코딩하는데 그 폰트에 U+00BB 가
+                                     없어 두부(□)로 뜬다 (v0.8.2 실물에서 그랬다).
+                                     이 스타일의 Header 는 그 아이콘 폰트 안의 글리프여야 한다. -->
+                                <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE712;"
                                           AutomationProperties.Name="더 보기" ToolTip="더 보기">
                                     <MenuItem Header="보기 모드"
                                               Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
