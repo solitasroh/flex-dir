@@ -1244,26 +1244,40 @@
                                           ItemsSource="{Binding KnownFolderOptions}">
                                     <MenuItem.ItemContainerStyle>
                                         <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
-                                            <Style.Resources>
-                                                <!-- x:Shared="False" — Style 의 값은 컨테이너들이 나눠 쓰므로
-                                                     같은 Image 하나면 마지막 항목에만 남는다. x:Shared 는
-                                                     ResourceDictionary 항목에만 걸 수 있어 리소스로 뺐고,
-                                                     컨테이너마다 새로 조회하도록 아래 Icon 은 DynamicResource 다.
-                                                     원본 32(step 2)를 16 으로 줄여 그린다 — 150% 배율에서
-                                                     선명하고, 축소는 HighQuality 가 맡는다. 아이콘이 아직
-                                                     null 이면 변환기가 null 을 내고 빈칸이 남는다 — 정상이다. -->
-                                                <Image x:Key="KnownFolderIcon" x:Shared="False"
-                                                       Width="16" Height="16"
-                                                       RenderOptions.BitmapScalingMode="HighQuality">
-                                                    <Image.Source>
-                                                        <MultiBinding Converter="{StaticResource ThumbnailImage}">
-                                                            <Binding Path="Icon" />
-                                                        </MultiBinding>
-                                                    </Image.Source>
-                                                </Image>
-                                            </Style.Resources>
-                                            <Setter Property="Header" Value="{Binding Label}" />
-                                            <Setter Property="Icon" Value="{DynamicResource KnownFolderIcon}" />
+                                            <!-- **Header 를 세우지 않는다.** 세우지 않으면 WPF 가 항목
+                                                 자체(KnownFolderOption)를 Header 로 넣고, 그래야 아래
+                                                 HeaderTemplate 안에서 Icon 과 Label 을 둘 다 볼 수 있다.
+                                                 Label 문자열을 Header 로 박으면 템플릿의 DataContext 가
+                                                 그 문자열이 되어 Icon 을 못 찾는다.
+
+                                                 **MenuItem.Icon 을 쓰지 않는 이유**: 이 앱의 암시적
+                                                 MenuItem 템플릿(166줄)에는 Icon 프리젠터가 없다 —
+                                                 20px 0번 열은 체크 표시(E73E) 자리다. Icon 에 무엇을 넣든
+                                                 예외 없이 조용히 안 그려진다 (v0.8.1 이 그렇게 비었다).
+                                                 전역 템플릿을 고치면 앱의 모든 메뉴가 영향을 받으므로
+                                                 여기서만 Header 로 그린다. -->
+                                            <Setter Property="HeaderTemplate">
+                                                <Setter.Value>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <!-- 원본은 32 로 온다 (PaneViewModel.KnownFolderIconSize).
+                                                                 16 으로 줄여 그리는 쪽이 150% 배율에서 선명하다.
+                                                                 아직 아이콘이 없으면 변환기가 null 을 내고
+                                                                 빈칸이 남는다 — 항목은 그대로 눌린다. -->
+                                                            <Image Width="16" Height="16" Margin="0,0,8,0"
+                                                                   VerticalAlignment="Center"
+                                                                   RenderOptions.BitmapScalingMode="HighQuality">
+                                                                <Image.Source>
+                                                                    <MultiBinding Converter="{StaticResource ThumbnailImage}">
+                                                                        <Binding Path="Icon" />
+                                                                    </MultiBinding>
+                                                                </Image.Source>
+                                                            </Image>
+                                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </Setter.Value>
+                                            </Setter>
                                             <Setter Property="Command"
                                                     Value="{Binding DataContext.OpenKnownFolderCommand,
                                                             RelativeSource={RelativeSource AncestorType=Menu}}" />
