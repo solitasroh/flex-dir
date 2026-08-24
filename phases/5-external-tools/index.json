@@ -2,15 +2,59 @@
   "project": "flex-dir",
   "phase": "5-external-tools",
   "steps": [
-    { "step": 0, "name": "tool-command", "status": "pending" },
-    { "step": 1, "name": "tool-ports", "status": "pending" },
-    { "step": 2, "name": "terminal-settings", "status": "pending" },
-    { "step": 3, "name": "shell-catalog", "status": "pending" },
-    { "step": 4, "name": "shell-launcher", "status": "pending" },
-    { "step": 5, "name": "pane-tools", "status": "pending" },
-    { "step": 6, "name": "workspace-tools", "status": "pending" },
-    { "step": 7, "name": "settings-terminal-ui", "status": "pending" },
-    { "step": 8, "name": "toolbar-buttons", "status": "pending" },
-    { "step": 9, "name": "docs-and-version", "status": "pending" }
-  ]
+    {
+      "step": 0,
+      "name": "tool-command",
+      "status": "completed",
+      "started_at": "2026-08-24T09:49:25+0900",
+      "summary": "src/FlexDir.Core/Tools/ 신설. ExternalToolCommand.cs 한 파일에 셋 — enum TerminalPreset { WindowsTerminal, PowerShell7, WindowsPowerShell, CommandPrompt, GitBash, Custom } · sealed record TerminalChoice(TerminalPreset Preset, string? Executable = null, string? Arguments = null) · static class ExternalToolCommand { const string PathToken = \"{path}\"; static bool CanRunAt(LocationId? folder); static string FormatArguments(string? template, LocationId folder); static (string Executable, string Arguments) Resolve(TerminalChoice choice); static string Label(TerminalPreset preset); }. CanRunAt 는 folder is not null && !folder.IsNetworkServer (IsNetwork 아님 — \\\\server\\share 아래는 실행 가능). FormatArguments 는 공백뿐인 틀에 string.Empty, 그 외에는 {path} 전부를 folder.DisplayPath 로 Ordinal 치환(따옴표 안 붙임, {PATH} 안 바꿈). Resolve 표: wt.exe/-d \"{path}\" · pwsh.exe/-NoLogo -WorkingDirectory \"{path}\" · powershell.exe/\"\" · cmd.exe/\"\" · git-bash.exe/\"\" · Custom 은 choice 값 그대로(null 이면 빈 문자열). Label: Windows Terminal · PowerShell 7 · Windows PowerShell · 명령 프롬프트 · Git Bash · 사용자 지정. ExternalToolMessages.cs 는 static string Describe(LocationErrorKind kind, string toolLabel) 하나 — NotFound/AccessDenied 만 따로, 나머지 넷은 '열지 못했습니다' 로 접고 None 은 ArgumentOutOfRangeException. LocationErrorMessages 는 손대지 않았다. 테스트 2125개 전부 통과(기준 2093), 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-24T09:53:47+0900"
+    },
+    {
+      "step": 1,
+      "name": "tool-ports",
+      "status": "pending"
+    },
+    {
+      "step": 2,
+      "name": "terminal-settings",
+      "status": "pending"
+    },
+    {
+      "step": 3,
+      "name": "shell-catalog",
+      "status": "pending"
+    },
+    {
+      "step": 4,
+      "name": "shell-launcher",
+      "status": "pending"
+    },
+    {
+      "step": 5,
+      "name": "pane-tools",
+      "status": "pending"
+    },
+    {
+      "step": 6,
+      "name": "workspace-tools",
+      "status": "pending"
+    },
+    {
+      "step": 7,
+      "name": "settings-terminal-ui",
+      "status": "pending"
+    },
+    {
+      "step": 8,
+      "name": "toolbar-buttons",
+      "status": "pending"
+    },
+    {
+      "step": 9,
+      "name": "docs-and-version",
+      "status": "pending"
+    }
+  ],
+  "created_at": "2026-08-24T09:49:25+0900"
 }
