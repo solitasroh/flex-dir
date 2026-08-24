@@ -4,6 +4,7 @@ using System.Globalization;
 using FlexDir.App.Tests.Fakes;
 using FlexDir.App.ViewModels;
 
+using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
 using FlexDir.Core.Tests.Fakes;
 using FlexDir.Core.Tools;
@@ -126,6 +127,41 @@ public class WorkspaceExternalToolsTests
 
         Assert.Equal(4, workspace.Panes.Count);
         Assert.All(workspace.Panes, pane => Assert.Equal(Choice(TerminalPreset.CommandPrompt), pane.Active.Terminal));
+    }
+
+    [Fact]
+    public async Task ANewTabAndASplitPane_ActuallyDetect_EvenAtTheDefaultPreset()
+    {
+        // 위 둘(ANewTab_·APaneBornFromSplitting_)은 값이 옮는 것만 잰다 — 탐지가 실제로
+        // 도는지는 안 본다. 프리셋을 안 바꾼 채(WindowsTerminal, AppSettings 의 기본값)
+        // 새 탭·분할을 만들면 새 페인의 terminal 필드 기본값과 값이 같아서, 조회가 아예
+        // 안 나갈 뻔했다 — PaneViewModel.Terminal 이 값 비교만으로 걸렀을 때는 여기서
+        // 재현됐다 (2026-08-24 리뷰). 위 두 테스트는 PowerShell7·CommandPrompt 를 써서
+        // 우연히 이 자리를 비켜 갔다.
+        var editor = @"C:\Code.exe";
+        var tools = new FakeExternalToolCatalog { Editor = editor };
+
+        var (workspace, _) = Create(tools);
+        await workspace.RestoreAsync(null, CancellationToken.None);
+        workspace.OnWindowShown();
+        await workspace.Panes[0].Active.ExternalToolsWork;
+
+        var tab = workspace.LeftTabs().NewTab();
+        await tab.NavigateAsync(Folder(@"C:\Temp"));
+        await tab.ExternalToolsWork;
+
+        Assert.True(tab.CanOpenInEditor, "새 탭에서 [VS] 가 꺼져 있다");
+
+        workspace.SetSplitCommand.Execute(4);
+        await workspace.SplitWork;
+
+        foreach (var pane in workspace.AllPanes)
+        {
+            await pane.Active.NavigateAsync(Folder(@"C:\Temp"));
+            await pane.Active.ExternalToolsWork;
+
+            Assert.True(pane.Active.CanOpenInEditor, "분할로 생긴 페인의 [VS] 가 꺼져 있다");
+        }
     }
 
     [Fact]
@@ -285,6 +321,14 @@ public class WorkspaceExternalToolsTests
             externalTools: tools ?? catalog, toolLauncher: launcher);
 
     private static TerminalChoice Choice(TerminalPreset preset) => new(preset);
+
+    private LocationId Folder(string path)
+    {
+        Assert.True(LocationId.TryParse(path, out var folder, out var error), $"파싱 실패: {error}");
+        source.Folders[folder] = [];
+
+        return folder;
+    }
 
     /// <summary>답하지 않는 카탈로그. "기다리지 않는가" 를 재는 자리다.</summary>
     private sealed class GatedToolCatalog : IExternalToolCatalog

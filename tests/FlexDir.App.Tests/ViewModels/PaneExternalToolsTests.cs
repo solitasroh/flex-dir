@@ -302,6 +302,28 @@ public class PaneExternalToolsTests
     }
 
     [Fact]
+    public async Task ANewPanesFirstTerminalPush_DetectsEvenWhenItMatchesTheCompileTimeDefault()
+    {
+        // 새 페인의 terminal 필드 기본값이 WindowsTerminal 이고, 그것이 앱 전체 기본값과
+        // 같다. WorkspaceViewModel·PaneTabsViewModel 이 새 페인을 만들 때마다 Terminal 을
+        // 그 값으로 미는데, 값 비교 가드만 있으면 "같은 값이라 조용히 넘어간다" 가 되어
+        // 새 탭·분할로 생긴 페인은 프리셋을 한 번도 안 바꾼 대다수 사용자에게 영원히 탐지가
+        // 안 돈다 (2026-08-24 리뷰 — 프리셋을 PowerShell7 로 바꾼 사람만 우연히 됐었다).
+        // 이 페인은 RefreshExternalTools() 를 직접 부르지 않는다 — 실물에서 Adopt·
+        // RestoreAsync 가 하는 그대로 .Terminal 대입 하나만으로 탐지가 돌아야 한다.
+        catalog.Editor = EditorPath;
+
+        var pane = CreatePane();
+        await pane.NavigateAsync(Folder(@"C:\Temp", "a.txt"));
+
+        pane.Terminal = new TerminalChoice(TerminalPreset.WindowsTerminal);
+        await pane.ExternalToolsWork;
+
+        Assert.Equal([TerminalPreset.WindowsTerminal], catalog.TerminalRequests);
+        Assert.True(pane.CanOpenInEditor);
+    }
+
+    [Fact]
     public async Task WhenTwoRefreshesOverlap_TheLastOneWins()
     {
         // 창을 빠르게 여닫으면 조회가 실제로 겹친다. 먼저 시작한 느린 조회가 나중 답을

@@ -897,6 +897,14 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 때만이다: 설정 적용은 값을 통째로 밀어 넣으므로 같은 값을 걸러내지 않으면 설정 창을
     /// 닫을 때마다 레지스트리 조회가 나간다.
     /// </para>
+    /// <para>
+    /// <b>단, 이 페인이 아직 한 번도 탐지를 안 돈 상태(<c>externalToolsCts is null</c>)면
+    /// 값이 같아도 돌린다.</b> 새 페인의 <c>terminal</c> 필드 기본값이 앱 전체 기본값
+    /// (<see cref="TerminalPreset.WindowsTerminal"/>)과 같아서, 값 비교만으로 걸렀을 때는
+    /// 새 탭·분할로 생긴 페인이 프리셋을 한 번도 안 바꾼 대다수 사용자에게 영원히 탐지가
+    /// 안 돌았다 (2026-08-24 리뷰 — <c>Adopt</c>·<c>RestoreAsync</c> 는 값만 밀고 별도로
+    /// <see cref="RefreshExternalTools"/> 를 부르지 않는다).
+    /// </para>
     /// </summary>
     public TerminalChoice Terminal
     {
@@ -906,7 +914,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             ArgumentNullException.ThrowIfNull(value);
 
             // record 라 값 비교다 — 같은 내용의 다른 인스턴스는 같은 것으로 본다.
-            if (terminal == value)
+            if (terminal == value && externalToolsCts is not null)
             {
                 return;
             }
