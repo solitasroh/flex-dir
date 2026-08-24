@@ -1,4 +1,5 @@
 using FlexDir.Core.Locations;
+using FlexDir.Core.Tools;
 
 namespace FlexDir.Core.Settings;
 
@@ -62,6 +63,44 @@ public sealed record AppSettings
     /// 처음 켠 사람은 OS 를 따라간다 (<see cref="ResolveIsDarkMode"/>).
     /// </summary>
     public ThemeMode Theme { get; init; } = ThemeMode.System;
+
+    /// <summary>
+    /// 터미널 버튼이 여는 것 (docs/PRD-v2.md §20).
+    /// <para>
+    /// 기본이 <see cref="Tools.TerminalPreset.WindowsTerminal"/> 인 이유: Windows 11 의 기본
+    /// 터미널이고 앱 실행 별칭으로 이미 깔려 있다. 없는 기계에서는 탐지가 <c>null</c> 을 내
+    /// 버튼이 비활성이 될 뿐이고, 그때 설정에서 다른 것을 고르면 된다 — 기본값이 맞지 않는
+    /// 것이 앱을 막지 않는다.
+    /// </para>
+    /// </summary>
+    public TerminalPreset TerminalPreset { get; init; } = Tools.TerminalPreset.WindowsTerminal;
+
+    /// <summary>
+    /// <see cref="Tools.TerminalPreset.Custom"/> 일 때 띄울 실행 파일. <b>프리셋과 따로 사는
+    /// 이유는 <see cref="StartFolder"/> 와 같다</b> — 사용자 지정을 고르고 아직 경로를 적지
+    /// 않은 중간 상태가 실제로 있다.
+    /// </summary>
+    public string? TerminalExecutable { get; init; }
+
+    /// <summary>
+    /// <see cref="Tools.TerminalPreset.Custom"/> 일 때 넘길 인자 한 줄.
+    /// <see cref="ExternalToolCommand.PathToken"/> 이 현재 폴더로 바뀐다.
+    /// </summary>
+    public string? TerminalArguments { get; init; }
+
+    /// <summary>
+    /// 지금 설정이 가리키는 터미널. 실행하는 쪽과 실행 파일을 탐지하는 쪽이 같은 답을 써야
+    /// 해서 여기 있다 (<see cref="ResolveStartFolder"/>·<see cref="ResolveIsDarkMode"/> 와
+    /// 같은 자리다).
+    /// <para>
+    /// <b>프리셋일 때 사용자 지정 칸을 싣지 않는다.</b> 실으면 사용자 지정을 시험해 보고
+    /// 프리셋으로 되돌린 사람의 옛 인자가 프리셋 명령줄로 새어 나간다.
+    /// </para>
+    /// </summary>
+    public TerminalChoice ResolveTerminal()
+        => TerminalPreset == Tools.TerminalPreset.Custom
+            ? new TerminalChoice(Tools.TerminalPreset.Custom, TerminalExecutable, TerminalArguments)
+            : new TerminalChoice(TerminalPreset);
 
     /// <summary>
     /// 지금 화면을 다크로 그려야 하는가. <paramref name="systemIsDark"/> 는 OS 설정이고
