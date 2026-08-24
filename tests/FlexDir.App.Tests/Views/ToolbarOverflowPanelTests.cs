@@ -169,4 +169,119 @@ public class ToolbarOverflowPanelTests
             [false, false, false, false, false, true, true, true, true, true, true, true, false],
             folded);
     }
+
+    // ── 실제 툴바 구성 (2구간 — 외부 도구 무리가 늘었다) ──────────
+    //
+    // 뒤로(0,32) 앞으로(0,32) 상위(0,32) 구분자(0,9) 새로고침(0,32)
+    //   · 구분자(1,9) [VS](1,32) [>_](1,32)
+    //   · 구분자(3,9) 자세히(3,32) 목록(3,32) 타일(3,32) 큰아이콘(3,32)
+    //   · 구분자(2,9) 분류(2,32) · 📍(0,32)
+    // 합 420 (= 1구간의 347 + 9 + 32 + 32) · » 폭 32.
+    //
+    // 접힘 순서는 확정 규칙(① 외부도구 → ② 분류 → ③ 뷰모드)대로 작은 번호 먼저다.
+    // 무리를 하나씩 접었을 때 남는 폭은 420 → 347 → 306 → 169 이고, 예산은
+    // available - 32 다. 아래 폭들은 그 사이 구간에서 골랐다.
+
+    private static readonly int[] CurrentOrders = [0, 0, 0, 0, 0, 1, 1, 1, 3, 3, 3, 3, 3, 2, 2, 0];
+
+    private static readonly double[] CurrentWidths =
+        [32, 32, 32, 9, 32, 9, 32, 32, 9, 32, 32, 32, 32, 9, 32, 32];
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_WhenWide_FoldsNothing()
+    {
+        // 420 ≤ 500 이라 접기 판정이 아예 발동하지 않는다 — » 도 뜨지 않는다
+        // (머리는 하나라도 접혔을 때만 보인다).
+        var folded = ToolbarOverflowPanel.Folded(
+            CurrentOrders, CurrentWidths, available: 500, overflowWidth: 32);
+
+        Assert.All(folded, fold => Assert.False(fold));
+        Assert.DoesNotContain(true, folded);
+    }
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_WhenMiddling_FoldsOnlyTheExternalTools()
+    {
+        // 420 > 400 이라 접기 시작. 예산 368. 외부 도구 무리(구분자 9 + 32 + 32)를 접으면
+        // 347 ≤ 368 이라 거기서 멈춘다 — 분류도 뷰 모드도 남는다.
+        var folded = ToolbarOverflowPanel.Folded(
+            CurrentOrders, CurrentWidths, available: 400, overflowWidth: 32);
+
+        Assert.Equal(
+            [
+                false, false, false, false, false,
+                true, true, true,
+                false, false, false, false, false,
+                false, false, false,
+            ],
+            folded);
+    }
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_WhenNarrower_AlsoFoldsTheGroupingMenu()
+    {
+        // 예산 328. 외부 도구를 접어도 347 > 328 이라 분류까지 접어 306 에서 멈춘다.
+        // 뷰 모드 4종은 남는다 — ① → ② → ③ 순서다.
+        var folded = ToolbarOverflowPanel.Folded(
+            CurrentOrders, CurrentWidths, available: 360, overflowWidth: 32);
+
+        Assert.Equal(
+            [
+                false, false, false, false, false,
+                true, true, true,
+                false, false, false, false, false,
+                true, true, false,
+            ],
+            folded);
+    }
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_WhenNarrow_FoldsAllThreeGroups()
+    {
+        // 예산 268. 306 도 모자라 뷰 모드까지 접어 169 에서 멈춘다.
+        var folded = ToolbarOverflowPanel.Folded(
+            CurrentOrders, CurrentWidths, available: 300, overflowWidth: 32);
+
+        Assert.Equal(
+            [
+                false, false, false, false, false,
+                true, true, true,
+                true, true, true, true, true,
+                true, true, false,
+            ],
+            folded);
+    }
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_KeepsTheNavigationAndThePinAtAnyWidth()
+    {
+        // 다 접어도 169 > 예산인 폭에서도 이동 셋·구분자·새로 고침·📍(FoldOrder 0)는 남는다.
+        double[] widths = [400, 360, 300, 200, 100, 1];
+
+        foreach (var available in widths)
+        {
+            var folded = ToolbarOverflowPanel.Folded(
+                CurrentOrders, CurrentWidths, available, overflowWidth: 32);
+
+            Assert.False(folded[0]);
+            Assert.False(folded[1]);
+            Assert.False(folded[2]);
+            Assert.False(folded[3]);
+            Assert.False(folded[4]);
+            Assert.False(folded[15]);
+        }
+    }
+
+    [Fact]
+    public void Folded_TheCurrentToolbar_FoldsTheExternalToolSeparatorWithItsButtons()
+    {
+        // 구분자에 FoldOrder 1 을 안 주면 버튼 둘만 사라지고 구분자가 고아로 남는다.
+        // 인덱스 5 가 그 구분자다.
+        var folded = ToolbarOverflowPanel.Folded(
+            CurrentOrders, CurrentWidths, available: 400, overflowWidth: 32);
+
+        Assert.True(folded[5]);
+        Assert.True(folded[6]);
+        Assert.True(folded[7]);
+    }
 }

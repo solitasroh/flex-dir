@@ -404,6 +404,68 @@
             </Setter>
         </Style>
 
+        <!-- ═══ 외부 도구 아이콘 (docs/PRD-v2.md §20 · 사용자 확정 2026-08-24) ═══
+             글리프가 아니라 벡터 Path 다. Segoe Fluent Icons 의 터미널 후보는 E756
+             (C:\ 박스) 하나뿐인데 **테두리 사각이라 E15B 와 같은 계열로 읽히고 16px 에서
+             박스 안 글자가 뭉갠다** — E707(MapPin)을 기각했던 것과 같은 실패 모양이다
+             (docs/DESIGN.md §7: 새 아이콘은 선(E8A4·E8FD)·사각(E8A9·E15B) 어느 쪽도
+             아닌 실루엣이어야 한다).
+
+             x:Shared 를 끄지 않는다 — Geometry 는 불변으로만 쓰이고 Freeze 되는 종류라
+             페인 넷이 같은 인스턴스를 나눠 써도 된다. -->
+
+        <!-- VS Code 리본. viewBox 0 0 100 100 · F0(EvenOdd)이라 가운데 삼각 구멍이 뚫린다 —
+             **F0 를 빼면 구멍이 메워져 16px 에서 검은 덩어리가 된다.** -->
+        <Geometry x:Key="ExternalEditorGeometry">F0 M70.9 99.3a6.2 6.2 0 0 0 4.9-.2l20.4-9.8a6.2 6.2 0 0 0 3.5-5.6V16.3a6.2 6.2 0 0 0-3.5-5.6L75.8.9a6.2 6.2 0 0 0-7.1 1.2L29.6 37.8 12.6 24.9a4.1 4.1 0 0 0-5.3.2l-5.5 5a4.1 4.1 0 0 0 0 6.1L16.5 50 1.8 63.8a4.1 4.1 0 0 0 0 6.1l5.5 5a4.1 4.1 0 0 0 5.3.2l17-12.9 39.1 35.7a6.2 6.2 0 0 0 2.2 1.4ZM75.2 27.3 45.5 50l29.7 22.7V27.3Z</Geometry>
+
+        <!-- 프롬프트 >_ . 16 단위 상자 · F1(NonZero) -->
+        <Geometry x:Key="ExternalTerminalGeometry">F1 M3.4,2.4 L9,8 L3.4,13.6 L1,13.6 L6.6,8 L1,2.4 Z M9.6,12 L15,12 L15,13.7 L9.6,13.7 Z</Geometry>
+
+        <!-- ToolButton 과 크롬이 완전히 같다 (32×28 · CornerRadius 4 · 트리거 셋). 다른 것은
+             안에 든 것뿐이다 — ContentPresenter 가 아니라 Path 하나이고 지오메트리는 Tag 로
+             온다. ToolButton 을 고쳐 겸용하지 않는 이유: 툴바의 다른 버튼 열 개가 전부
+             그것을 쓴다 (CLAUDE.md §2.3).
+
+             **Fill 은 TemplateBinding Foreground 다.** 그래야 다크/라이트 전환과 비활성
+             회색이 기존 글리프 버튼과 한 소스를 따라간다. 그래서 IsEnabled=False 트리거도
+             TargetName 으로 Path 의 Fill 을 직접 집지 않고 Foreground 를 바꾼다 —
+             직접 집으면 TemplateBinding 을 덮어써서 테마 전환이 죽는다 (CaptionButton 주석에
+             같은 함정이 적혀 있다).
+
+             **Stroke 를 주지 않는다.** 위 지오메트리 둘은 채우기 전용이라 테두리를 함께
+             걸면 채워진 모양 둘레에 이유 없는 선이 생겨 16px 에서 뭉갠다.
+             FontFamily·FontSize 도 두지 않는다 — 글자를 그리지 않는다. -->
+        <Style x:Key="ToolPathButton" TargetType="Button">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="4" Background="{TemplateBinding Background}">
+                            <Path Data="{TemplateBinding Tag}" Fill="{TemplateBinding Foreground}"
+                                  Stretch="Uniform" Width="15" Height="15"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- 캡션 버튼 46×32 (목업 .titlebar .caption-btns button). 글리프는 Windows 의
              캡션 전용 코드포인트다 — 최소화 E921 · 최대화 E922 · 복원 E923 · 닫기 E8BB
              (docs/DESIGN.md §7). 크기 10 인 이유는 이 글리프들이 이미 버튼 크기를 전제로
@@ -1181,8 +1243,8 @@
                     <Border x:Name="ToolbarChrome" DockPanel.Dock="Top" Height="36"
                             Background="{DynamicResource WinBgBrush}"
                             BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1">
-                        <!-- 접기 배치 (phase 3 step 2·4). FoldOrder 1 은 비워 둔다 — 2구간의
-                             외부 도구([VS]·[>_])가 가장 먼저 접히는 자리다. 구분자 Rectangle 은
+                        <!-- 접기 배치 (phase 3 step 2·4 · phase 5 step 8). FoldOrder 1 은
+                             외부 도구([VS]·[>_])다 — 가장 먼저 접힌다. 구분자 Rectangle 은
                              뒤따르는 무리와 같은 번호다 — 아니면 구분자만 고아로 남는다. -->
                         <v:ToolbarOverflowPanel x:Name="PaneToolbar" Margin="6,0" VerticalAlignment="Center">
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72B;" ToolTip="뒤로 (Alt+←)"
@@ -1194,6 +1256,26 @@
                             <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72C;" ToolTip="새로 고침 (F5)"
                                     Command="{Binding RefreshCommand}" />
+
+                            <!-- 외부 도구 (docs/PRD-v2.md §20 · FoldOrder 1 — 가장 먼저 접힌다).
+                                 아이콘은 글리프가 아니라 Path 라 ToolButton 이 아니라
+                                 ToolPathButton 을 쓰고 지오메트리는 Tag 로 준다.
+                                 **IsEnabled 를 바인딩하지 않는다** — Command 의 CanExecute
+                                 (PaneViewModel.CanOpenInEditor·CanOpenInTerminal)가 이미 그것이다.
+                                 둘을 다 걸면 활성의 소스가 둘이 되어 서로 덮어쓴다.
+                                 AlignRight 도 주지 않는다 — 왼쪽 흐름에 선다. -->
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}"
+                                       v:ToolbarOverflowPanel.FoldOrder="1" />
+                            <Button Style="{StaticResource ToolPathButton}"
+                                    Tag="{StaticResource ExternalEditorGeometry}"
+                                    v:ToolbarOverflowPanel.FoldOrder="1"
+                                    AutomationProperties.Name="VS Code 로 열기" ToolTip="VS Code 로 열기"
+                                    Command="{Binding OpenInEditorCommand}" />
+                            <Button Style="{StaticResource ToolPathButton}"
+                                    Tag="{StaticResource ExternalTerminalGeometry}"
+                                    v:ToolbarOverflowPanel.FoldOrder="1"
+                                    AutomationProperties.Name="터미널로 열기" ToolTip="터미널로 열기"
+                                    Command="{Binding OpenInTerminalCommand}" />
                             <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}"
                                        v:ToolbarOverflowPanel.FoldOrder="3" />
                             <Button Style="{StaticResource ViewButton}" Content="&#xE8A4;" ToolTip="자세히 (Ctrl+Shift+1)"
@@ -1306,6 +1388,22 @@
                                      이 스타일의 Header 는 그 아이콘 폰트 안의 글리프여야 한다. -->
                                 <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE712;"
                                           AutomationProperties.Name="더 보기" ToolTip="더 보기">
+                                    <!-- 외부 도구 두 벌째 (ADR-021 의 대가 — 같은 항목이 툴바와
+                                         ··· 에 두 벌 선언된다). 동작은 같은 Command 를 보므로
+                                         진실원천은 하나다. 접힘 순서대로 맨 위다.
+                                         **MenuItem.Icon 을 쓰지 않는다** — 이 앱의 암시적 MenuItem
+                                         템플릿에 Icon 프리젠터가 없어 무엇을 넣든 예외도 경고도
+                                         없이 안 그려진다 (v0.8.1). 글자만 둔다. -->
+                                    <MenuItem Header="VS Code 로 열기"
+                                              Command="{Binding OpenInEditorCommand}"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=1}" />
+                                    <MenuItem Header="터미널로 열기"
+                                              Command="{Binding OpenInTerminalCommand}"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=1}" />
                                     <MenuItem Header="보기 모드"
                                               Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
                                                            Converter={StaticResource FoldedOrderToVisibility},
