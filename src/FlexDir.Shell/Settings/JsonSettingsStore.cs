@@ -139,7 +139,12 @@ public sealed class JsonSettingsStore : ISettingsStore
             ? chosen
             : AppSettings.Default.Theme;
 
+        // Enum.TryParse 는 정의되지 않은 값이어도 숫자 문자열이면 성공한다 — "99" 가
+        // (TerminalPreset)99 로 그대로 실린다. 그 값은 ExternalToolCommand.Label 이
+        // 던지는 자리를 셋(설정 패널의 바인딩 getter · [실행해 보기] · 터미널 커맨드) 지나
+        // 앱을 무너뜨린다 (2026-08-24 리뷰). Enum.IsDefined 로 정의된 값만 받는다.
         var terminal = Enum.TryParse<TerminalPreset>(document.TerminalPreset, ignoreCase: true, out var preset)
+            && Enum.IsDefined(preset)
             ? preset
             : AppSettings.Default.TerminalPreset;
 

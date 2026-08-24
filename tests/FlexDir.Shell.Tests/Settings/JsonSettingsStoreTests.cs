@@ -180,6 +180,21 @@ public class JsonSettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task OutOfRangeNumericPreset_FallsBackToWindowsTerminal()
+    {
+        // Enum.TryParse 는 정의되지 않은 값이어도 숫자 문자열이면 성공한다 — "99" 가
+        // (TerminalPreset)99 로 그대로 실리면 ExternalToolCommand.Label 이 그 값에서
+        // 던지고, 그 값은 SettingsViewModel.SelectedTerminal(바인딩 getter) ·
+        // [실행해 보기] · PaneViewModel.OpenInTerminalAsync(커맨드) 세 곳을 무너뜨린다
+        // (2026-08-24 리뷰에서 세 갈래 다 재현했다). Enum.IsDefined 로 막는다.
+        WriteRawFile("""{ "terminalPreset": "99" }""");
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(TerminalPreset.WindowsTerminal, loaded.TerminalPreset);
+    }
+
+    [Fact]
     public async Task AFileFromBeforeTerminalSettings_TakesTheDefaults()
     {
         // v0.8.x 가 실제로 남기던 형식이다 — 그 시절에는 터미널 항목이 없었다.
