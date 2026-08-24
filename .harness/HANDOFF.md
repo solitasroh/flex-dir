@@ -43,7 +43,7 @@
 에 `[VS]`(VS Code)·`[>_]`(터미널)가 들어왔고 포트가 둘 늘어 **19/19**
 (`IExternalToolCatalog` 탐지 · `IExternalToolLauncher` 실행). 이 툴바에서 **처음으로
 글리프가 아니라 Path 를 썼다** — 폰트 안에 뜻이 오는 터미널 글자가 없었다(`ADR-022` ·
-`DESIGN.md` §7). 게이트 4종 ✅ · 테스트 **2277** · 서명본을 굽고 설치까지 했다
+`DESIGN.md` §7). 게이트 4종 ✅ · 테스트 **2280** · 서명본을 굽고 설치까지 했다
 (`-NoUpload`). **사람 확인 일곱이 전부 닫혔다** (2026-08-24 · 사용자 *"모두 정상"*).
 ⚠ **계획은 v0.9.0 이었고 사용자가 0.8.5 로 정했다** — 실행이 끝난 step 지시서의 `v0.9.0`
 표기는 얼어붙은 기록이라 그대로 뒀다 (`docs/PRD-v2.md` §21 머리).
@@ -92,7 +92,7 @@
                  ⚠ `Get-AuthenticodeSignature` 는 `UnknownError` 를 내는데, **서명은 붙어
                  있고 이 기계의 신뢰 루트에 자체 서명 인증서가 없어서**다 — 결함이 아니다
                  (`HISTORY.md` §v0.7.0)
-테스트   2277 통과   Core 654 · Shell 393 · App 1135 · Host 95
+테스트   2280 통과   Core 654 · Shell 394 · App 1137 · Host 95
                  (외부 도구 §21 이 +184: Core +61 · Shell +61 · App +61 · **Host +1**.
                  **그 Host 하나가 조립이 페인에 닿는지 보는 유일한 테스트다** —
                  step 0~8 이 그것을 0 으로 두었고, 그래서 조립 누락이 게이트 넷을
@@ -252,7 +252,7 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 
 ### 0. 2구간(v0.8.5) 외부 도구 — **나갔다. 사람 확인 일곱이 전부 닫혔다**
 
-게이트 4종 ✅ · 테스트 **2277** ✅ (2026-08-24). 전문은 `docs/PRD-v2.md` §21 · `ADR-022` ·
+게이트 4종 ✅ · 테스트 **2280** ✅ (2026-08-24). 전문은 `docs/PRD-v2.md` §21 · `ADR-022` ·
 step 목록은 `phases/5-external-tools/index.json`. **서명본을 굽고 설치까지 했다**
 (`-NoUpload` · `HISTORY.md` §v0.8.5). **업로드·푸시는 안 했다.**
 
@@ -298,12 +298,32 @@ step 목록은 `phases/5-external-tools/index.json`. **서명본을 굽고 설�
    ⚠ 문구가 어색하다 — 라벨이 *"사용자 지정"* 이라 조사가 붙으면 읽히지 않는다.
    **관측만 해 두고 안 고쳤다** (프리셋 다섯은 자연스럽다).
 
-**2구간에 열린 항목은 없다.** 하나만 남았고 그것은 한 번 밟아서 닫히는 종류가 아니다 —
-아래 §곁에 남은 구멍.
+**2구간에 열린 항목은 없다.** §곁에 남은 구멍이라 적어 뒀던 것은 격리 리뷰(2026-08-24)가
+진단을 정정하고 코드로 닫았다 — 아래 참조.
 
-**곁에 남은 구멍 하나**: 창이 떠 있는 중에 만든 새 탭은 탐지를 돌지 않아 버튼이 꺼진
-채로 뜬다 (`Adopt` 가 값만 물려주고 조회는 걸지 않는다). 창을 한 번 숨겼다 보이면 켜진다 —
-관측된 뒤에 고친다.
+✅ **격리 리뷰가 크래시 사슬 하나와 진단 오류 하나를 잡았다** (2026-08-24 · `harness-reviewer`
+서브에이전트가 서버 과부하로 여섯 번 죽었지만 남긴 재현 테스트를 같은 worktree 에서 직접
+돌려 확인했다):
+
+1. **범위 밖 `TerminalPreset` 값이 앱을 세 갈래로 크래시시켰다.** `Enum.TryParse` 는
+   정의되지 않은 값이어도 숫자 문자열이면 성공한다 — `"terminalPreset": "99"` 가 든 파일을
+   읽으면 `(TerminalPreset)99` 가 그대로 실렸다. 그 값이 `SettingsViewModel.SelectedTerminal`
+   (XAML 바인딩 getter — **설정 패널을 여는 것만으로 터진다**) · `[실행해 보기]` ·
+   `PaneViewModel.OpenInTerminalAsync`(커맨드 밖 예외라 §규칙 10 대로 **프로세스 전체가
+   죽는다**) 세 곳에서 던졌다. `JsonSettingsStore.Parse`(`Shell/Settings/JsonSettingsStore.cs`)
+   에 `Enum.IsDefined` 검사를 더해 막았다.
+2. **진단 정정 — "새 탭이 탐지를 안 돈다" 는 절반만 맞았다.** 진짜 원인은 `Adopt` 가 아니라
+   `PaneViewModel.Terminal`(그리고 `PaneTabsViewModel.Terminal`) setter 의 **record 값 비교
+   조기 반환**이었다. 새 페인의 필드 기본값이 이미 앱 전체 기본값(`WindowsTerminal`)과
+   같아서 — **프리셋을 한 번도 안 바꾼 대다수 사용자**의 새 탭·분할 페인은 영원히 탐지가
+   안 돌았다. `PowerShell7` 로 바꾼 사람만 우연히 됐다. `externalToolsCts is null`(아직
+   한 번도 탐지를 안 돈 상태)을 값 비교의 예외로 둬서 첫 대입은 항상 돌게 고쳤다.
+   **기존 테스트 둘(`ANewTab_StartsWithTheTerminalThePaneIsAlreadyUsing`·
+   `APaneBornFromSplitting_StartsWithTheSameTerminal`)이 이 자리를 놓친 이유도 확인했다** —
+   둘 다 `PowerShell7`·`CommandPrompt` 를 써서 우연히 결함을 비켜 갔다. 기본 프리셋으로
+   실제 탐지가 도는지 보는 테스트를 새로 넣었다.
+
+테스트 2277 → **2280**. 게이트 4종 재확인 ✅.
 
 ### 0-0. 1구간(v0.8.0→v0.8.4) 툴바 오버플로·알려진 폴더·항목 아이콘 — **닫혔다**
 
