@@ -5,6 +5,7 @@ using FlexDir.App.Threading;
 
 using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
+using FlexDir.Core.Tools;
 
 namespace FlexDir.App.ViewModels;
 
@@ -48,6 +49,10 @@ public sealed partial class SettingsViewModel : ObservableObject
     private string startFolderText = string.Empty;
     private string? startFolderError;
     private bool showHiddenItems = AppSettings.Default.ShowHiddenItems;
+
+    private TerminalPreset terminalPreset = AppSettings.Default.TerminalPreset;
+    private string? terminalExecutable = AppSettings.Default.TerminalExecutable;
+    private string? terminalArguments = AppSettings.Default.TerminalArguments;
 
     private ThemeMode themeMode = AppSettings.Default.Theme;
 
@@ -114,6 +119,17 @@ public sealed partial class SettingsViewModel : ObservableObject
     /// 있는 것을 다시 걸러야 한다 — 알리지 않으면 다음 폴더로 옮길 때까지 옛 정책으로 남는다.
     /// </summary>
     public event EventHandler? HiddenItemsChanged;
+
+    /// <summary>
+    /// 터미널 선택이 바뀌었다. <c>WorkspaceViewModel</c> 이 열려 있는 페인들에 다시 민다 —
+    /// <see cref="HiddenItemsChanged"/> 와 같은 자리이고 같은 이유다.
+    /// <para>
+    /// <b>프리셋·실행 파일·인자 셋 중 무엇이 바뀌어도 낸다.</b> 페인이 받는 것은
+    /// <see cref="AppSettings.ResolveTerminal"/> 가 접은 값 하나이고, 그 값은 셋 모두에서
+    /// 나온다 — 프리셋만 보면 사용자 지정 칸을 고치는 동안 아무 일도 일어나지 않는다.
+    /// </para>
+    /// </summary>
+    public event EventHandler? TerminalChanged;
 
     /// <summary>새 버전 확인. 배선되지 않았으면 <see langword="null"/> 이다.</summary>
     public UpdateViewModel? Update { get; }
@@ -327,6 +343,68 @@ public sealed partial class SettingsViewModel : ObservableObject
     }
 
     /// <summary>
+    /// 터미널 버튼이 열 것 (docs/PRD-v2.md §20). <b>화면(라디오 여섯)은 아직 없다</b> —
+    /// <see cref="StartMode"/>·<see cref="Theme"/> 처럼 <c>bool</c> 짝을 얹는 것이 그 자리이고,
+    /// 여기서는 값과 그것을 알리는 길만 세운다.
+    /// </summary>
+    internal TerminalPreset TerminalPreset
+    {
+        get => terminalPreset;
+        set
+        {
+            if (terminalPreset == value)
+            {
+                return;
+            }
+
+            terminalPreset = value;
+
+            Persist();
+            AnnounceTerminal();
+        }
+    }
+
+    /// <summary>
+    /// <see cref="Core.Tools.TerminalPreset.Custom"/> 일 때 띄울 실행 파일.
+    /// <b>정규화하지 않는다</b> — <see cref="StartFolderText"/> 와 같은 이유로, 고치는 중에
+    /// 글자가 바뀌면 이어서 칠 자리를 잃는다. 공백뿐인 것을 접는 것은 저장소가 한다
+    /// (<c>JsonSettingsStore</c>).
+    /// </summary>
+    public string? TerminalExecutable
+    {
+        get => terminalExecutable;
+        set
+        {
+            if (!SetProperty(ref terminalExecutable, value))
+            {
+                return;
+            }
+
+            Persist();
+            AnnounceTerminal();
+        }
+    }
+
+    /// <summary>
+    /// 사용자 지정 터미널에 넘길 인자 한 줄.
+    /// <see cref="ExternalToolCommand.PathToken"/> 이 현재 폴더로 바뀐다.
+    /// </summary>
+    public string? TerminalArguments
+    {
+        get => terminalArguments;
+        set
+        {
+            if (!SetProperty(ref terminalArguments, value))
+            {
+                return;
+            }
+
+            Persist();
+            AnnounceTerminal();
+        }
+    }
+
+    /// <summary>
     /// 지금 정해져 있는 것. <c>WorkspaceViewModel.RestoreAsync</c> 가 이 값으로 페인을 연다.
     /// </summary>
     public AppSettings Current => new()
@@ -335,6 +413,9 @@ public sealed partial class SettingsViewModel : ObservableObject
         StartFolder = startFolder,
         ShowHiddenItems = showHiddenItems,
         Theme = themeMode,
+        TerminalPreset = terminalPreset,
+        TerminalExecutable = terminalExecutable,
+        TerminalArguments = terminalArguments,
     };
 
     /// <summary>진행 중인 저장. 테스트가 "남았는가" 를 보는 자리다.</summary>
@@ -367,6 +448,8 @@ public sealed partial class SettingsViewModel : ObservableObject
 
         await dispatcher.InvokeAsync(() =>
         {
+            var before = (terminalPreset, terminalExecutable, terminalArguments);
+
             loading = true;
 
             try
@@ -374,6 +457,9 @@ public sealed partial class SettingsViewModel : ObservableObject
                 StartMode = loaded.StartMode;
                 StartFolderText = loaded.StartFolder?.DisplayPath ?? string.Empty;
                 ShowHiddenItems = loaded.ShowHiddenItems;
+                TerminalPreset = loaded.TerminalPreset;
+                TerminalExecutable = loaded.TerminalExecutable;
+                TerminalArguments = loaded.TerminalArguments;
                 systemIsDark = isDark;
                 Theme = loaded.Theme;
 
@@ -387,6 +473,17 @@ public sealed partial class SettingsViewModel : ObservableObject
             }
 
             OnPropertyChanged(nameof(IsDarkMode));
+
+            // 읽어 온 값도 알린다 — 세터들은 loading 중에 조용하고 (AnnounceTerminal),
+            // 그러면 설정 창을 켜 두고 다시 읽는 경로에서 페인이 옛 프리셋으로 남는다.
+            //
+            // 셋을 따로 알리지 않는 이유는 중간 상태다: 프리셋만 바뀐 순간에 알리면 페인이
+            // 아직 실행 파일이 비어 있는 사용자 지정으로 한 번 탐지를 돈다. 달라진 것이
+            // 없으면 조용한 이유는 세터들과 같다 — 알림 하나가 페인 수만큼의 조회다.
+            if (before != (terminalPreset, terminalExecutable, terminalArguments))
+            {
+                TerminalChanged?.Invoke(this, EventArgs.Empty);
+            }
         }).ConfigureAwait(false);
     }
 
@@ -409,6 +506,19 @@ public sealed partial class SettingsViewModel : ObservableObject
             systemIsDark = isDark;
             OnPropertyChanged(nameof(IsDarkMode));
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 터미널 선택이 바뀌었다고 알린다. <b>읽어 오는 중에는 조용하다</b> — 셋을 차례로
+    /// 넣는 사이의 중간 상태가 그대로 나가면 페인이 헛되이 다시 탐지한다.
+    /// <see cref="LoadAsync"/> 가 다 넣은 뒤에 한 번 낸다.
+    /// </summary>
+    private void AnnounceTerminal()
+    {
+        if (!loading)
+        {
+            TerminalChanged?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>못 읽으면 라이트로 접는다 — 테마 하나 때문에 시작·재조회가 죽으면 안 된다.</summary>

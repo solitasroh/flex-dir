@@ -7,6 +7,7 @@ using FlexDir.App.ViewModels;
 using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
 using FlexDir.Core.Tests.Fakes;
+using FlexDir.Core.Tools;
 using FlexDir.Core.Updates;
 
 using Xunit;
@@ -308,6 +309,117 @@ public class SettingsViewModelTests
 
         Assert.Equal(0, announced);
         Assert.Equal(0, store.Saves);
+    }
+
+    // ── 터미널 선택 ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task TerminalPreset_IsSavedAndAnnounced()
+    {
+        // 열려 있는 페인들이 다른 것을 열어야 하고, 탐지 대상도 바뀐다. 알리지 않으면
+        // 새 탭을 만들 때까지 옛 프리셋으로 남는다 (WorkspaceViewModel 이 잇는다).
+        var settings = await LoadedAsync();
+        var announced = 0;
+        settings.TerminalChanged += (_, _) => announced++;
+
+        settings.TerminalPreset = TerminalPreset.GitBash;
+        await settings.SaveWork;
+
+        Assert.Equal(TerminalPreset.GitBash, store.Current.TerminalPreset);
+        Assert.Equal(1, announced);
+    }
+
+    [Fact]
+    public async Task TerminalExecutableAndArguments_AreSavedAndAnnounced()
+    {
+        // 프리셋만 보면 사용자 지정 칸을 고치는 동안 아무 일도 일어나지 않는다 —
+        // 셋 중 무엇이 바뀌어도 열려 있는 페인이 따라와야 한다.
+        var settings = await LoadedAsync();
+        var announced = 0;
+        settings.TerminalChanged += (_, _) => announced++;
+
+        settings.TerminalExecutable = @"C:\tools\alacritty.exe";
+        await settings.SaveWork;
+
+        Assert.Equal(1, announced);
+
+        settings.TerminalArguments = "--working-directory \"" + ExternalToolCommand.PathToken + "\"";
+        await settings.SaveWork;
+
+        Assert.Equal(2, announced);
+        Assert.Equal(@"C:\tools\alacritty.exe", store.Current.TerminalExecutable);
+        Assert.Equal("--working-directory \"" + ExternalToolCommand.PathToken + "\"", store.Current.TerminalArguments);
+    }
+
+    [Fact]
+    public async Task Terminal_SetToTheSameValue_ChangesNothing()
+    {
+        // 라디오는 같은 값을 다시 밀어 넣는다. 그때마다 알리면 설정 창을 여닫을 때마다
+        // 페인 수만큼 레지스트리 조회가 나간다 (PaneViewModel.Terminal).
+        var settings = await LoadedAsync(new AppSettings
+        {
+            TerminalPreset = TerminalPreset.Custom,
+            TerminalExecutable = @"C:\tools\alacritty.exe",
+            TerminalArguments = "-d",
+        });
+        var announced = 0;
+        settings.TerminalChanged += (_, _) => announced++;
+
+        settings.TerminalPreset = TerminalPreset.Custom;
+        settings.TerminalExecutable = @"C:\tools\alacritty.exe";
+        settings.TerminalArguments = "-d";
+        await settings.SaveWork;
+
+        Assert.Equal(0, announced);
+        Assert.Equal(0, store.Saves);
+    }
+
+    [Fact]
+    public async Task LoadAsync_AnnouncesTheTerminalItRead_Once()
+    {
+        // 저장 파일이 정한 터미널이 페인에 닿는 길은 이 알림뿐이다 — 세터들은 읽는 중에
+        // 조용하다. 셋을 차례로 넣으므로 알림이 셋이 되면 중간 상태로 탐지가 헛돈다.
+        store.Seed(new AppSettings
+        {
+            TerminalPreset = TerminalPreset.Custom,
+            TerminalExecutable = @"C:\tools\alacritty.exe",
+            TerminalArguments = "-d",
+        });
+
+        var settings = Create();
+        var announced = 0;
+        settings.TerminalChanged += (_, _) => announced++;
+
+        await settings.LoadAsync(CancellationToken.None);
+
+        Assert.Equal(1, announced);
+        Assert.Equal(
+            new TerminalChoice(TerminalPreset.Custom, @"C:\tools\alacritty.exe", "-d"),
+            settings.Current.ResolveTerminal());
+    }
+
+    [Fact]
+    public async Task ResolveTerminal_MatchesWhatTheScreenShows()
+    {
+        // 페인에 실리는 것이 이 값이다 (WorkspaceViewModel). 화면과 어긋나면 사용자가 고른
+        // 것과 다른 터미널이 뜬다.
+        var settings = await LoadedAsync();
+
+        settings.TerminalPreset = TerminalPreset.PowerShell7;
+
+        Assert.Equal(new TerminalChoice(TerminalPreset.PowerShell7), settings.Current.ResolveTerminal());
+
+        settings.TerminalExecutable = @"C:\tools\alacritty.exe";
+        settings.TerminalArguments = "-d";
+
+        // 아직 프리셋이라 사용자 지정 칸은 실리지 않는다 (AppSettings.ResolveTerminal).
+        Assert.Equal(new TerminalChoice(TerminalPreset.PowerShell7), settings.Current.ResolveTerminal());
+
+        settings.TerminalPreset = TerminalPreset.Custom;
+
+        Assert.Equal(
+            new TerminalChoice(TerminalPreset.Custom, @"C:\tools\alacritty.exe", "-d"),
+            settings.Current.ResolveTerminal());
     }
 
     // ── 여닫기 ────────────────────────────────────────────────────

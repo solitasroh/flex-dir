@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
 using FlexDir.Core.Locations;
+using FlexDir.Core.Tools;
 using FlexDir.Core.ViewState;
 
 namespace FlexDir.App.ViewModels;
@@ -32,7 +33,7 @@ public sealed record ClosedTab(int Index, TabState State);
 /// 보이지 않는 자리에서 뜬다.
 /// </para>
 /// <para>
-/// <b>컬럼 폭과 숨김 정책의 소유자가 여기다</b> — 탭이 아니다 (docs/PRD-v2.md §17 구조 렌즈).
+/// <b>컬럼 폭·숨김 정책·터미널 선택의 소유자가 여기다</b> — 탭이 아니다 (docs/PRD-v2.md §17 구조 렌즈).
 /// 탭 하나가 인스턴스 하나이므로 소유자를 올리지 않으면 탭 전환마다 컬럼이 튀고, 나중에
 /// 만든 탭이 옛 숨김 정책으로 뜬다.
 /// </para>
@@ -50,6 +51,7 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     private PaneViewModel active;
     private PaneColumns columns = PaneColumns.Default;
     private bool showHiddenItems;
+    private TerminalChoice terminal = new(TerminalPreset.WindowsTerminal);
     private bool disposed;
 
     /// <summary>
@@ -191,6 +193,36 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
             foreach (var tab in tabs)
             {
                 tab.ShowHiddenItems = value;
+            }
+
+            OnPropertyChanged();
+        }
+    }
+
+    /// <summary>
+    /// 터미널 버튼이 열 것 (docs/PRD-v2.md §20). <b>소유자가 여기인 이유는
+    /// <see cref="ShowHiddenItems"/> 와 같다</b> — 탭에 두면 나중에 만든 탭이 기본 프리셋으로
+    /// 뜨고 아무도 다시 밀지 않는다. 값은 <c>WorkspaceViewModel</c> 이 설정에서 밀어 넣는다.
+    /// </summary>
+    public TerminalChoice Terminal
+    {
+        get => terminal;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            // record 라 값 비교다. 같은 값을 거르지 않으면 설정 창을 닫을 때마다 탭 수만큼
+            // 레지스트리 조회가 나간다 (PaneViewModel.Terminal 이 바뀌면 다시 찾는다).
+            if (terminal == value)
+            {
+                return;
+            }
+
+            terminal = value;
+
+            foreach (var tab in tabs)
+            {
+                tab.Terminal = value;
             }
 
             OnPropertyChanged();
@@ -936,6 +968,7 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         // 폴더보다 먼저이기도 하다 — 나중에 밀면 새 탭이 한 번은 옛 정책으로 그려지고
         // 아무도 다시 읽지 않는다 (docs/PRD-v2.md §17 구조 렌즈).
         tab.ShowHiddenItems = showHiddenItems;
+        tab.Terminal = terminal;
         tab.Columns = columns;
 
         tab.ActivationRequested += OnTabActivationRequested;
