@@ -1,0 +1,16 @@
+{
+  "project": "flex-dir",
+  "phase": "5-external-tools",
+  "steps": [
+    { "step": 0, "name": "tool-command", "status": "pending" },
+    { "step": 1, "name": "tool-ports", "status": "pending" },
+    { "step": 2, "name": "terminal-settings", "status": "pending" },
+    { "step": 3, "name": "shell-catalog", "status": "pending" },
+    { "step": 4, "name": "shell-launcher", "status": "pending" },
+    { "step": 5, "name": "pane-tools", "status": "pending" },
+    { "step": 6, "name": "workspace-tools", "status": "pending" },
+    { "step": 7, "name": "settings-terminal-ui", "status": "pending" },
+    { "step": 8, "name": "toolbar-buttons", "status": "pending" },
+    { "step": 9, "name": "docs-and-version", "status": "pending" }
+  ]
+}
