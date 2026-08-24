@@ -27,7 +27,8 @@
     },
     {
       "dir": "5-external-tools",
-      "status": "pending"
+      "status": "completed",
+      "completed_at": "2026-08-24T12:25:58+0900"
     }
   ]
 }
