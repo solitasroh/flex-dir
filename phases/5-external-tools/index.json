@@ -13,7 +13,10 @@
     {
       "step": 1,
       "name": "tool-ports",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-24T09:54:02+0900",
+      "summary": "src/FlexDir.Core/Tools/ 에 포트 둘 신설 — IExternalToolCatalog { ValueTask<string?> FindEditorAsync(CancellationToken ct); ValueTask<string?> FindTerminalAsync(TerminalPreset preset, CancellationToken ct); } 와 IExternalToolLauncher { ValueTask<LocationErrorKind> LaunchAsync(string executable, string arguments, LocationId workingFolder, CancellationToken ct); }. 계약은 전부 XML 주석에 박았다 — 카탈로그: 못 찾으면 null(던지지 않는다, 취소만 예외)·결과를 캐시하지 않는다(상주 앱이라 창이 다시 보일 때마다 다시 묻는다)·TerminalPreset.Custom 은 언제나 null(사용자 입력은 탐지 대상이 아니다)·UI 스레드 금지. 실행기: 실패를 LocationErrorKind 로 낸다(None 이 성공, 던지지 않는다)·띄우고 기다리지 않는다(arguments 는 FormatArguments 가 이미 치환한 것)·workingFolder 는 작업 디렉터리로만 쓰고 인자에 덧붙이지 않는다·UI 스레드 금지. fake 둘은 tests/FlexDir.Core.Tests/Fakes/ 에 — FakeExternalToolCatalog { string? Editor; Dictionary<TerminalPreset,string?> Terminals; int EditorRequests; IReadOnlyList<TerminalPreset> TerminalRequests } (ct.ThrowIfCancellationRequested 먼저, Custom 은 사전에 있어도 null), FakeExternalToolLauncher { LocationErrorKind Result = None; IReadOnlyList<(string Executable, string Arguments, LocationId Folder)> Launches } (취소면 기록 없이 던진다, 실패해도 기록은 남긴다). 테스트는 tests/FlexDir.Core.Tests/Tools/IExternalToolCatalogTests.cs(클래스 FakeExternalToolCatalogTests, 14개) 와 IExternalToolLauncherTests.cs(FakeExternalToolLauncherTests, 7개). 구현체는 없다 — step 3·4 몫. 테스트 2146개 전부 통과(기준 2125), 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-24T10:01:35+0900"
     },
     {
       "step": 2,
