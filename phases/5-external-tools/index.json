@@ -21,7 +21,10 @@
     {
       "step": 2,
       "name": "terminal-settings",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-24T10:01:51+0900",
+      "summary": "src/FlexDir.Core/Settings/ISettingsStore.cs 의 AppSettings 에 항목 셋 추가 — TerminalPreset TerminalPreset { get; init; } = TerminalPreset.WindowsTerminal (기본값) · string? TerminalExecutable { get; init; } = null · string? TerminalArguments { get; init; } = null. 접는 메서드는 public TerminalChoice ResolveTerminal() — Custom 이면 new TerminalChoice(Custom, TerminalExecutable, TerminalArguments), 아니면 new TerminalChoice(Preset) (프리셋일 때 사용자 지정 칸을 싣지 않는다 — 되돌린 사람의 옛 인자가 프리셋 명령줄로 새면 안 된다). 속성명과 타입명이 같아 초기화식·비교식은 Tools.TerminalPreset.X 로 한정했다 (Color Color). src/FlexDir.Shell/Settings/JsonSettingsStore.cs 는 §19 대로 셋 다 고쳤다 — Document 에 string? TerminalPreset/TerminalExecutable/TerminalArguments 추가 · SaveAsync 가 settings.TerminalPreset.ToString() 으로 열거형 이름을 쓰고 실행파일·인자는 NullIfBlank 로 접어 쓴다 · Parse 가 Enum.TryParse<TerminalPreset>(ignoreCase) 로 읽고 모르는 값·null 은 AppSettings.Default.TerminalPreset 으로 접는다(던지지 않는다). private static string? NullIfBlank(string?) 하나 신설 — IsNullOrWhiteSpace 를 null 로 접어 SaveAsync·Parse 양쪽이 같이 쓴다. 테스트: ISettingsStoreTests.cs 에 계약 5개(Default_OpensWindowsTerminal · ResolveTerminal_WithAPreset_CarriesThePresetAlone[Theory 5] · WithCustom_CarriesTheExecutableAndArguments · WithCustomAndNothingTyped_DoesNotThrow, 그리고 SavedSettings_AreLoadedBack 왕복에 항목 셋 편입), JsonSettingsStoreTests.cs 에 실물 파일 왕복 6개(SavedCustomTerminal_SurvivesARoundTrip · EveryPreset_SurvivesARoundTrip[Enum.GetValues 로 6값] · SavedPreset_IsWrittenAsAReadableName[JSON 텍스트에 \\\"terminalPreset\\\": \\\"WindowsTerminal\\\"] · UnknownPreset_FallsBackToWindowsTerminal · AFileFromBeforeTerminalSettings_TakesTheDefaults[v0.8.x JSON 박아 둠] · BlankCustomExecutable_IsStoredAsNothing). 왕복은 전부 새 JsonSettingsStore 인스턴스로 읽고, 파일은 Path.GetTempPath() 아래 임시 폴더에만 쓴다. IViewStateStore·FlexDir.App 은 손대지 않았다. 테스트 2160개 전부 통과(기준 2146), 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-24T10:07:06+0900"
     },
     {
       "step": 3,
