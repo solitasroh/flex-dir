@@ -2101,6 +2101,113 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- 터미널 목록의 항목 하나. 기본 ComboBoxItem 은 자기 하이라이트 색을 OS 테마에서
+             가져오므로 우리 accent 와 어긋난다. -->
+        <Style x:Key="SettingsComboItem" TargetType="ComboBoxItem">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Chrome" Margin="2,1" CornerRadius="3" Background="Transparent"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SelBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 터미널 목록.
+
+             ⚠ 템플릿을 통째로 갈아야 한다. 기본 ComboBox 템플릿은 자기 배경을
+             `ComboBox.Static.Background`(#FFF0F0F0 고정)로 그리므로 Background 를 줘도
+             먹지 않는다 — 다크에서 흰 상자가 되고 흰 글씨가 그 위에 얹힌다.
+             2026-08-24 에 실물 캡처로 확인했다.
+
+             x:Key 를 단 이유는 CLAUDE.md §2.3 — 암시적 스타일로 두면 앱의 모든
+             ComboBox 로 번진다. 지금 이 자리에만 붙인다. -->
+        <Style x:Key="SettingsCombo" TargetType="ComboBox">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource SettingsComboItem}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Border x:Name="Chrome" CornerRadius="4"
+                                Background="{DynamicResource PaneBgBrush}"
+                                BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- 상자 전체가 누름 자리다. 배경은 위 Border 가 그리므로
+                                     여기는 클릭만 받는다. -->
+                                <ToggleButton Grid.ColumnSpan="2" Focusable="False" ClickMode="Press"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                          RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent" />
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+
+                                <!-- ContentTemplateSelector 가 있어야 DisplayMemberPath 가 닫힌
+                                     상자에도 닿는다. 빼면 record 의 ToString() 이 그대로 뜬다
+                                     — 2026-08-24 에 실물에서 밟았다. -->
+                                <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
+                                                  IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                  ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" />
+
+                                <!-- SortGlyph·TreeChevron 과 같은 글꼴이다 (docs/DESIGN.md §6). -->
+                                <TextBlock Grid.Column="1" Text="&#xE70D;" FontFamily="Segoe Fluent Icons"
+                                           FontSize="8" Margin="0,0,10,0" VerticalAlignment="Center"
+                                           IsHitTestVisible="False" Foreground="{DynamicResource Text2Brush}" />
+
+                                <!-- 여섯뿐이라 ScrollViewer 를 두지 않는다
+                                     (docs/UI_GUIDE.md §금지 목록). -->
+                                <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" Placement="Bottom"
+                                       AllowsTransparency="True" PopupAnimation="None"
+                                       IsOpen="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                RelativeSource={RelativeSource TemplatedParent}}">
+                                    <Border Margin="0,2,0,0" CornerRadius="4" BorderThickness="1"
+                                            MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            Background="{DynamicResource ChromeBgBrush}"
+                                            BorderBrush="{DynamicResource StrokeStrongBrush}">
+                                        <ItemsPresenter />
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -2524,6 +2631,62 @@
                                 <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Settings.StartFolderError}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <Separator Margin="0,16" Background="{DynamicResource StrokeBrush}" />
+
+                    <!-- ── 터미널 (docs/PRD-v2.md §20) ──────────────────── -->
+                    <TextBlock Style="{StaticResource SettingsHeading}" Text="터미널" />
+
+                    <!-- 라디오가 아니라 목록이다. 테마는 셋이라 라디오가 맞았지만 프리셋은
+                         여섯이라, 세로로 늘어놓으면 그 아래 §숨김 항목이 패널 밖으로 밀린다. -->
+                    <ComboBox Style="{StaticResource SettingsCombo}"
+                              HorizontalAlignment="Left" MinWidth="220"
+                              ItemsSource="{Binding Settings.TerminalOptions}"
+                              SelectedItem="{Binding Settings.SelectedTerminal, Mode=TwoWay}"
+                              DisplayMemberPath="Label" />
+
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,6,0,0"
+                               Text="[&gt;_] 버튼이 현재 폴더에서 여는 프로그램입니다." />
+
+                    <!-- 프리셋을 고른 동안 상자 둘을 잠근다 — §시작 폴더와 같은 판단이다:
+                         고칠 수 있는데 아무 효과가 없으면 고쳐 놓고 왜 안 되는지 찾게 된다.
+
+                         기본 UpdateSourceTrigger(LostFocus)를 그대로 쓴다 — 글자마다 바꾸면
+                         치는 도중의 반쪽 값이 매번 저장된다. -->
+                    <TextBox Style="{StaticResource SettingsPathBox}" Margin="20,8,0,0"
+                             IsEnabled="{Binding Settings.IsCustomTerminal}"
+                             Text="{Binding Settings.TerminalExecutable, Mode=TwoWay}" />
+
+                    <TextBox Style="{StaticResource SettingsPathBox}" Margin="20,4,0,0"
+                             IsEnabled="{Binding Settings.IsCustomTerminal}"
+                             Text="{Binding Settings.TerminalArguments, Mode=TwoWay}" />
+
+                    <!-- {} 로 시작해야 한다. 안 그러면 WPF 가 {path} 를 마크업 확장으로 읽고
+                         XamlParseException 으로 창이 아예 안 뜬다. -->
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="20,4,0,0"
+                               Text="{}인자의 {path} 가 현재 폴더 경로로 바뀝니다. 예: start --cwd &quot;{path}&quot;" />
+
+                    <!-- 잠그지 않는다. 프리셋을 고른 상태에서도 눌러 봐야 그것이 이 기계에
+                         있는지 알 수 있고, 그것이 이 버튼의 존재 이유다. -->
+                    <Button Style="{StaticResource SettingsButton}" HorizontalAlignment="Left"
+                            Margin="0,10,0,0" Content="실행해 보기"
+                            Command="{Binding Settings.TestTerminalCommand}" />
+
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,4,0,0"
+                               Text="상태 폴더에서 열어 봅니다." />
+
+                    <!-- 누르기 전에는 없다. 자리까지 접어야 아래 항목과 사이가 벌어지지 않는다. -->
+                    <TextBlock Text="{Binding Settings.TerminalTestResult}" Margin="0,4,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource SettingsNote}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Settings.TerminalTestResult}" Value="{x:Null}">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
                                 </Style.Triggers>
