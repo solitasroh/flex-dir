@@ -8,6 +8,7 @@ using FlexDir.App.Tests;
 using FlexDir.App.Tests.Fakes;
 
 using FlexDir.Core.Locations;
+using FlexDir.Core.Tools;
 
 using FlexDir.Host.Composition;
 
@@ -114,6 +115,40 @@ public class AppCompositionTests : IDisposable
         }
 
         Assert.NotEmpty(pane.KnownFolderOptions);
+    }
+
+    [Fact]
+    public async Task Create_GivesThePaneWorkingExternalTools()
+    {
+        // 조립이 IExternalToolCatalog·IExternalToolLauncher 를 빠뜨려도 **아무것도 깨지지
+        // 않는다** — 페인이 그 둘을 선택 인자(기본값 null)로 받으므로 컴파일이 통과하고,
+        // 페인 테스트는 fake 를 직접 넣어 만들며, 아래 정리 순서 테스트들은 이 포트를
+        // 보지 않는다. 그러면 게이트 넷이 전부 초록인 채로 실물에서만 [VS]·[>_] 가
+        // 영원히 회색이다. 2026-08-24 에 실제로 그렇게 나갔다 (§규칙 19).
+        //
+        // 프리셋을 명령 프롬프트로 두는 이유: cmd.exe 는 모든 Windows 에 있어 기계마다
+        // 답이 갈리지 않는다. VS Code·Windows Terminal 로 채점하면 그것이 없는 기계에서
+        // 게이트가 깨진다 (AppPathsToolCatalog 의 실물 테스트와 같은 판단이다).
+        var folder = Path.Combine(root, "tools");
+        Directory.CreateDirectory(folder);
+
+        await using var composition = AppComposition.Create(dispatcher, State(), () => 0);
+
+        var pane = composition.Workspace.Left();
+
+        pane.Terminal = new TerminalChoice(TerminalPreset.CommandPrompt);
+
+        await pane.NavigateAsync(Loc(folder));
+
+        pane.RefreshExternalTools();
+
+        // 탐지는 배경이다 (CLAUDE.md §3) — 관측될 때까지 기다린다.
+        for (var waited = 0; !pane.CanOpenInTerminal && waited < 100; waited++)
+        {
+            await Task.Delay(50);
+        }
+
+        Assert.True(pane.CanOpenInTerminal, "조립이 IExternalToolCatalog 를 페인에 넘기지 않았다.");
     }
 
     [Fact]

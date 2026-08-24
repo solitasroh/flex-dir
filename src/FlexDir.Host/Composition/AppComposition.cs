@@ -16,6 +16,7 @@ using FlexDir.Shell.Operations;
 using FlexDir.Shell.Presentation;
 using FlexDir.Shell.Settings;
 using FlexDir.Shell.Storage;
+using FlexDir.Shell.Tools;
 using FlexDir.Shell.Updates;
 using FlexDir.Shell.Usage;
 using FlexDir.Shell.ViewState;
@@ -130,6 +131,17 @@ public sealed class AppComposition : IAsyncDisposable
         var systemTheme = new RegistrySystemThemeSource();
         var knownFolders = new KnownFolderList();
 
+        // 외부 도구도 같은 자리다 — 레지스트리(App Paths)와 프로세스 생성이라 COM 이 아니고
+        // STA 도 정리도 필요 없다 (docs/PRD-v2.md §21 · ADR-022).
+        //
+        // ⚠ 이 둘을 아래 Pane() 과 SettingsViewModel 에 넘기는 것을 빼먹어도 **아무것도
+        // 깨지지 않는다** — 받는 쪽이 선택 인자(기본값 null)라 컴파일이 통과하고, ViewModel
+        // 테스트는 fake 를 직접 넣어 만들며, Host 테스트는 정리 순서만 본다. 그러면 게이트
+        // 넷이 전부 초록인 채로 실물에서만 [VS]·[>_] 와 [실행해 보기] 가 영원히 회색이다.
+        // 2026-08-24 에 실제로 그렇게 나갔고 step 9 가 배포 직전에 잡았다.
+        var toolCatalog = new AppPathsToolCatalog();
+        var toolLauncher = new ProcessToolLauncher();
+
         // 이쪽은 COM 이라 STA 워커를 든다 — 아래 정리 목록에 들어간다.
         var networkPlaces = new ShellNetworkPlaceList();
 
@@ -152,7 +164,9 @@ public sealed class AppComposition : IAsyncDisposable
             timeZone,
             contextMenus,
             driveSpace: driveSpace,
-            knownFolders: knownFolders);
+            knownFolders: knownFolders,
+            externalTools: toolCatalog,
+            toolLauncher: toolLauncher);
 
         // 새 버전 알림. 확인·받기는 여기서 시작하지 않는다 — 조립은 화면 없이 서야 하고
         // (위 §요약) 네트워크에 닿는 것은 Program 이 시작 뒤에 건다.
@@ -179,7 +193,9 @@ public sealed class AppComposition : IAsyncDisposable
             ProductVersion.Current,
             stateDirectory,
             systemTheme,
-            update);
+            update,
+            toolCatalog,
+            toolLauncher);
 
         // 팩토리를 넘긴다 (docs/PRD-v2.md §17). 탭이 런타임에 늘어나므로 조립 시점에
         // 인스턴스를 다 알 수 없다 — 여기 이미 나 있던 길이다. App 은 여전히 Shell 을
