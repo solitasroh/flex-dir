@@ -53,7 +53,10 @@
     {
       "step": 6,
       "name": "workspace-tools",
-      "status": "pending"
+      "status": "completed",
+      "started_at": "2026-08-24T10:47:44+0900",
+      "summary": "SettingsViewModel 에 TerminalChanged 이벤트 신설 (프리셋·실행파일·인자 셋 중 무엇이 바뀌어도 낸다 · internal TerminalPreset + public TerminalExecutable/TerminalArguments 세터가 Persist 뒤에 AnnounceTerminal() · LoadAsync 는 셋을 다 넣은 뒤 값이 실제로 달라졌을 때만 한 번 낸다 — 중간 상태로 페인이 헛탐지하지 않게). 화면(라디오·텍스트 상자)은 step 7 몫이라 TerminalPreset 은 internal 로 두었다 — StartMode·Theme 처럼 bool 짝을 얹는 자리다. PaneTabsViewModel 에 public TerminalChoice Terminal 신설 — ShowHiddenItems 와 같은 소유 구도(record 값 비교로 거르고 탭들에 민다). pane.Terminal 을 미는 자리는 셋이다: RestoreAsync(시작 적재, settings.ResolveTerminal()) · Grow(페인 복제, activePane.Terminal) · PaneTabsViewModel.Adopt(새 탭, tab.Terminal = terminal). 넷째 경로인 ApplyTerminal() 은 ApplyHiddenItemsAsync 와 짝인 별도 메서드로, TerminalChanged 구독이 부르고 allPanes 전부(접힌 페인·배경 탭 포함)에 민다 — 기다릴 것이 없어 Task 가 아니다. WorkspaceViewModel.OnWindowShown() 신설 — allPanes 의 모든 탭에 RefreshExternalTools() 를 부르고, 기다리지 않으며 탭마다 try/catch 로 삼킨다(창이 뜨는 길). ResidentWindow.Attach 가 window.IsVisibleChanged 로 그것을 부른다(NewValue is true 일 때만 · Activated 아님 · 첫 표시도 이 길로 온다 · 판단은 전부 ViewModel 에). 테스트: WorkspaceExternalToolsTests 11개 신설 + SettingsViewModelTests 에 5개 추가. 변이 8개(복원 push 제거 · Adopt push 제거 · Grow 복제 제거 · TerminalChanged 미구독 · ApplyTerminal 범위 축소 · OnWindowShown 범위 축소 · try/catch 제거 · LoadAsync 알림 제거)가 각각 해당 테스트만 떨어뜨리는 것을 확인했다. XAML·Host DI 는 손대지 않았다(step 7·8 몫). 남은 구멍 하나: 창이 이미 떠 있는 중에 만든 새 탭은 탐지를 돌지 않아 버튼이 꺼진 채로 뜬다 — Adopt 가 값만 물려주고 조회는 걸지 않는다. step 8 이 툴바를 붙일 때 볼 자리다. 테스트 2252개 전부 통과(기준 2236 · Core 654 + Shell 393 + App 1111 + Host 94), 빌드 경고 0, 구조 게이트 통과.",
+      "completed_at": "2026-08-24T11:11:14+0900"
     },
     {
       "step": 7,
