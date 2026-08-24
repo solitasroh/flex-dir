@@ -4,6 +4,7 @@
 
 - `CLAUDE.md` — CRITICAL 규칙. 특히 §1(**`FlexDir.App` 은 `FlexDir.Shell` 을 참조하지
   않는다** — Core 포트만 안다) · §3(UI 스레드) · §6(TDD 순서)
+- `docs/ARCHITECTURE.md` §1 계층 구조 · §2 포트 표 — **참조 방향은 `scripts/check-structure.ps1` 이 기계로 잡지만, 어느 계층에 무엇을 놓는가는 여기 있다**
 - `src/FlexDir.Core/Tools/ExternalToolCommand.cs` — **step 0.**
   `TerminalPreset` · `TerminalChoice` · `CanRunAt` · `FormatArguments` · `Resolve` · `Label`
 - `src/FlexDir.Core/Tools/ExternalToolMessages.cs` — **step 0.** `Describe(kind, toolLabel)`

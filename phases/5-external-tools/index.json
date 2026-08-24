@@ -45,7 +45,8 @@
     {
       "step": 5,
       "name": "pane-tools",
-      "status": "pending"
+      "status": "pending",
+      "started_at": "2026-08-24T10:24:40+0900"
     },
     {
       "step": 6,

@@ -5,10 +5,9 @@
   "//agent": "auto 로 두면 안 된다 — 실행기가 codex 를 먼저 고르는데, 이 저장소의 TDD·Danger 가드는 Claude Code 플러그인 훅이고 codex 는 .codex/hooks.json 을 본다. 그 파일이 없으므로 codex 로 돌리면 두 가드가 조용히 사라진다. Quality Gate 는 실행기가 직접 돌려 살아남지만, 테스트 우선 강제가 없어진다.",
   "agent": "claude",
 
-  "//guardrails": "매 step 프롬프트에 통째로 복사된다. 구현이 실제로 참조할 규칙만 넣는다. PRD·ADR·DESIGN 은 제외하고 필요한 step 지시서에서 경로로 지정해 읽게 한다. DECISIONS.md(실패 부검)는 루트에 두고 넣지 않는다. SHELL_NOTES.md 도 제외 — 자율 실행 대상은 Core·ViewModel(ADR-009)이라 shell 지식이 필요 없고, shell 작업은 수동이라 그때 직접 읽는다. 대신 경로 정규화·열거·오류 매핑·네트워크를 다루는 step 지시서의 '먼저 읽을 것'에 docs/SHELL_NOTES.md 를 반드시 명시할 것.",
+  "//guardrails": "매 step 프롬프트에 통째로 복사된다. 구현이 실제로 참조할 규칙만 넣는다. PRD·ADR·DESIGN 은 제외하고 필요한 step 지시서에서 경로로 지정해 읽게 한다. DECISIONS.md(실패 부검)는 루트에 두고 넣지 않는다. SHELL_NOTES.md 도 제외 — 자율 실행 대상은 Core·ViewModel(ADR-009)이라 shell 지식이 필요 없고, shell 작업은 수동이라 그때 직접 읽는다. 대신 경로 정규화·열거·오류 매핑·네트워크를 다루는 step 지시서의 '먼저 읽을 것'에 docs/SHELL_NOTES.md 를 반드시 명시할 것. ⚠ ARCHITECTURE.md 도 2026-08-24 에 제외했다 — 프롬프트는 argv 로 넘어가고 Windows CreateProcess 의 상한이 32767자인데, 2구간 step 5 에서 32963자로 넘겨 WinError 206 으로 죽었다. guardrails 는 매 step 고정 비용이고 step 요약은 step 당 약 1780자씩 쌓이므로, 가장 큰 파일(9336자)을 빼는 것 말고는 뒤 step 이 전부 넘긴다. 잃는 것이 적은 이유: ARCHITECTURE 의 강제 규칙 셋(코드비하인드·App→Shell 참조·Core 순수성)은 프롬프트가 아니라 scripts/check-structure.ps1 이 기계로 잡는다. 대신 구조를 건드리는 step 지시서의 '읽어야 할 파일'에 docs/ARCHITECTURE.md 를 반드시 명시할 것.",
   "guardrails": [
     "CLAUDE.md",
-    "docs/ARCHITECTURE.md",
     "docs/UI_GUIDE.md"
   ],
 

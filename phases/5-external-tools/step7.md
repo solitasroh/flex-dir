@@ -4,6 +4,7 @@
 
 - `CLAUDE.md` — CRITICAL 규칙. 특히 §2(**코드비하인드 금지** — `*.xaml.cs` 에는
   `InitializeComponent()` 만) · §3(UI 스레드) · §6(TDD 순서)
+- `docs/ARCHITECTURE.md` §1 계층 구조 · §2 포트 표 — **참조 방향은 `scripts/check-structure.ps1` 이 기계로 잡지만, 어느 계층에 무엇을 놓는가는 여기 있다**
 - `docs/UI_GUIDE.md` — **모달 금지**. 설정 패널은 창 안 오버레이다
 - `docs/PRD-v2.md` §12 — 설정 창
 - `src/FlexDir.Core/Tools/ExternalToolCommand.cs` — **step 0.**
