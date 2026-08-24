@@ -1522,7 +1522,12 @@ public class PaneTabsViewModelTests
     /// </summary>
     private static async Task WaitForAsync(Func<bool> reached, string expectation)
     {
-        for (var attempt = 0; attempt < 500; attempt++)
+        // 3000회 × 10ms = 30초. 5초였다가 올렸다 (2026-08-24) — 전체 병렬 실행의 부하에서
+        // Reactivating_RefreshesOnceThenWatchesAgain 이 사흘 만에 두 번 그 선을 넘었고,
+        // 단독으로는 같은 판정이 59~142ms 에 난다. **상한은 마감이 아니라 매달림을 실패로
+        // 바꾸는 장치이므로 실제 동작 시간과 100배쯤 벌어져 있어야 한다** (위 요약).
+        // 진짜 매달림은 게이트 바깥의 --blame-hang-timeout 120s 가 다시 받는다.
+        for (var attempt = 0; attempt < 3000; attempt++)
         {
             if (reached())
             {

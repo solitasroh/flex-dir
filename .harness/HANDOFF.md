@@ -112,9 +112,13 @@
          지금은 `AppCompositionTests.Create_GivesThePaneWorkingExternalTools` (95번째
          Host 테스트)가 그 자리를 막는다. **경계 자체는 그대로다** — 다음에 포트를
          선택 인자로 열 때 같은 테스트를 함께 만들어야 한다 (§규칙 19)
-         ⚠ `PaneTabsViewModelTests.Reactivating_RefreshesOnceThenWatchesAgain` 이 전체
-         병렬 실행에서 한 번 플레이키했다 (5초 상한 초과 · 단독 70ms 통과). 감시 스트림이
-         배경에서 도는 테스트라 부하를 탄다 — 고치지 않았다
+         ✅ `PaneTabsViewModelTests.Reactivating_RefreshesOnceThenWatchesAgain` 플레이키를
+         닫았다 (2026-08-24). 전체 병렬 실행에서 **사흘 만에 두 번** 5초 상한을 넘었고
+         단독으로는 59~142ms 에 통과한다. `WaitForAsync` 의 상한을 **5초 → 30초**로 올렸다.
+         단언은 그대로라 테스트가 약해지지 않는다 — **그 상한은 마감이 아니라 매달림을
+         실패로 바꾸는 장치이고**(헬퍼 주석), 진짜 매달림은 `--blame-hang-timeout 120s` 가
+         다시 받는다. **게이트가 이유 없이 빨개지면 사람이 빨간 것을 무시하는 법을 배운다** —
+         그것이 고친 이유다
          ⚠ `SetSplit_Folding_ReleasesTheWatch` 가 한 번 플레이키했다 —
          `NavigateAsync` 가 감시 루프가 서는 것을 기다리지 않아서다. `watcher.Current` 를
          기다린 뒤 `WatchStream.Finished` 를 보도록 고쳤고 3회 반복 안정이다
