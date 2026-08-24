@@ -1,0 +1,8 @@
+{
+  "step": 3,
+  "name": "shell-catalog",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 3 done. All three AC commands exit 0.\n\n```\ndotnet build --nologo -warnaserror     → 경고 0개, 오류 0개\ndotnet test --blame-hang               → 2191 통과 / 0 실패  (기준 2160, +31)\npwsh scripts/check-structure.ps1       → 구조 게이트 통과 (exit 0)\n```\n\n**만든 것 둘**\n- `src/FlexDir.Shell/Tools/AppPathsToolCatalog.cs` — `IExternalToolCatalog` 구현체\n- `tests/FlexDir.Shell.Tests/Tools/AppPathsToolCatalogTests.cs` — 31개 (전부 통과)\n\n**체크리스트**\n\n| 항목 | 결과 |\n|---|---|\n| 에디터가 App Paths 말고 다른 곳을 보나 | 안 본다. 후보는 HKCU·HKLM 둘뿐, `PATH` 없음 |\n| HKCU 가 HKLM 보다 먼저인가 | 그렇다 (`Editor_InBothHives_TakesTheCurrentUserOne`) |\n| 결과를 캐시하나 | 담는 필드가 없다. 조회 횟수 + \"지우면 다음 답이 null\" 둘로 채점 |\n| `IDisposable`·STA 워커 | 안 달았다. `Task.Run` 만 쓴다 |\n| 실물 테스트 | `cmd.exe` 하나 (`code`/`wt`/`git-bash` 로는 안 썼다) |\n| 기존 테스트 | 하나도 안 깨졌다 |\n\n실물 기계 대조도 따로 돌렸다 — 후보 표가 step 지시서의 실측값과 정확히 맞는다. 특히 이 기계는 `code.exe` 가 **HKCU 에만** 있어서, HKLM 을 먼저 봤으면 VS Code 를 못 찾는다.\n\n`★ Insight ─────────────────────────────────────`\n- 주입 델리게이트를 `exe 이름` 이 아니라 **레지스트리 키 전체 경로**로 받게 한 것이 설계의 핵심이다. 하이브 순서가 델리게이트 안이 아니라 클래스 안에 남아서, \"HKCU 가 이긴다\" 가 테스트로 채점 가능한 동작이 됐다.\n- 예외를 삼키는 단위를 **후보 하나**로 잡았다. 안쪽(실물 조회)에서 삼키면 막힌 하이브와 없는 값을 구분 못 하고, 바깥(전체 루프)에서 삼키면 하이브 하나가 막혔을 때 남은 후보가 통째로 날아간다 — `PowerShell7_WhenTheRegistryThrows_FallsBackToProgramFiles` 가 그 경계를 고정한다.\n`─────────────────────────────────────────────────`\n\n`phases/5-external-tools/index.json` 의 step 3 은 `completed` + summary(클래스명·생성자 시그니처·프리셋별 탐지 순서 표)로 갱신했다. 커밋은 안 했다 — 하네스 몫이다.\n\n**다음**: step 4 (`shell-launcher`) — `IExternalToolLauncher` 실물 구현.\n",
+  "stderr": ""
+}
