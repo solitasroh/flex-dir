@@ -21,13 +21,13 @@ public enum ListClick
 }
 
 /// <summary>
-/// 목록의 마우스 입력을 ViewModel 커맨드로 넘기는 attached behavior.
+/// 목록의 마우스 입력과 내장 선택이 가로채는 키를 ViewModel 커맨드로 넘기는 attached behavior.
 /// <para>
 /// 행 템플릿의 <c>MouseBinding</c> 은 시각 트리 밖이라 페인 커맨드에 바인딩할 수 없다
-/// (Freezable 은 자기 DataContext, 즉 행만 안다). 그래서 목록 컨트롤에 커맨드 다섯을 걸고,
+/// (Freezable 은 자기 DataContext, 즉 행만 안다). 그래서 목록 컨트롤에 커맨드를 걸고,
 /// 눌린 자리의 컨테이너를 찾아 항목을 넘긴다. 코드비하인드 금지(CLAUDE.md §2) 아래에서
-/// 마우스가 ViewModel 에 닿는 유일한 통로다 — 판단은 <see cref="Choose"/> 하나뿐이고
-/// 그것만 채점된다.
+/// 목록 입력이 ViewModel 에 닿는 통로다. 마우스 판정은 <see cref="Choose"/>, 전체 선택 키
+/// 판정은 <see cref="IsSelectAllGesture"/>에 모아 채점한다.
 /// </para>
 /// </summary>
 public static class ListInput
@@ -59,6 +59,14 @@ public static class ListInput
     public static readonly DependencyProperty ContextMenuCommandProperty =
         DependencyProperty.RegisterAttached(
             "ContextMenuCommand", typeof(ICommand), typeof(ListInput), new PropertyMetadata(null));
+
+    public static readonly DependencyProperty SelectAllCommandProperty =
+        DependencyProperty.RegisterAttached(
+            "SelectAllCommand", typeof(ICommand), typeof(ListInput), new PropertyMetadata(null, OnSelectAllWired));
+
+    private static readonly DependencyProperty SelectAllWiredProperty =
+        DependencyProperty.RegisterAttached(
+            "SelectAllWired", typeof(bool), typeof(ListInput), new PropertyMetadata(false));
 
     /// <summary>
     /// 더블클릭을 기다리는 타이머. 마우스는 하나이므로 대기 중인 제스처도 하나다 —
@@ -101,6 +109,10 @@ public static class ListInput
     public static ICommand? GetContextMenuCommand(DependencyObject element) => (ICommand?)element.GetValue(ContextMenuCommandProperty);
 
     public static void SetContextMenuCommand(DependencyObject element, ICommand? value) => element.SetValue(ContextMenuCommandProperty, value);
+
+    public static ICommand? GetSelectAllCommand(DependencyObject element) => (ICommand?)element.GetValue(SelectAllCommandProperty);
+
+    public static void SetSelectAllCommand(DependencyObject element, ICommand? value) => element.SetValue(SelectAllCommandProperty, value);
 
     /// <summary>
     /// 우클릭이 선택을 바꾸는가. <b>선택 밖을 누를 때만</b>이다 — 여러 개를 고른 뒤 그 위에서
@@ -177,6 +189,13 @@ public static class ListInput
     }
 
     /// <summary>
+    /// 목록의 <c>Ctrl+A</c> 인가. 이름변경 편집기 안에서는 <see cref="TextBoxBase"/>가
+    /// 자기 글자를 선택해야 하므로 목록이 받지 않는다.
+    /// </summary>
+    internal static bool IsSelectAllGesture(Key key, ModifierKeys modifiers, bool isEditing)
+        => key == Key.A && modifiers == ModifierKeys.Control && !isEditing;
+
+    /// <summary>
     /// <c>SelectCommand</c> 가 걸리는 순간 이벤트를 훅한다. 목록마다 한 번이다 — 커맨드를
     /// 바꿔 끼우는 조작은 없으므로 해제 경로를 만들지 않는다.
     /// </summary>
@@ -191,6 +210,58 @@ public static class ListInput
         list.PreviewMouseLeftButtonUp += OnMouseUp;
         list.PreviewMouseRightButtonUp += OnRightButtonUp;
         list.MouseDoubleClick += OnDoubleClick;
+    }
+
+    /// <summary><c>SelectAllCommand</c>가 걸리는 순간 자기 키 이벤트를 직접 훅한다.</summary>
+    private static void OnSelectAllWired(DependencyObject element, DependencyPropertyChangedEventArgs args)
+    {
+        if (element is not ItemsControl list
+            || args.NewValue is null
+            || (bool)element.GetValue(SelectAllWiredProperty))
+        {
+            return;
+        }
+
+        element.SetValue(SelectAllWiredProperty, true);
+        list.PreviewKeyDown += OnKeyDown;
+    }
+
+    /// <summary>
+    /// <c>PreviewKeyDown</c>에서 받아 <c>ListBox</c>의 내장 키 처리보다 먼저 이름 기반
+    /// <see cref="PaneSelection"/>으로 보낸다. 둘은 서로 다른 선택 상태라 내장 선택만 바뀌면
+    /// 파일 조작 커맨드가 보는 대상은 바뀌지 않는다.
+    /// </summary>
+    private static void OnKeyDown(object sender, KeyEventArgs args)
+    {
+        var list = (ItemsControl)sender;
+
+        args.Handled = TrySelectAll(
+            list, args.Key, Keyboard.Modifiers, args.OriginalSource as DependencyObject);
+    }
+
+    /// <summary>목록의 전체 선택 키를 ViewModel 커맨드로 보냈으면 <see langword="true"/>.</summary>
+    internal static bool TrySelectAll(
+        ItemsControl list,
+        Key key,
+        ModifierKeys modifiers,
+        DependencyObject? origin)
+    {
+        ArgumentNullException.ThrowIfNull(list);
+
+        if (!IsSelectAllGesture(key, modifiers, IsEditing(list, origin)))
+        {
+            return false;
+        }
+
+        var command = GetSelectAllCommand(list);
+
+        if (command?.CanExecute(null) != true)
+        {
+            return false;
+        }
+
+        command.Execute(null);
+        return true;
     }
 
     /// <summary>

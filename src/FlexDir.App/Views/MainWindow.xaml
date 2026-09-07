@@ -62,7 +62,6 @@
         <KeyBinding Key="Delete" Command="{Binding ActiveTab.DeleteSelectionCommand}" />
         <KeyBinding Key="F2" Command="{Binding ActiveTab.BeginRenameCommand}" />
         <KeyBinding Key="N" Modifiers="Control+Shift" Command="{Binding ActiveTab.CreateFolderCommand}" />
-        <KeyBinding Key="A" Modifiers="Control" Command="{Binding ActiveTab.SelectAllCommand}" />
         <KeyBinding Key="Tab" Command="{Binding SwitchPaneCommand}" />
         <KeyBinding Key="F6" Command="{Binding SwitchPaneCommand}" />
         <KeyBinding Key="C" Modifiers="Control+Alt" Command="{Binding CopyToOtherPaneCommand}" />
@@ -1599,6 +1598,7 @@
                                      v:ListInput.EmptyCommand="{Binding ClickBackgroundCommand}"
                                      v:ListInput.RenameCommand="{Binding BeginRenameCommand}"
                                      v:ListInput.ContextMenuCommand="{Binding ShowContextMenuCommand}"
+                                     v:ListInput.SelectAllCommand="{Binding SelectAllCommand}"
                                      v:DragDropInput.Enabled="True">
                                 <ListBox.ItemsSource>
                                     <MultiBinding Converter="{StaticResource ViewSource}">
