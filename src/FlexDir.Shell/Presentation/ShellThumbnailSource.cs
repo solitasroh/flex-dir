@@ -38,11 +38,13 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
 
     private readonly Func<string, bool, int, ThumbnailBitmap?> typeIcon;
     private readonly Func<LocationId, int, ThumbnailBitmap?> thumbnail;
+    private readonly Func<LocationId, int, ThumbnailBitmap?> itemIcon;
 
     public ShellThumbnailSource()
     {
         typeIcon = QueryTypeIcon;
         thumbnail = QueryThumbnail;
+        itemIcon = QueryItemIcon;
     }
 
     /// <summary>
@@ -52,13 +54,16 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
     /// </summary>
     internal ShellThumbnailSource(
         Func<string, bool, int, ThumbnailBitmap?> typeIcon,
-        Func<LocationId, int, ThumbnailBitmap?> thumbnail)
+        Func<LocationId, int, ThumbnailBitmap?> thumbnail,
+        Func<LocationId, int, ThumbnailBitmap?> itemIcon)
     {
         ArgumentNullException.ThrowIfNull(typeIcon);
         ArgumentNullException.ThrowIfNull(thumbnail);
+        ArgumentNullException.ThrowIfNull(itemIcon);
 
         this.typeIcon = typeIcon;
         this.thumbnail = thumbnail;
+        this.itemIcon = itemIcon;
     }
 
     public ValueTask<ThumbnailBitmap?> GetThumbnailAsync(LocationId item, int requestedSize, CancellationToken ct)
@@ -87,6 +92,16 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
 
         return new ValueTask<ThumbnailBitmap?>(
             worker.RunAsync(() => Guarded(() => typeIcon(key, isDirectory, requestedSize)), ct));
+    }
+
+    public ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedSize);
+        ct.ThrowIfCancellationRequested();
+
+        return new ValueTask<ThumbnailBitmap?>(
+            worker.RunAsync(() => Guarded(() => itemIcon(item, requestedSize)), ct));
     }
 
     public void Dispose() => worker.Dispose();
@@ -141,6 +156,37 @@ public sealed partial class ShellThumbnailSource : IThumbnailSource, IDisposable
                 ref info,
                 (uint)Marshal.SizeOf<ShellFileInfo>(),
                 ShgfiSysIconIndex | ShgfiUseFileAttributes);
+
+            return list == 0 ? null : FromImageList(ImageListFor(requestedSize), info.IconIndex);
+        });
+    }
+
+    // ── 항목 아이콘 ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// 그 위치의 실제 아이콘. <see cref="QueryTypeIcon"/> 과 달리
+    /// <c>SHGFI_USEFILEATTRIBUTES</c> 를 <b>주지 않는다</b> — 그 플래그가 있으면 shell 이
+    /// 실제 항목을 보지 않고 확장자 연결 정보만 보므로 모든 폴더가 같은 아이콘이 된다.
+    /// 다운로드의 화살표·사진의 그림은 실제 경로를 봐야 나온다.
+    /// <para>
+    /// 대가: 실제 항목을 보므로 네트워크·클라우드 경로에서 느려질 수 있다. 그래서 STA 워커
+    /// 뒤에 있고, 부르는 쪽은 개수가 정해진 곳이어야 한다 (포트 주석).
+    /// </para>
+    /// </summary>
+    private static ThumbnailBitmap? QueryItemIcon(LocationId item, int requestedSize)
+    {
+        // 형식 아이콘과 같은 SHGetFileInfo 라 같은 관문을 지난다 (§아이콘 함정 4).
+        return ShellInfoGate.Query<ThumbnailBitmap?>(() =>
+        {
+            var info = default(ShellFileInfo);
+
+            // shell 파서는 \\?\ 확장 접두사를 모른다. QueryThumbnail 과 같이 DisplayPath 를 준다.
+            var list = SHGetFileInfo(
+                item.DisplayPath,
+                0,
+                ref info,
+                (uint)Marshal.SizeOf<ShellFileInfo>(),
+                ShgfiSysIconIndex);
 
             return list == 0 ? null : FromImageList(ImageListFor(requestedSize), info.IconIndex);
         });

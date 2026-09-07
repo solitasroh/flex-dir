@@ -50,7 +50,7 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | 포트 | 책임 |
 |---|---|
 | `IFolderSource` | 경로를 받아 항목을 **비동기 스트림**으로 낸다. 취소 가능 |
-| `IThumbnailSource` | 항목의 썸네일/아이콘. 비동기, 취소 가능 |
+| `IThumbnailSource` | 항목의 썸네일/아이콘. 비동기, 취소 가능. 메서드 셋이 각각 다른 것을 답한다 — `GetThumbnailAsync`(내용 미리보기) · `GetTypeIconAsync`(확장자별 형식 아이콘) · `GetItemIconAsync`(경로별 항목 아이콘 — 알려진 폴더 메뉴가 쓴다, v0.8.1 · docs/PRD-v2.md §20) |
 | `IContextMenuProvider` | shell 컨텍스트 메뉴 표시와 명령 실행 |
 | `IClipboardBridge` | 탐색기 호환 복사/잘라내기/붙여넣기 |
 | `IFileOperations` | 복사·이동·삭제(휴지통)·이름변경·새 폴더 |
@@ -59,6 +59,9 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | `IUsageLog` | 실행·사용 시간 기록 |
 | `IItemActivator` | 더블클릭 시 연결 프로그램 실행 |
 | `IDriveSpace` | 위치가 속한 볼륨의 여유/전체 용량 (상태표시줄) |
+| `IKnownFolderList` | 알려진 폴더 다섯(홈·바탕화면·문서·다운로드·사진)의 위치. **조회가 저장소에 닿는다** — 리디렉션된 폴더(OneDrive·도메인 로밍)에서는 네트워크로 내려간다. 구현 `Shell/Locations/KnownFolderList.cs` 는 COM 이 아니라 STA 도 정리도 필요 없다 (`AppComposition` 정리 목록에 없다) |
+| `IExternalToolCatalog` | 설치된 외부 도구를 찾는다 — `FindEditorAsync(ct)` · `FindTerminalAsync(preset, ct)`, 둘 다 `ValueTask<string?>`. **실패는 `null`, 취소만 예외.** **캐시하지 않는다** — 상주 앱이라 창이 다시 보일 때마다 다시 묻는다 (v0.8.5 · docs/PRD-v2.md §21). 구현 `Shell/Tools/AppPathsToolCatalog.cs` (COM 이 아니라 STA 도 정리도 없다) |
+| `IExternalToolLauncher` | 외부 도구를 그 폴더를 작업 디렉터리로 띄운다 — `LaunchAsync(executable, arguments, workingFolder, ct)` → `ValueTask<LocationErrorKind>`. **실패는 `LocationErrorKind`, 던지지 않는다** — 실패가 정상 상황이라 호출자가 상태표시줄 한 줄로 만든다 (`None` 이 성공). 구현 `Shell/Tools/ProcessToolLauncher.cs` |
 
 포트는 **경로를 문자열이 아니라 `LocationId` 로** 주고받는다. v1 은 로컬
 파일시스템 경로만 담지만, v2 의 UNC·shell 네임스페이스(PIDL)를 같은 타입으로

@@ -1,0 +1,48 @@
+{
+  "project": "flex-dir",
+  "phase": "4-known-folder-icons",
+  "steps": [
+    {
+      "step": 0,
+      "name": "folder-icon-port",
+      "status": "completed",
+      "started_at": "2026-08-21T17:17:11+0900",
+      "summary": "IThumbnailSource 에 ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct) 추가 (계약: 실패는 null·취소만 예외·requestedSize 양수·경로별 캐시라 항목마다 부르지 않음). FakeThumbnailSource 에 ItemIcons(LocationId→ThumbnailBitmap 주입)·ItemIconRequests·CountItemIconRequests·ItemIconMark(0x33) 추가, 미주입 경로는 null. ShellThumbnailSource.GetItemIconAsync 는 인자 검증 후 null 을 내는 최소 구현 (Dispose 바로 위, GetTypeIconAsync 다음) — step 1 이 실제 shell 조회로 바꾼다. 테스트 2073→2079.",
+      "completed_at": "2026-08-21T17:21:55+0900"
+    },
+    {
+      "step": 1,
+      "name": "shell-folder-icon",
+      "status": "completed",
+      "started_at": "2026-08-21T17:22:11+0900",
+      "summary": "ShellThumbnailSource.GetItemIconAsync 를 실제 조회로 교체: 주입 델리게이트 itemIcon(내부 생성자 3-델리게이트로 확장) → worker.RunAsync(STA) → Guarded → QueryItemIcon. QueryItemIcon 은 DisplayPath 를 SHGFI_SYSICONINDEX 단독 플래그(SHGFI_USEFILEATTRIBUTES 없음)로 SHGetFileInfo 에 넘기고 ShellInfoGate.Query 로 직렬화, 인덱스는 기존 ImageListFor→FromImageList 사슬 재사용(HICON 해제 포함). 테스트 6개 추가(2079→2085): 이 기계에서 Downloads·Pictures 아이콘 픽셀이 실제로 갈렸다(ItemIcon_KnownFolders_Differ 통과).",
+      "completed_at": "2026-08-21T17:27:31+0900"
+    },
+    {
+      "step": 2,
+      "name": "known-folder-icon-option",
+      "status": "completed",
+      "started_at": "2026-08-21T17:27:47+0900",
+      "summary": "KnownFolderOption 을 (string Label, LocationId Location, ThumbnailBitmap? Icon = null) 로 확장 — step 3 은 Icon 으로 바인딩한다. ToOptions 는 순수 변환 그대로. PaneViewModel.LoadKnownFolders 의 배경 경로에서 목록 공지 직후 걸러진 항목 제외하고 thumbnailSource.GetItemIconAsync 를 KnownFolderIconSize(=32, private const — 150% 배율 24px 슬롯에서 16 원본이 뭉개져서) 로 순차 호출, with { Icon } 새 목록으로 교체 후 PropertyChanged 한 번 더 (아이콘 없이 먼저 한 번, 채운 뒤 한 번). 실패는 그 항목만 null 로 삼키고, 취소는 knownFoldersAsked 리셋 (기존 ListAsync 취소와 같은 수). 조회는 knownFoldersAsked 가드 덕에 경로당 프로세스 수명에 한 번. 테스트 6개 추가(2085→2091), ThrowingItemIconSource 는 테스트 파일 내 지역 클래스.",
+      "completed_at": "2026-08-21T17:33:42+0900"
+    },
+    {
+      "step": 3,
+      "name": "known-folder-menu-icons",
+      "status": "completed",
+      "started_at": "2026-08-21T17:33:58+0900",
+      "summary": "알려진 폴더 메뉴 ItemContainerStyle 에 MenuItem.Icon 추가 (MainWindow.xaml) — 16×16 표시(원본 32 를 HighQuality 로 축소), 기존 ThumbnailImageConverter 를 값 하나짜리 MultiBinding(Path=Icon)으로 재사용. x:Shared=\"False\" 줬다 — 단 인라인 Setter.Value 가 아니라 Style.Resources 항목으로 (x:Shared 는 ResourceDictionary 에서만 유효) + Icon Setter 는 DynamicResource (StaticResource 는 파스 타임 1회 조회라 x:Shared=False 가 무효 — 컨테이너마다 조회해야 컨테이너당 새 Image). 아이콘 null 이면 빈칸, 항목은 유지. 코드비하인드·새 변환기·새 템플릿·» 쪽 변경 없음. ViewConvertersTests 에 하나짜리 배열 테스트 2개 추가 (2091→2093).",
+      "completed_at": "2026-08-21T17:37:41+0900"
+    },
+    {
+      "step": 4,
+      "name": "release-0.8.1",
+      "status": "completed",
+      "started_at": "2026-08-21T17:37:56+0900",
+      "summary": "v0.8.1 마감 (코드 변경 없음): Directory.Build.props 0.8.0→0.8.1 · docs/PRD-v2.md §20 에 소절 '항목 아이콘은 shell 에서 온다'(§알려진 폴더 다섯 바로 뒤) · DESIGN.md §7 탭 아이콘 예외 블록에 비용 곱셈 기준 문단 · ARCHITECTURE.md IThumbnailSource 행에 메서드 셋 구분 · HANDOFF §현재 상태(0.8.1·테스트 2093)/§다음 작업 0-0(사람 확인 넷)/§포트 현황(17/17 유지) · HISTORY §배포 기록 v0.8.1 항목. 게이트 4종 exit 0·경고 0, 테스트 총계 2093 (Core 593·Shell 332·App 1074·Host 94). 패키지 artifacts/packages/flex-dir-win-Setup.exe (78.6MB · 서명 지문 81DB29…, -NoUpload — 업로드·푸시 안 함). 사람 확인은 이 설치본으로 v0.8.0 잔여 항목까지 함께 밟는다.",
+      "completed_at": "2026-08-21T17:43:46+0900"
+    }
+  ],
+  "created_at": "2026-08-21T17:17:11+0900",
+  "completed_at": "2026-08-21T17:44:01+0900"
+}

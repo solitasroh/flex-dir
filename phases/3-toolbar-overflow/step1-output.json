@@ -1,0 +1,8 @@
+{
+  "step": 1,
+  "name": "known-folder-menu",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 1 (known-folder-menu) 완료. AC 셋 다 exit 0: 빌드 경고 0, 테스트 2,045개 전부 통과(신규 10개 포함, step 0 직후보다 증가), 구조 게이트 통과.\n\n**만든 것** — 전부 `src/FlexDir.App/ViewModels/PaneViewModel.cs` 안:\n\n1. `KnownFolderOption(string Label, LocationId Location)` — `GroupOption` 바로 옆. `Location` 은 non-null.\n2. `internal static ToOptions` — `Location` 이 `null` 인 항목 제외, 입력 순서 유지, 정렬·라벨 가공 없음.\n3. 생성자 맨 뒤 `IKnownFolderList? knownFolders = null` 선택 주입 — 기존 페인 테스트 무수정 통과가 그 증거.\n4. `KnownFolderOptions` 속성 — 기본 빈 목록. 적재는 `FillAsync` 끝의 `MeasureFreeSpace` 호출 바로 옆에서 fire-and-forget 으로 **딱 한 번**(`knownFoldersAsked` 플래그, `FakeKnownFolderList.Asked == 1` 로 채점). 실패는 삼키고 폴더 열기는 진행, 채워지면 dispatcher 를 거쳐 `OnPropertyChanged(nameof(KnownFolderOptions))`.\n5. `OpenKnownFolderCommand` — `NavigateAsync(LocationId)` 경유라 히스토리에 남고(`CanGoBack` 참 채점), `null` 이면 무시.\n6. `tests/FlexDir.App.Tests/ViewModels/PaneKnownFoldersTests.cs` — 지시된 10개 전부.\n\n`★ Insight ─────────────────────────────────────`\n- 지시서의 \"OpenAsync 에서 await\" 대신 `MeasureFreeSpace` 와 동일한 fire-and-forget 을 골랐습니다. `FillAsync` 반환을 조회가 붙들면 `LoadAsync` 의 `finally`(`watching.MarkEnumerated`)가 밀려 감시 루프·`DisposeAsync` 가 매달릴 수 있어서입니다 — \"driveSpace 부르는 자리 바로 옆\" 이라는 지시가 가리키는 본보기가 정확히 이 패턴이고, 테스트 관측도 기존 `FreeSpaceWork` 와 같은 수(`KnownFoldersWork`)로 해결됩니다.\n- 취소만은 `knownFoldersAsked` 를 되돌립니다. 포트 계약상 유일하게 새어 나오는 예외가 취소인데, 첫 탐색이 취소됐다고 메뉴가 프로세스 수명 내내 비어 버리면 안 되기 때문입니다.\n`─────────────────────────────────────────────────`\n\n`index.json` step 1 은 `completed` 로 갱신했고, summary 에 step 4 가 바인딩할 이름(`KnownFolderOptions` · `OpenKnownFolderCommand`)과 테스트 경로를 적었습니다. 커밋은 하네스 몫이라 하지 않았습니다.\n",
+  "stderr": ""
+}

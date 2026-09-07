@@ -177,6 +177,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 스스로 하지 않는 이유는 각자의 속성 주석에 있다 — 다시 읽을지를 정하는
             // 곳이 하나여야 클릭 한 번에 저장소 호출이 셋으로 늘지 않는다.
             settings.HiddenItemsChanged += (_, _) => hiddenItemsWork = ApplyHiddenItemsAsync();
+
+            // 터미널 선택도 같은 자리에서 같은 이유로 내려간다 (docs/PRD-v2.md §20). 다시
+            // 읽을 것이 없어 기다릴 것도 없다 — 페인이 값을 받고 스스로 다시 탐지한다.
+            settings.TerminalChanged += (_, _) => ApplyTerminal();
         }
 
         if (tree is not null)
@@ -452,6 +456,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // (docs/PRD-v2.md §17 구조 렌즈 — 예전에는 나중에 만든 탭이 기본값으로 떴다).
             pane.ShowHiddenItems = settings.ShowHiddenItems;
 
+            // 같은 이유로 여기서 민다 — 페인은 설정을 모른다 (docs/PRD-v2.md §20).
+            pane.Terminal = settings.ResolveTerminal();
+
             // 시작 폴더 규칙은 Core 에 있다 (AppSettings.ResolveStartFolder) — 페인마다 한 번씩
             // 같은 규칙을 지난다. 규칙이 정하는 것은 <b>활성 탭</b>이 열 폴더이고, 배경 탭은
             // 기억된 자기 폴더를 그대로 든다 (docs/PRD-v2.md §17 세션 복원).
@@ -498,6 +505,42 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // 읽기와 같은 이유로 삼킨다 — 저장 실패가 창을 닫는 길을 막으면 안 된다.
+        }
+    }
+
+    /// <summary>
+    /// 창이 (다시) 보였다 (<c>Views/ResidentWindow</c>). 상주 앱(ADR-003)이라 이 사이에
+    /// 사용자가 외부 도구를 설치하거나 지웠을 수 있다 — 열려 있는 탭들이 다시 찾게 한다.
+    /// <para>
+    /// <b>기다리지 않는다.</b> 창이 뜨는 길이고 <c>WindowShown</c> 예산은 100ms 다 (상주 중
+    /// 실측 3~9ms). 레지스트리·파일시스템 조회를 여기 얹으면 그것을 통째로 먹는다 —
+    /// <c>RefreshExternalTools</c> 가 이미 스스로 물러서 있다.
+    /// </para>
+    /// <para>
+    /// <b>던지지 않는다.</b> 여기서 던지면 창이 안 뜬다. 탭 하나가 새어도 나머지는 마저
+    /// 찾는다 — 외부 도구를 못 찾는 것이 창을 못 여는 사건이 되면 안 된다.
+    /// </para>
+    /// <para>
+    /// <b>첫 표시도 이 길로 온다</b> — 시작할 때 따로 걸 자리를 두지 않는다.
+    /// </para>
+    /// </summary>
+    public void OnWindowShown()
+    {
+        // 접힌 페인과 배경 탭까지 지난다 (ApplyHiddenItemsAsync 와 같은 범위) — 다시 펴거나
+        // 전환하는 순간에 버튼 판정이 옛것이면 그 자리에서는 아무도 다시 묻지 않는다.
+        foreach (var pane in allPanes)
+        {
+            foreach (var tab in pane.Tabs)
+            {
+                try
+                {
+                    tab.RefreshExternalTools();
+                }
+                catch (Exception)
+                {
+                    // 위 §요약 참조.
+                }
+            }
         }
     }
 
@@ -886,6 +929,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             if (allPanes.Count > 0)
             {
                 pane.ShowHiddenItems = activePane.ShowHiddenItems;
+                pane.Terminal = activePane.Terminal;
                 pane.Active.PendingLocation = ActiveTab.CurrentLocation ?? ActiveTab.PendingLocation;
             }
 
@@ -1165,6 +1209,34 @@ public sealed partial class WorkspaceViewModel : ObservableObject
         }
 
         await Task.WhenAll(work).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 바뀐 터미널 선택을 페인들에 민다 (docs/PRD-v2.md §20).
+    /// <para>
+    /// <b>기다릴 것이 없다.</b> 숨김 정책과 달리 목록을 다시 읽지 않는다 — 페인이 값을 받고
+    /// 스스로 탐지를 다시 걸며 (<c>PaneViewModel.Terminal</c>), 그 탐지는 자기 자리에서 이미
+    /// 물러서 있다. 그래서 <see cref="ApplyHiddenItemsAsync"/> 와 달리 <c>Task</c> 가 없다.
+    /// </para>
+    /// <para>
+    /// <b>범위는 그쪽과 정확히 같다</b> — 접힌 페인과 배경 탭까지다. 페인이 소유자이므로
+    /// (<c>PaneTabsViewModel.Terminal</c>) 여기서 빠뜨리면 접었다 편 페인만 옛 프리셋으로
+    /// 남는다.
+    /// </para>
+    /// </summary>
+    private void ApplyTerminal()
+    {
+        if (Settings is not { } settings)
+        {
+            return;
+        }
+
+        var terminal = settings.Current.ResolveTerminal();
+
+        foreach (var pane in allPanes)
+        {
+            pane.Terminal = terminal;
+        }
     }
 
     /// <summary>

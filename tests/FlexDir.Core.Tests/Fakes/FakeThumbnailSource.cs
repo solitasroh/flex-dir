@@ -27,6 +27,9 @@ public sealed class FakeThumbnailSource : IThumbnailSource
     /// <summary>썸네일 픽셀을 채우는 값.</summary>
     public const byte ThumbnailMark = 0x22;
 
+    /// <summary>항목 아이콘 주입에 쓰라고 둔 표식 값. 형식 아이콘·썸네일과 갈린다.</summary>
+    public const byte ItemIconMark = 0x33;
+
     private readonly object gate = new();
     private int concurrent;
 
@@ -35,6 +38,15 @@ public sealed class FakeThumbnailSource : IThumbnailSource
 
     /// <summary>들어온 형식 아이콘 요청.</summary>
     public List<(string Extension, bool IsDirectory, int RequestedSize)> TypeIconRequests { get; } = [];
+
+    /// <summary>들어온 항목 아이콘 요청. 취소·실패로 끝난 것도 남는다.</summary>
+    public List<(LocationId Item, int RequestedSize)> ItemIconRequests { get; } = [];
+
+    /// <summary>
+    /// 경로별로 낼 항목 아이콘. 넣지 않은 경로는 <c>null</c> 을 받는다 — "없거나 실패하면
+    /// <c>null</c>" 이 포트 계약이라 fake 의 기본값이 곧 실패 경로다.
+    /// </summary>
+    public Dictionary<LocationId, ThumbnailBitmap> ItemIcons { get; } = [];
 
     /// <summary>
     /// 썸네일 요청이 이 Task 를 기다린 뒤에 값을 낸다. 기본값은 이미 완료된 Task 다 —
@@ -117,9 +129,31 @@ public sealed class FakeThumbnailSource : IThumbnailSource
         return ValueTask.FromResult<ThumbnailBitmap?>(Bitmap(requestedSize, IconMark));
     }
 
+    public ValueTask<ThumbnailBitmap?> GetItemIconAsync(LocationId item, int requestedSize, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        // 구현체(ShellThumbnailSource)가 명시적으로 던지는 검증이다. 다른 둘은 Bitmap 생성이
+        // 대신 걸러 주지만, 이 메서드는 미주입 경로에서 비트맵을 만들지 않으므로 직접 던진다.
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(requestedSize);
+
+        lock (gate)
+        {
+            ItemIconRequests.Add((item, requestedSize));
+        }
+
+        ObserveCancellation(ct);
+
+        return ValueTask.FromResult(ItemIcons.GetValueOrDefault(item));
+    }
+
     /// <summary>같은 항목으로 들어온 썸네일 요청 횟수.</summary>
     public int CountThumbnailRequests(LocationId item)
         => ThumbnailRequests.Count(request => request.Item.Equals(item));
+
+    /// <summary>같은 항목으로 들어온 항목 아이콘 요청 횟수. 크기는 보지 않는다.</summary>
+    public int CountItemIconRequests(LocationId item)
+        => ItemIconRequests.Count(request => request.Item.Equals(item));
 
     /// <summary>같은 확장자로 들어온 형식 아이콘 요청 횟수. 크기는 보지 않는다.</summary>
     public int CountTypeIconRequests(string extension, bool isDirectory)

@@ -1,0 +1,56 @@
+{
+  "project": "flex-dir",
+  "phase": "3-toolbar-overflow",
+  "steps": [
+    {
+      "step": 0,
+      "name": "known-folder-port",
+      "status": "completed",
+      "started_at": "2026-08-21T15:03:10+0900",
+      "summary": "src/FlexDir.Core/Locations/IKnownFolderList.cs (KnownFolderKind 순서 Home·Desktop·Documents·Downloads·Pictures + KnownFolder record(Label 은 구현체가 채움, Location=null=없는 폴더) + IKnownFolderList.ListAsync 한 파일) · tests/FlexDir.Core.Tests/Locations/IKnownFolderListTests.cs · tests/FlexDir.Core.Tests/Fakes/FakeKnownFolderList.cs (Folders 주입 · Asked 카운터 · 취소 관측)",
+      "completed_at": "2026-08-21T15:06:28+0900"
+    },
+    {
+      "step": 1,
+      "name": "known-folder-menu",
+      "status": "completed",
+      "started_at": "2026-08-21T15:08:13+0900",
+      "summary": "PaneViewModel 에 KnownFolderOption record(Location non-null) · internal static ToOptions(null Location 제외, 입력 순서 유지) · KnownFolderOptions 속성(빈 목록 기본, 채워지면 OnPropertyChanged) · OpenKnownFolderCommand(NavigateAsync 경유라 히스토리에 남음, null 이면 무시) 추가. 포트는 생성자 선택 주입(IKnownFolderList? knownFolders = null), FillAsync 끝 MeasureFreeSpace 옆에서 fire-and-forget 으로 딱 한 번 읽음(관측 지점 internal KnownFoldersWork, 실패는 삼킴). 테스트 tests/FlexDir.App.Tests/ViewModels/PaneKnownFoldersTests.cs 10개.",
+      "completed_at": "2026-08-21T15:15:42+0900"
+    },
+    {
+      "step": 2,
+      "name": "toolbar-overflow-panel",
+      "status": "completed",
+      "started_at": "2026-08-21T15:15:57+0900",
+      "summary": "src/FlexDir.App/Views/ToolbarOverflowPanel.cs — 첨부 속성 FoldOrder(0=절대 안 접힘, 1부터 작은 번호 먼저·같은 번호는 한 덩어리)·IsOverflowHead(» 머리, 접힌 것이 있을 때만 Visible)·AlignRight(오른쪽 정렬, 📍·» 가 켬), 판정은 internal static Folded(순수 값만, 접기 시작하면 available-overflowWidth 예산·무리 소진 시 넘침), FoldedOrders 는 읽기 전용 DependencyProperty(값이 바뀔 때만 새 인스턴스). 자연 폭은 Collapsed 전에 캐시(진동 방지), ClipToBounds. ViewConverters.cs 에 FoldedOrderToVisibility 추가(FoldedOrders 에 ConverterParameter 번호가 있으면 Visible). 주의: step 지시서의 시나리오 예시(260→뷰모드만 접힘)는 명세된 오름차순 알고리즘과 모순이라 정직 계산으로 확정 — 260 이면 분류(2)+뷰모드(3) 둘 다 접히고, 분류만 접히는 중간 폭은 [338,347) (테스트는 340 사용). 테스트 ToolbarOverflowPanelTests.cs 14개 + ViewConvertersTests 3개.",
+      "completed_at": "2026-08-21T15:24:53+0900"
+    },
+    {
+      "step": 3,
+      "name": "shell-known-folders",
+      "status": "completed",
+      "started_at": "2026-08-21T15:25:09+0900",
+      "summary": "FlexDir.Shell.Locations.KnownFolderList (IDisposable 미구현 — COM 아님, RegistrySystemThemeSource·SystemDriveList 와 같은 자리라 AppComposition 정리 목록에 넣지 않는다). ListAsync 는 Task.Run 경유, 넷은 Environment.GetFolderPath(Home=UserProfile·Desktop=DesktopDirectory·Documents=MyDocuments·Pictures=MyPictures), Downloads 만 SHGetKnownFolderPath(FOLDERID_Downloads, LibraryImport, finally 에서 FreeCoTaskMem). 라벨 고정 홈·바탕화면·문서·다운로드·사진, 없는 폴더는 Location=null 로 다섯 자리 유지, 실패는 삼키고 취소만 던짐. 테스트 tests/FlexDir.Shell.Tests/Locations/KnownFolderListTests.cs 8개(Theory 포함 11케이스).",
+      "completed_at": "2026-08-21T15:29:03+0900"
+    },
+    {
+      "step": 4,
+      "name": "toolbar-wiring",
+      "status": "completed",
+      "started_at": "2026-08-21T15:29:19+0900",
+      "summary": "MainWindow.xaml 툴바 StackPanel 을 v:ToolbarOverflowPanel(x:Name=PaneToolbar)로 교체. FoldOrder 배정표: 뒤로E72B·앞으로E72A·상위E74A·구분자·새로고침E72C=0(기본), 구분자+뷰모드 4종(E8A4·E8FD·E8A9·E15B)=3, 구분자+분류 Menu(E8EC)=2, 1은 2구간 외부도구용으로 비움. 알려진 폴더 Menu(E707, AlignRight, ItemsSource=KnownFolderOptions, OpenKnownFolderCommand)와 » 머리(AlignRight+IsOverflowHead, 서브메뉴 '보기 모드'=ChangeViewModeCommand 4종·'분류 방법'=GroupOptions+ChangeGroupCommand, FoldedOrderToVisibility 를 ElementName=PaneToolbar 로 바인딩, Window.Resources 에 컨버터 등록) 추가. AppComposition 에 var knownFolders = new KnownFolderList() (정리 목록 제외) + Pane() 에 knownFolders: 주입, AppCompositionTests.Create_OpensARealFolder 에 KnownFolderOptions 도달 단정 추가. 테스트 2073개(587+326+1066+94) 전부 통과·경고 0·check-structure 통과.",
+      "completed_at": "2026-08-21T15:35:29+0900"
+    },
+    {
+      "step": 5,
+      "name": "release-0.8.0",
+      "status": "completed",
+      "started_at": "2026-08-21T15:35:44+0900",
+      "summary": "1구간 마감 — 코드 변경 없음. ADR-021(무리 접힘·» 별도 선언·자연 폭 캐시) · PRD-v2 §20(접힘 규칙·알려진 폴더 다섯·E707 사유) · DESIGN §1/§7(E707 행 + 아이콘 규칙 한 겹 확장) · ARCHITECTURE 포트 표 IKnownFolderList · HANDOFF(17/17, 테스트 2073, 다음 작업=v0.9.0 외부 도구, FoldOrder 1 비움) · HISTORY v0.8.0 항목 · Directory.Build.props 0.8.0. AC 4종 exit 0·경고 0, 최종 테스트 총계 2073 (Core 587·Shell 326·App 1066·Host 94). 패키지: artifacts\\packages\\flex-dir-win-Setup.exe (78.6MB, 서명 CN=Rootech 8+1 파일, -NoUpload — GitHub 미업로드, 사람 확인 12번은 이 설치본으로).",
+      "completed_at": "2026-08-21T15:45:13+0900"
+    }
+  ],
+  "created_at": "2026-08-21T15:03:10+0900",
+  "completed_at": "2026-08-21T15:45:31+0900"
+}

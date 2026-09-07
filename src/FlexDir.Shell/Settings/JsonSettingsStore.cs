@@ -2,6 +2,7 @@ using System.Text.Json;
 
 using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
+using FlexDir.Core.Tools;
 
 namespace FlexDir.Shell.Settings;
 
@@ -98,6 +99,9 @@ public sealed class JsonSettingsStore : ISettingsStore
             StartFolder = settings.StartFolder?.DisplayPath,
             ShowHiddenItems = settings.ShowHiddenItems,
             Theme = settings.Theme.ToString(),
+            TerminalPreset = settings.TerminalPreset.ToString(),
+            TerminalExecutable = NullIfBlank(settings.TerminalExecutable),
+            TerminalArguments = NullIfBlank(settings.TerminalArguments),
         };
 
         await writeGate.WaitAsync(ct).ConfigureAwait(false);
@@ -135,14 +139,34 @@ public sealed class JsonSettingsStore : ISettingsStore
             ? chosen
             : AppSettings.Default.Theme;
 
+        // Enum.TryParse 는 정의되지 않은 값이어도 숫자 문자열이면 성공한다 — "99" 가
+        // (TerminalPreset)99 로 그대로 실린다. 그 값은 ExternalToolCommand.Label 이
+        // 던지는 자리를 셋(설정 패널의 바인딩 getter · [실행해 보기] · 터미널 커맨드) 지나
+        // 앱을 무너뜨린다 (2026-08-24 리뷰). Enum.IsDefined 로 정의된 값만 받는다.
+        var terminal = Enum.TryParse<TerminalPreset>(document.TerminalPreset, ignoreCase: true, out var preset)
+            && Enum.IsDefined(preset)
+            ? preset
+            : AppSettings.Default.TerminalPreset;
+
         return new AppSettings
         {
             StartMode = mode,
             StartFolder = folder,
             ShowHiddenItems = document.ShowHiddenItems ?? AppSettings.Default.ShowHiddenItems,
             Theme = theme,
+            TerminalPreset = terminal,
+            TerminalExecutable = NullIfBlank(document.TerminalExecutable),
+            TerminalArguments = NullIfBlank(document.TerminalArguments),
         };
     }
+
+    /// <summary>
+    /// 빈 문자열과 <c>null</c> 을 같게 다룬다 — 설정 창의 텍스트 상자를 비우면 빈 문자열이
+    /// 오는데, 둘을 가르면 '아직 적지 않았다' 를 판정하는 자리마다 조건이 둘씩 는다.
+    /// 공백만 있는 것도 같다 (<see cref="ExternalToolCommand.FormatArguments"/> 와 같은 수).
+    /// </summary>
+    private static string? NullIfBlank(string? value)
+        => string.IsNullOrWhiteSpace(value) ? null : value;
 
     private void Quarantine()
     {
@@ -175,5 +199,17 @@ public sealed class JsonSettingsStore : ISettingsStore
 
         /// <summary>열거형 이름으로 저장한다 (<c>"System"</c>·<c>"Light"</c>·<c>"Dark"</c>).</summary>
         public string? Theme { get; init; }
+
+        /// <summary>
+        /// 열거형 이름으로 저장한다 (<c>"WindowsTerminal"</c>·<c>"Custom"</c> …).
+        /// 숫자로 쓰면 열거형 중간에 값이 끼는 날 저장 파일이 조용히 다른 뜻이 된다.
+        /// </summary>
+        public string? TerminalPreset { get; init; }
+
+        /// <summary><c>"Custom"</c> 일 때의 실행 파일. 빈 문자열은 없는 것으로 접어 쓴다.</summary>
+        public string? TerminalExecutable { get; init; }
+
+        /// <summary><c>"Custom"</c> 일 때의 인자 한 줄. <c>{path}</c> 가 현재 폴더로 바뀐다.</summary>
+        public string? TerminalArguments { get; init; }
     }
 }

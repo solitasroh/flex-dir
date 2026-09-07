@@ -206,3 +206,35 @@ public sealed class ThumbnailImageConverter : IMultiValueConverter
         return image;
     }
 }
+
+/// <summary>
+/// <c>FoldedOrders</c> 안에 <c>ConverterParameter</c> 로 준 번호가 있으면 <c>Visible</c>,
+/// 없으면 <c>Collapsed</c> — <c>»</c> 안의 서브메뉴가 "내 무리가 접혔나" 를 묻는 데 쓴다
+/// (phase 3 step 2).
+/// <para>
+/// 서브메뉴는 살아 있는 버튼을 옮긴 것이 아니라 XAML 이 따로 선언한 두 벌째다 — 논리 트리
+/// 부모가 하나뿐이라 옮기면 스타일·바인딩이 깨진다. <c>Command</c> 가 같은 ViewModel 을
+/// 보므로 진실원천은 하나다 (<c>ToolbarOverflowPanel</c>).
+/// </para>
+/// </summary>
+public sealed class FoldedOrderToVisibility : IValueConverter
+{
+    public object Convert(object? value, Type targetType, object? parameter, CultureInfo culture)
+    {
+        // 바인딩이 아직 붙지 않으면 UnsetValue 가 들어온다. 예외를 내면 메뉴 전체가 죽는다.
+        if (value is not IReadOnlyList<int> folded)
+        {
+            return Visibility.Collapsed;
+        }
+
+        if (!int.TryParse(parameter?.ToString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var order))
+        {
+            return Visibility.Collapsed;
+        }
+
+        return folded.Contains(order) ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object ConvertBack(object? value, Type targetType, object? parameter, CultureInfo culture)
+        => throw new NotSupportedException("표시 전용이다.");
+}

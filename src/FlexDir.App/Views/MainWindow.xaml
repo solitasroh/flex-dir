@@ -366,6 +366,7 @@
         <v:SameInstanceConverter x:Key="SameInstance" />
         <v:ViewSourceConverter x:Key="ViewSource" />
         <v:ThumbnailImageConverter x:Key="ThumbnailImage" />
+        <v:FoldedOrderToVisibility x:Key="FoldedOrderToVisibility" />
 
         <!-- WPF 내장이다. 업데이트 알림 바 하나 때문에 변환기를 새로 만들지 않는다. -->
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
@@ -386,6 +387,68 @@
                     <ControlTemplate TargetType="Button">
                         <Border x:Name="Chrome" CornerRadius="4" Background="{TemplateBinding Background}">
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource PressedBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="{DynamicResource TextDisabledBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ═══ 외부 도구 아이콘 (docs/PRD-v2.md §20 · 사용자 확정 2026-08-24) ═══
+             글리프가 아니라 벡터 Path 다. Segoe Fluent Icons 의 터미널 후보는 E756
+             (C:\ 박스) 하나뿐인데 **테두리 사각이라 E15B 와 같은 계열로 읽히고 16px 에서
+             박스 안 글자가 뭉갠다** — E707(MapPin)을 기각했던 것과 같은 실패 모양이다
+             (docs/DESIGN.md §7: 새 아이콘은 선(E8A4·E8FD)·사각(E8A9·E15B) 어느 쪽도
+             아닌 실루엣이어야 한다).
+
+             x:Shared 를 끄지 않는다 — Geometry 는 불변으로만 쓰이고 Freeze 되는 종류라
+             페인 넷이 같은 인스턴스를 나눠 써도 된다. -->
+
+        <!-- VS Code 리본. viewBox 0 0 100 100 · F0(EvenOdd)이라 가운데 삼각 구멍이 뚫린다 —
+             **F0 를 빼면 구멍이 메워져 16px 에서 검은 덩어리가 된다.** -->
+        <Geometry x:Key="ExternalEditorGeometry">F0 M70.9 99.3a6.2 6.2 0 0 0 4.9-.2l20.4-9.8a6.2 6.2 0 0 0 3.5-5.6V16.3a6.2 6.2 0 0 0-3.5-5.6L75.8.9a6.2 6.2 0 0 0-7.1 1.2L29.6 37.8 12.6 24.9a4.1 4.1 0 0 0-5.3.2l-5.5 5a4.1 4.1 0 0 0 0 6.1L16.5 50 1.8 63.8a4.1 4.1 0 0 0 0 6.1l5.5 5a4.1 4.1 0 0 0 5.3.2l17-12.9 39.1 35.7a6.2 6.2 0 0 0 2.2 1.4ZM75.2 27.3 45.5 50l29.7 22.7V27.3Z</Geometry>
+
+        <!-- 프롬프트 >_ . 16 단위 상자 · F1(NonZero) -->
+        <Geometry x:Key="ExternalTerminalGeometry">F1 M3.4,2.4 L9,8 L3.4,13.6 L1,13.6 L6.6,8 L1,2.4 Z M9.6,12 L15,12 L15,13.7 L9.6,13.7 Z</Geometry>
+
+        <!-- ToolButton 과 크롬이 완전히 같다 (32×28 · CornerRadius 4 · 트리거 셋). 다른 것은
+             안에 든 것뿐이다 — ContentPresenter 가 아니라 Path 하나이고 지오메트리는 Tag 로
+             온다. ToolButton 을 고쳐 겸용하지 않는 이유: 툴바의 다른 버튼 열 개가 전부
+             그것을 쓴다 (CLAUDE.md §2.3).
+
+             **Fill 은 TemplateBinding Foreground 다.** 그래야 다크/라이트 전환과 비활성
+             회색이 기존 글리프 버튼과 한 소스를 따라간다. 그래서 IsEnabled=False 트리거도
+             TargetName 으로 Path 의 Fill 을 직접 집지 않고 Foreground 를 바꾼다 —
+             직접 집으면 TemplateBinding 을 덮어써서 테마 전환이 죽는다 (CaptionButton 주석에
+             같은 함정이 적혀 있다).
+
+             **Stroke 를 주지 않는다.** 위 지오메트리 둘은 채우기 전용이라 테두리를 함께
+             걸면 채워진 모양 둘레에 이유 없는 선이 생겨 16px 에서 뭉갠다.
+             FontFamily·FontSize 도 두지 않는다 — 글자를 그리지 않는다. -->
+        <Style x:Key="ToolPathButton" TargetType="Button">
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" CornerRadius="4" Background="{TemplateBinding Background}">
+                            <Path Data="{TemplateBinding Tag}" Fill="{TemplateBinding Foreground}"
+                                  Stretch="Uniform" Width="15" Height="15"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -1180,7 +1243,10 @@
                     <Border x:Name="ToolbarChrome" DockPanel.Dock="Top" Height="36"
                             Background="{DynamicResource WinBgBrush}"
                             BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1">
-                        <StackPanel Orientation="Horizontal" Margin="6,0" VerticalAlignment="Center">
+                        <!-- 접기 배치 (phase 3 step 2·4 · phase 5 step 8). FoldOrder 1 은
+                             외부 도구([VS]·[>_])다 — 가장 먼저 접힌다. 구분자 Rectangle 은
+                             뒤따르는 무리와 같은 번호다 — 아니면 구분자만 고아로 남는다. -->
+                        <v:ToolbarOverflowPanel x:Name="PaneToolbar" Margin="6,0" VerticalAlignment="Center">
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72B;" ToolTip="뒤로 (Alt+←)"
                                     Command="{Binding GoBackCommand}" IsEnabled="{Binding CanGoBack}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72A;" ToolTip="앞으로 (Alt+→)"
@@ -1190,27 +1256,54 @@
                             <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
                             <Button Style="{StaticResource ToolButton}" Content="&#xE72C;" ToolTip="새로 고침 (F5)"
                                     Command="{Binding RefreshCommand}" />
-                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
+
+                            <!-- 외부 도구 (docs/PRD-v2.md §20 · FoldOrder 1 — 가장 먼저 접힌다).
+                                 아이콘은 글리프가 아니라 Path 라 ToolButton 이 아니라
+                                 ToolPathButton 을 쓰고 지오메트리는 Tag 로 준다.
+                                 **IsEnabled 를 바인딩하지 않는다** — Command 의 CanExecute
+                                 (PaneViewModel.CanOpenInEditor·CanOpenInTerminal)가 이미 그것이다.
+                                 둘을 다 걸면 활성의 소스가 둘이 되어 서로 덮어쓴다.
+                                 AlignRight 도 주지 않는다 — 왼쪽 흐름에 선다. -->
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}"
+                                       v:ToolbarOverflowPanel.FoldOrder="1" />
+                            <Button Style="{StaticResource ToolPathButton}"
+                                    Tag="{StaticResource ExternalEditorGeometry}"
+                                    v:ToolbarOverflowPanel.FoldOrder="1"
+                                    AutomationProperties.Name="VS Code 로 열기" ToolTip="VS Code 로 열기"
+                                    Command="{Binding OpenInEditorCommand}" />
+                            <Button Style="{StaticResource ToolPathButton}"
+                                    Tag="{StaticResource ExternalTerminalGeometry}"
+                                    v:ToolbarOverflowPanel.FoldOrder="1"
+                                    AutomationProperties.Name="터미널로 열기" ToolTip="터미널로 열기"
+                                    Command="{Binding OpenInTerminalCommand}" />
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}"
+                                       v:ToolbarOverflowPanel.FoldOrder="3" />
                             <Button Style="{StaticResource ViewButton}" Content="&#xE8A4;" ToolTip="자세히 (Ctrl+Shift+1)"
+                                    v:ToolbarOverflowPanel.FoldOrder="3"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Details}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}" />
                             <Button Style="{StaticResource ViewButton}" Content="&#xE8FD;" ToolTip="목록 (Ctrl+Shift+2)"
+                                    v:ToolbarOverflowPanel.FoldOrder="3"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.List}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.List}}" />
                             <Button Style="{StaticResource ViewButton}" Content="&#xE8A9;" ToolTip="타일 (Ctrl+Shift+3)"
+                                    v:ToolbarOverflowPanel.FoldOrder="3"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.Tiles}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Tiles}}" />
                             <!-- 큰 아이콘만 DESIGN §7 의 E8A6 이 아니다 — 그 자리는 잠긴 문서
                                  (ProtectedDocument) 글리프다. 큰 사각 하나로 바꿨다 -->
                             <Button Style="{StaticResource ViewButton}" Content="&#xE15B;" ToolTip="큰 아이콘 (Ctrl+Shift+4)"
+                                    v:ToolbarOverflowPanel.FoldOrder="3"
                                     Command="{Binding ChangeViewModeCommand}" CommandParameter="{x:Static state:ViewMode.LargeIcons}"
                                     Tag="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.LargeIcons}}" />
 
                             <!-- 분류 (docs/PRD-v2.md §6-1). 헤더 우클릭만 두었더니 찾을 수 없었다 —
                                  Menu/MenuItem 은 눌러서 펴지는 것이 내장이라 코드비하인드가 필요 없다.
                                  Details 전용이므로 다른 뷰에서는 비활성이다 -->
-                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}" />
-                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0">
+                            <Rectangle Width="1" Height="18" Margin="4,0" Fill="{DynamicResource StrokeStrongBrush}"
+                                       v:ToolbarOverflowPanel.FoldOrder="2" />
+                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0"
+                                  v:ToolbarOverflowPanel.FoldOrder="2">
                                 <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE8EC;" ToolTip="분류 방법"
                                           ItemsSource="{Binding GroupOptions}"
                                           IsEnabled="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}">
@@ -1222,7 +1315,128 @@
                                     </MenuItem.ItemContainerStyle>
                                 </MenuItem>
                             </Menu>
-                        </StackPanel>
+
+                            <!-- 알려진 폴더 (phase 3). 글리프는 E8B7(폴더) — 사용자 확정
+                                 2026-08-21, 실물 16px 을 보고 골랐다.
+                                 기각한 둘: E700(☰)은 타이틀바 트리 토글이 이미 쓰고 DESIGN §7 이
+                                 금지한 선 계열이다. E707(MapPin)은 계열은 갈리는데 16px 에서
+                                 압정/사람으로 읽혀 뜻이 안 왔다.
+                                 **대가**: 탭 아이콘이 이미 E8B7 이라 같은 글리프가 창에 둘이다
+                                 (DESIGN §7). 뜻이 바로 오는 쪽을 골랐다.
+                                 절대 접히지 않고 오른쪽에 붙는다. -->
+                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0"
+                                  v:ToolbarOverflowPanel.AlignRight="True">
+                                <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE8B7;"
+                                          AutomationProperties.Name="알려진 폴더" ToolTip="알려진 폴더"
+                                          ItemsSource="{Binding KnownFolderOptions}">
+                                    <MenuItem.ItemContainerStyle>
+                                        <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+                                            <!-- **Header 를 세우지 않는다.** 세우지 않으면 WPF 가 항목
+                                                 자체(KnownFolderOption)를 Header 로 넣고, 그래야 아래
+                                                 HeaderTemplate 안에서 Icon 과 Label 을 둘 다 볼 수 있다.
+                                                 Label 문자열을 Header 로 박으면 템플릿의 DataContext 가
+                                                 그 문자열이 되어 Icon 을 못 찾는다.
+
+                                                 **MenuItem.Icon 을 쓰지 않는 이유**: 이 앱의 암시적
+                                                 MenuItem 템플릿(166줄)에는 Icon 프리젠터가 없다 —
+                                                 20px 0번 열은 체크 표시(E73E) 자리다. Icon 에 무엇을 넣든
+                                                 예외 없이 조용히 안 그려진다 (v0.8.1 이 그렇게 비었다).
+                                                 전역 템플릿을 고치면 앱의 모든 메뉴가 영향을 받으므로
+                                                 여기서만 Header 로 그린다. -->
+                                            <Setter Property="HeaderTemplate">
+                                                <Setter.Value>
+                                                    <DataTemplate>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <!-- 원본은 32 로 온다 (PaneViewModel.KnownFolderIconSize).
+                                                                 16 으로 줄여 그리는 쪽이 150% 배율에서 선명하다.
+                                                                 아직 아이콘이 없으면 변환기가 null 을 내고
+                                                                 빈칸이 남는다 — 항목은 그대로 눌린다. -->
+                                                            <Image Width="16" Height="16" Margin="0,0,8,0"
+                                                                   VerticalAlignment="Center"
+                                                                   RenderOptions.BitmapScalingMode="HighQuality">
+                                                                <Image.Source>
+                                                                    <MultiBinding Converter="{StaticResource ThumbnailImage}">
+                                                                        <Binding Path="Icon" />
+                                                                    </MultiBinding>
+                                                                </Image.Source>
+                                                            </Image>
+                                                            <TextBlock Text="{Binding Label}" VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </DataTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Setter Property="Command"
+                                                    Value="{Binding DataContext.OpenKnownFolderCommand,
+                                                            RelativeSource={RelativeSource AncestorType=Menu}}" />
+                                            <Setter Property="CommandParameter" Value="{Binding}" />
+                                        </Style>
+                                    </MenuItem.ItemContainerStyle>
+                                </MenuItem>
+                            </Menu>
+
+                            <!-- » 오버플로 머리 — 접힌 것이 있을 때만 패널이 보인다. 안의
+                                 서브메뉴는 살아 있는 버튼을 옮긴 것이 아니라 두 벌째다
+                                 (ToolbarOverflowPanel 주석) — Command 가 같은 ViewModel 을
+                                 보므로 진실원천은 하나다. -->
+                            <Menu Background="Transparent" VerticalAlignment="Center" Padding="0"
+                                  v:ToolbarOverflowPanel.AlignRight="True"
+                                  v:ToolbarOverflowPanel.IsOverflowHead="True">
+                                <!-- 글리프는 E712(More, ···)다. **» (U+00BB) 는 못 쓴다** —
+                                     ToolMenu 템플릿의 글리프 TextBlock 이 FontFamily 를
+                                     "Segoe Fluent Icons" 로 하드코딩하는데 그 폰트에 U+00BB 가
+                                     없어 두부(□)로 뜬다 (v0.8.2 실물에서 그랬다).
+                                     이 스타일의 Header 는 그 아이콘 폰트 안의 글리프여야 한다. -->
+                                <MenuItem Style="{StaticResource ToolMenu}" Header="&#xE712;"
+                                          AutomationProperties.Name="더 보기" ToolTip="더 보기">
+                                    <!-- 외부 도구 두 벌째 (ADR-021 의 대가 — 같은 항목이 툴바와
+                                         ··· 에 두 벌 선언된다). 동작은 같은 Command 를 보므로
+                                         진실원천은 하나다. 접힘 순서대로 맨 위다.
+                                         **MenuItem.Icon 을 쓰지 않는다** — 이 앱의 암시적 MenuItem
+                                         템플릿에 Icon 프리젠터가 없어 무엇을 넣든 예외도 경고도
+                                         없이 안 그려진다 (v0.8.1). 글자만 둔다. -->
+                                    <MenuItem Header="VS Code 로 열기"
+                                              Command="{Binding OpenInEditorCommand}"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=1}" />
+                                    <MenuItem Header="터미널로 열기"
+                                              Command="{Binding OpenInTerminalCommand}"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=1}" />
+                                    <MenuItem Header="보기 모드"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=3}">
+                                        <MenuItem Header="자세히"
+                                                  Command="{Binding ChangeViewModeCommand}"
+                                                  CommandParameter="{x:Static state:ViewMode.Details}" />
+                                        <MenuItem Header="목록"
+                                                  Command="{Binding ChangeViewModeCommand}"
+                                                  CommandParameter="{x:Static state:ViewMode.List}" />
+                                        <MenuItem Header="타일"
+                                                  Command="{Binding ChangeViewModeCommand}"
+                                                  CommandParameter="{x:Static state:ViewMode.Tiles}" />
+                                        <MenuItem Header="큰 아이콘"
+                                                  Command="{Binding ChangeViewModeCommand}"
+                                                  CommandParameter="{x:Static state:ViewMode.LargeIcons}" />
+                                    </MenuItem>
+                                    <MenuItem Header="분류 방법"
+                                              ItemsSource="{Binding GroupOptions}"
+                                              IsEnabled="{Binding ViewMode, Converter={StaticResource EnumEquality}, ConverterParameter={x:Static state:ViewMode.Details}}"
+                                              Visibility="{Binding FoldedOrders, ElementName=PaneToolbar,
+                                                           Converter={StaticResource FoldedOrderToVisibility},
+                                                           ConverterParameter=2}">
+                                        <MenuItem.ItemContainerStyle>
+                                            <Style TargetType="MenuItem" BasedOn="{StaticResource GroupOptionItem}">
+                                                <Setter Property="Command"
+                                                        Value="{Binding DataContext.ChangeGroupCommand, RelativeSource={RelativeSource AncestorType=Menu}}" />
+                                            </Style>
+                                        </MenuItem.ItemContainerStyle>
+                                    </MenuItem>
+                                </MenuItem>
+                            </Menu>
+                        </v:ToolbarOverflowPanel>
                     </Border>
 
                     <!-- 주소줄 28 · 입력 24 (docs/DESIGN.md §1) -->
@@ -1985,6 +2199,113 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+
+        <!-- 터미널 목록의 항목 하나. 기본 ComboBoxItem 은 자기 하이라이트 색을 OS 테마에서
+             가져오므로 우리 accent 와 어긋난다. -->
+        <Style x:Key="SettingsComboItem" TargetType="ComboBoxItem">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="Padding" Value="8,5" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Chrome" Margin="2,1" CornerRadius="3" Background="Transparent"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource SelBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- 터미널 목록.
+
+             ⚠ 템플릿을 통째로 갈아야 한다. 기본 ComboBox 템플릿은 자기 배경을
+             `ComboBox.Static.Background`(#FFF0F0F0 고정)로 그리므로 Background 를 줘도
+             먹지 않는다 — 다크에서 흰 상자가 되고 흰 글씨가 그 위에 얹힌다.
+             2026-08-24 에 실물 캡처로 확인했다.
+
+             x:Key 를 단 이유는 CLAUDE.md §2.3 — 암시적 스타일로 두면 앱의 모든
+             ComboBox 로 번진다. 지금 이 자리에만 붙인다. -->
+        <Style x:Key="SettingsCombo" TargetType="ComboBox">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,4" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
+            <Setter Property="ItemContainerStyle" Value="{StaticResource SettingsComboItem}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Border x:Name="Chrome" CornerRadius="4"
+                                Background="{DynamicResource PaneBgBrush}"
+                                BorderBrush="{DynamicResource StrokeStrongBrush}" BorderThickness="1">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <!-- 상자 전체가 누름 자리다. 배경은 위 Border 가 그리므로
+                                     여기는 클릭만 받는다. -->
+                                <ToggleButton Grid.ColumnSpan="2" Focusable="False" ClickMode="Press"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                          RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border Background="Transparent" />
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+
+                                <!-- ContentTemplateSelector 가 있어야 DisplayMemberPath 가 닫힌
+                                     상자에도 닿는다. 빼면 record 의 ToString() 이 그대로 뜬다
+                                     — 2026-08-24 에 실물에서 밟았다. -->
+                                <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center"
+                                                  IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                                  ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                                  ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" />
+
+                                <!-- SortGlyph·TreeChevron 과 같은 글꼴이다 (docs/DESIGN.md §6). -->
+                                <TextBlock Grid.Column="1" Text="&#xE70D;" FontFamily="Segoe Fluent Icons"
+                                           FontSize="8" Margin="0,0,10,0" VerticalAlignment="Center"
+                                           IsHitTestVisible="False" Foreground="{DynamicResource Text2Brush}" />
+
+                                <!-- 여섯뿐이라 ScrollViewer 를 두지 않는다
+                                     (docs/UI_GUIDE.md §금지 목록). -->
+                                <Popup x:Name="PART_Popup" Grid.ColumnSpan="2" Placement="Bottom"
+                                       AllowsTransparency="True" PopupAnimation="None"
+                                       IsOpen="{Binding IsDropDownOpen, Mode=TwoWay,
+                                                RelativeSource={RelativeSource TemplatedParent}}">
+                                    <Border Margin="0,2,0,0" CornerRadius="4" BorderThickness="1"
+                                            MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                            Background="{DynamicResource ChromeBgBrush}"
+                                            BorderBrush="{DynamicResource StrokeStrongBrush}">
+                                        <ItemsPresenter />
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource AccentBrush}" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <Grid>
@@ -2408,6 +2729,62 @@
                                 <Setter Property="Foreground" Value="{DynamicResource ErrorBrush}" />
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding Settings.StartFolderError}" Value="{x:Null}">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+
+                    <Separator Margin="0,16" Background="{DynamicResource StrokeBrush}" />
+
+                    <!-- ── 터미널 (docs/PRD-v2.md §20) ──────────────────── -->
+                    <TextBlock Style="{StaticResource SettingsHeading}" Text="터미널" />
+
+                    <!-- 라디오가 아니라 목록이다. 테마는 셋이라 라디오가 맞았지만 프리셋은
+                         여섯이라, 세로로 늘어놓으면 그 아래 §숨김 항목이 패널 밖으로 밀린다. -->
+                    <ComboBox Style="{StaticResource SettingsCombo}"
+                              HorizontalAlignment="Left" MinWidth="220"
+                              ItemsSource="{Binding Settings.TerminalOptions}"
+                              SelectedItem="{Binding Settings.SelectedTerminal, Mode=TwoWay}"
+                              DisplayMemberPath="Label" />
+
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,6,0,0"
+                               Text="[&gt;_] 버튼이 현재 폴더에서 여는 프로그램입니다." />
+
+                    <!-- 프리셋을 고른 동안 상자 둘을 잠근다 — §시작 폴더와 같은 판단이다:
+                         고칠 수 있는데 아무 효과가 없으면 고쳐 놓고 왜 안 되는지 찾게 된다.
+
+                         기본 UpdateSourceTrigger(LostFocus)를 그대로 쓴다 — 글자마다 바꾸면
+                         치는 도중의 반쪽 값이 매번 저장된다. -->
+                    <TextBox Style="{StaticResource SettingsPathBox}" Margin="20,8,0,0"
+                             IsEnabled="{Binding Settings.IsCustomTerminal}"
+                             Text="{Binding Settings.TerminalExecutable, Mode=TwoWay}" />
+
+                    <TextBox Style="{StaticResource SettingsPathBox}" Margin="20,4,0,0"
+                             IsEnabled="{Binding Settings.IsCustomTerminal}"
+                             Text="{Binding Settings.TerminalArguments, Mode=TwoWay}" />
+
+                    <!-- {} 로 시작해야 한다. 안 그러면 WPF 가 {path} 를 마크업 확장으로 읽고
+                         XamlParseException 으로 창이 아예 안 뜬다. -->
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="20,4,0,0"
+                               Text="{}인자의 {path} 가 현재 폴더 경로로 바뀝니다. 예: start --cwd &quot;{path}&quot;" />
+
+                    <!-- 잠그지 않는다. 프리셋을 고른 상태에서도 눌러 봐야 그것이 이 기계에
+                         있는지 알 수 있고, 그것이 이 버튼의 존재 이유다. -->
+                    <Button Style="{StaticResource SettingsButton}" HorizontalAlignment="Left"
+                            Margin="0,10,0,0" Content="실행해 보기"
+                            Command="{Binding Settings.TestTerminalCommand}" />
+
+                    <TextBlock Style="{StaticResource SettingsNote}" Margin="0,4,0,0"
+                               Text="상태 폴더에서 열어 봅니다." />
+
+                    <!-- 누르기 전에는 없다. 자리까지 접어야 아래 항목과 사이가 벌어지지 않는다. -->
+                    <TextBlock Text="{Binding Settings.TerminalTestResult}" Margin="0,4,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock" BasedOn="{StaticResource SettingsNote}">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Settings.TerminalTestResult}" Value="{x:Null}">
                                         <Setter Property="Visibility" Value="Collapsed" />
                                     </DataTrigger>
                                 </Style.Triggers>

@@ -44,6 +44,20 @@ public static class ResidentWindow
             }
         };
 
+        // 숨겼다 다시 보였는가 — 그 사이에 사용자가 외부 도구를 설치하거나 지웠을 수 있다
+        // (ADR-003). 판단은 저쪽에 있다 (WorkspaceViewModel.OnWindowShown): 여기서 재는 것은
+        // 창이 보이게 됐다는 사실 하나뿐이다.
+        //
+        // Activated 가 아니다. 그것은 다른 앱에서 돌아올 때마다 뜨고, 알트탭 한 번에
+        // 레지스트리 조회가 탭 수만큼 나간다. 첫 표시도 이것으로 덮인다.
+        window.IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+            {
+                workspace.OnWindowShown();
+            }
+        };
+
         window.Closing += (_, e) =>
         {
             // 배치는 닫는 순간의 것이 정본이다.

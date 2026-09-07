@@ -1,0 +1,8 @@
+{
+  "step": 1,
+  "name": "tool-ports",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "★ Insight ─────────────────────────────────────\n- 취소 처리 순서가 계약의 일부다. fake 둘 다 `ct.ThrowIfCancellationRequested()` 를 **기록보다 먼저** 둔다 — 취소된 실행은 \"일어나지 않은 일\" 이라 `Launches` 에 남으면 안 된다. 반대로 *실패한* 실행은 기록에 남긴다(`FakeItemActivator` 와 같은 판단): \"불렸는데 실패\" 와 \"아예 안 불림\" 은 다른 사건이다.\n- `Custom → null` 을 fake 에도 박은 이유: step 3 의 실물 구현이 이 테스트를 그대로 물려받을 때 fake 가 관대하면 실물만 엄격해져 계약이 두 개가 된다.\n- Git Bash 힙독이 `\\\\` 를 `\\` 로 접어 C# 문자열 이스케이프가 깨졌다. 경로가 든 C# 리터럴은 verbatim(`@\"...\"`)으로 쓰면 이 층을 아예 지난다.\n`─────────────────────────────────────────────────`\n\nStep 1 (tool-ports) 완료. AC 셋 전부 exit 0.\n\n| 검증 | 결과 |\n|---|---|\n| `dotnet build --nologo -warnaserror` | 경고 0 · 오류 0 |\n| `dotnet test` | 2146개 전부 통과 (step 0 기준 2125 → +21) |\n| `pwsh -File scripts/check-structure.ps1` | 구조 게이트 통과 |\n\n만든 파일 6개:\n\n1. `src/FlexDir.Core/Tools/IExternalToolCatalog.cs` — `FindEditorAsync` · `FindTerminalAsync(TerminalPreset, ct)`. 계약 셋(null / 캐시 금지 / UI 스레드 금지)과 `Custom → null` 을 XML 주석에 명시\n2. `src/FlexDir.Core/Tools/IExternalToolLauncher.cs` — `LaunchAsync(executable, arguments, workingFolder, ct) → LocationErrorKind`. 계약 넷 명시\n3. `tests/FlexDir.Core.Tests/Fakes/FakeExternalToolCatalog.cs` — `Editor` · `Terminals` · `EditorRequests` · `TerminalRequests`\n4. `tests/FlexDir.Core.Tests/Fakes/FakeExternalToolLauncher.cs` — `Result` · `Launches`\n5. `tests/FlexDir.Core.Tests/Tools/IExternalToolCatalogTests.cs` — 14개\n6. `tests/FlexDir.Core.Tests/Tools/IExternalToolLauncherTests.cs` — 7개\n\n구현체는 없다 (step 3·4 몫). 커밋은 하지 않았고 `phases/5-external-tools/index.json` 의 step 1 이 `completed` 로 갱신됐다.\n\n다음: 하네스가 이 변경을 커밋하고 step 2 (`terminal-settings`) 를 띄운다.\n",
+  "stderr": ""
+}

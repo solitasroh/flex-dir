@@ -1,0 +1,8 @@
+{
+  "step": 2,
+  "name": "toolbar-overflow-panel",
+  "agent": "claude",
+  "exitCode": 0,
+  "stdout": "Step 2 완료. AC 셋 모두 exit 0 — 빌드 경고 0, 테스트 2,062개 전부 통과(Core 587 · Shell 315 · App 1,066 · Host 94), 구조 게이트 통과. index.json step 2 는 `completed` 로 갱신했다.\n\n**만든 것**\n\n1. `src/FlexDir.App/Views/ToolbarOverflowPanel.cs` — 첨부 속성 `FoldOrder` · `IsOverflowHead` · `AlignRight`(셋 다 `AffectsParentMeasure`), 판정 `internal static Folded`(WPF 타입 없이 순수 값), 읽기 전용 DP `FoldedOrders`(값이 실제로 바뀔 때만 새 인스턴스). 자연 폭은 접기 전에 캐시해 진동을 막고, Collapsed 자식은 다시 재지 않는다. 오른쪽 정렬은 패널이 직접 쥐고, 겹치면 왼쪽 무리가 이기며 `ClipToBounds` 로 자른다.\n2. `ViewConverters.cs` 에 `FoldedOrderToVisibility` 추가 — `FoldedOrders` 에 `ConverterParameter` 번호가 있으면 `Visible`.\n3. 테스트: `ToolbarOverflowPanelTests.cs` 14개(판정 10 + 실제 툴바 시나리오 4) · `ViewConvertersTests.cs` 에 3개 추가. `MainWindow.xaml` 과 기존 테스트는 건드리지 않았고 `*.xaml.cs` 도 새로 만들지 않았다.\n\n**지시서와 다르게 확정한 것 하나** — step 의 시나리오 예시 \"260 → 뷰 모드(3)만 접힘, 분류(2)는 남음\" 은 같은 문서가 네 군데서 명세한 오름차순 규칙(\"작은 번호가 먼저\", \"1→2→3\")과 산술적으로 모순이다: 합 347, 예산 260−32=228 에서 분류(41)를 접어도 306>228 이라 뷰 모드까지 접힌다. \"숫자는 직접 계산해 확정하라\" 는 지시에 따라 명세된 오름차순(사용자 확정 표 ①외부도구→②분류→③뷰모드와 일치)을 구현했고, 시나리오 테스트는 정직한 값으로 채점했다 — 260 은 둘 다 접힘, 분류만 접히는 중간 상태는 폭 340 으로 검증. 이 결정은 index.json summary 에도 남겨 step 4 가 XAML 배선 시 참고하게 했다.\n",
+  "stderr": ""
+}

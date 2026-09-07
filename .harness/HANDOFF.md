@@ -32,6 +32,22 @@
 **접는 것**이라 다시 펴면 그대로다. `PaneSide { Left, Right }` 열거형이 사라졌다 —
 자리는 이제 번호다 (`ADR-019`). **v0.6.0 으로 나갔고 설치본에서 돈다** (2026-08-12).
 
+**그리고 분할이 다음 작업을 직접 낳았다 — 툴바 오버플로·알려진 폴더** (§20 · 2026-08-21 ·
+1구간 v0.8.0~v0.8.4). 좁은 페인에서 툴바가 잘리던 것을 `FoldOrder` 무리 접힘 +
+**`···`(`E712`) 메뉴**로 받고 (`ADR-021` · `Views/ToolbarOverflowPanel.cs`), 알려진 폴더
+다섯(홈·바탕화면·문서·다운로드·사진, **`E8B7`**)이 드롭다운으로 들어왔다. 포트가 하나 늘어 **17/17** (`IKnownFolderList`).
+게이트 4종 ✅ · **패키지는 구웠고 업로드는 안 했다** (`-NoUpload`). **사람 확인은 전부
+닫혔다** (2026-08-21 · 아래 §다음 작업 0-0).
+
+**그리고 2구간이 그 자리를 채웠다 — 외부 도구** (§21 · 2026-08-24 · v0.8.5). `FoldOrder 1`
+에 `[VS]`(VS Code)·`[>_]`(터미널)가 들어왔고 포트가 둘 늘어 **19/19**
+(`IExternalToolCatalog` 탐지 · `IExternalToolLauncher` 실행). 이 툴바에서 **처음으로
+글리프가 아니라 Path 를 썼다** — 폰트 안에 뜻이 오는 터미널 글자가 없었다(`ADR-022` ·
+`DESIGN.md` §7). 게이트 4종 ✅ · 테스트 **2280** · 서명본을 굽고 설치까지 했다
+(`-NoUpload`). **사람 확인 일곱이 전부 닫혔다** (2026-08-24 · 사용자 *"모두 정상"*).
+⚠ **계획은 v0.9.0 이었고 사용자가 0.8.5 로 정했다** — 실행이 끝난 step 지시서의 `v0.9.0`
+표기는 얼어붙은 기록이라 그대로 뒀다 (`docs/PRD-v2.md` §21 머리).
+
 > **값을 치른 자국 셋** (전부 `docs/PRD-v2.md` §17 §값을 치르고 배운 것에 전문이 있다):
 > WPF 바인딩은 런타임 조회라 **타입을 바꾸면 템플릿 안 바인딩이 컴파일 에러 없이 조용히
 > 죽는다** · `Command` 가 `null` 인 `MenuItem` 은 **정상으로 뜨고 눌리기까지 한다**(그래서
@@ -46,40 +62,71 @@
 ## 현재 상태
 
 ```
-브랜치   main  ·  **origin/main 은 7b6bcc2 — 푸시됐다** (2026-08-13).
+브랜치   feat-5-external-tools  ·  **origin/main 은 7b6bcc2** (2026-08-13 푸시).
                  푸시는 사용자 지시가 있을 때만 한다
-작업트리 다크모드 구간이 **다섯 커밋**으로 들어갔다 (2026-08-13) —
-                 구현+테스트(`dd695d9`) · 다크모드 `docs/`(`4f66fe4`) · **지난 구간 문서
-                 잔여**(`d80f4ad`) · `.harness/`(`0f65104`) · 버전(`7b6bcc2`).
-                 셋째가 따로인 이유: v0.6.0~0.6.1 이 나갈 때 커밋되지 않고 남은 문서였다
-                 (README 가 아직 "좌·우 2분할이 기본" 이라고 적고 있었다) — 다크모드와
-                 관심사가 다르므로 되돌릴 때 함께 끌려가지 않게 갈랐다
-버전     0.7.0   릴리스 v0.1.0 ~ v0.7.0. **v0.7.0 이 다크모드(§19)를 실어 나갔다**
-                 (2026-08-13 · `HISTORY.md` §v0.7.0). 그 앞은 0.6.1(창 결함 둘) ·
-                 0.6.0(분할 §18).
-                 ✅ **v0.6.0 이 미뤄 둔 빚 둘을 여기서 갚았다**:
-                    **자동 업데이트 알림 경로**(설치본 0.6.1 → 약 75초 뒤 알림 →
-                    `지금 설치` → 0.7.0 으로 교체, 실물 확인) 와 **서명**.
-                 ⚠ **v0.6.0 만 자동 업데이트 경로를 안 밟았다** — 0.5.0 이 새 저장 형식을
-                 못 읽어 기억을 덮어쓰기 때문이다. `Setup.exe` 로 직접 올렸다
-                 ⚠ **v0.6.1 까지가 무서명이다. v0.7.0 이 첫 서명본이다** (`e0b2c03` 배선).
-                 `Get-AuthenticodeSignature` 는 `UnknownError` 를 내는데, **서명은 붙어
+작업트리 **2구간 외부 도구(§21)가 step 단위 커밋으로 전부 들어갔다** (step 0~9).
+                 포트 둘 · Shell 구현 둘 · 설정 항목 셋 · 툴바 버튼 둘 · 문서와 버전.
+                 step 목록의 정본은 `phases/5-external-tools/index.json` 이고
+                 그 앞은 `phases/4-known-folder-icons` · `phases/3-toolbar-overflow`
+                 ✅ **조립 누락이 하나 있었고 배포 전에 닫혔다** (커밋 `ecbb175`).
+                 `AppComposition` 이 `AppPathsToolCatalog`·`ProcessToolLauncher` 를
+                 만들지도 `Pane()` 과 `SettingsViewModel` 에 넘기지도 않아 실물에서
+                 버튼 둘과 `[실행해 보기]` 가 회색이었다. 주입이 선택 인자(`= null`)라
+                 컴파일러도 게이트 넷도 못 잡았고, **잡은 것은 step 8 의 실물 캡처와
+                 step 9 의 `blocked`** 다. 이제 `AppCompositionTests` 의
+                 `Create_GivesThePaneWorkingExternalTools` 가 막는다 — 배선을 되돌리면
+                 실패하는 것을 확인했다. 교훈은 §규칙 19 에 남겼다
+버전     0.8.5   릴리스는 v0.1.0 ~ v0.7.0 까지 나갔다. **v0.8.0~v0.8.5 은 패키지만
+                 굽는다** (`pack.ps1 -NoUpload -SignThumbprint` · 서명본).
+                 ✅ **0.8.5 는 굽고 설치까지 했다** (2026-08-24 · `-NoUpload`).
+                 이 기계 설치본이 `0.8.5+c87bb09…` 이고 창이 뜬다.
+                 ⚠ **계획은 v0.9.0 이었다** — 사용자가 0.8.5 로 정했고, 실행이 끝난 step
+                 지시서의 `v0.9.0` 표기는 얼어붙은 기록이라 그대로 뒀다 (PRD §21 머리).
+                 ⚠ **0.8.1 을 다시 굽지 않고 0.8.2 로 올렸다** — 0.8.1 이 이미 이 기계에
+                 설치돼 있어 같은 번호로 다시 구우면 자동 업데이트 규칙(설치된 버전 <
+                 피드의 최신)이 깨지고 설치 관리자도 갱신으로 보지 않는다.
+                 업로드·푸시는 사용자 지시가 있을 때만 한다 — 서명 설치본이 실제로
+                 뜨는지(사람 확인 12번)를 이 설치본으로 밟는다.
+                 그 앞은 0.7.0(다크모드 §19 · 첫 서명본 · 알림 경로 확인) ·
+                 0.6.1(창 결함 둘) · 0.6.0(분할 §18).
+                 ⚠ `Get-AuthenticodeSignature` 는 `UnknownError` 를 내는데, **서명은 붙어
                  있고 이 기계의 신뢰 루트에 자체 서명 인증서가 없어서**다 — 결함이 아니다
                  (`HISTORY.md` §v0.7.0)
-테스트   2028 통과   Core 580 · App 1039 · Shell 315 · Host 94
-                 (분할이 +89 · 최대화/모니터 복원이 +8 · 다크모드가 +38)
+테스트   2280 통과   Core 654 · Shell 394 · App 1137 · Host 95
+                 (외부 도구 §21 이 +184: Core +61 · Shell +61 · App +61 · **Host +1**.
+                 **그 Host 하나가 조립이 페인에 닿는지 보는 유일한 테스트다** —
+                 step 0~8 이 그것을 0 으로 두었고, 그래서 조립 누락이 게이트 넷을
+                 전부 통과했다 (§규칙 19). 그 앞은 2093 이었고
+                 알려진 폴더 아이콘 +20 · 툴바 오버플로 +45 · 다크모드 +38)
 게이트   fast (build -warnaserror · test --blame-hang · check-structure) ✅
-         full (Release build -warnaserror) ✅ **0.7.0 커밋 뒤 다시 돌렸다.**
-         ⚠ `PaneTabsViewModelTests.Reactivating_RefreshesOnceThenWatchesAgain` 이 전체
-         병렬 실행에서 한 번 플레이키했다 (5초 상한 초과 · 단독 70ms 통과). 감시 스트림이
-         배경에서 도는 테스트라 부하를 탄다 — 고치지 않았다
+         full (Release build -warnaserror) ✅ **2026-08-24 · v0.8.5 문서·버전과
+         조립 수정(`ecbb175`) 뒤에 넷 다 다시 돌렸다.**
+         ⚠ **게이트가 1구간에서 화면 결함 둘을 연속으로 통과시켰다** — `MenuItem.Icon` 이
+         안 그려지던 것(v0.8.2)과 `»` 가 두부로 뜨던 것(v0.8.3). 빌드·테스트·구조 게이트가
+         전부 초록인 채로 화면이 틀렸다. **자동 채점의 경계다** (CLAUDE.md §5)
+         ⚠ **2구간은 그 경계를 한 겹 더 밀었다 — 조립 누락도 초록이었다.**
+         `AppComposition` 이 포트 둘을 안 넘긴 채로 테스트 2276개가 전부 통과했다.
+         ViewModel 테스트는 포트를 fake 로 직접 넣어 만들고, 그때의 Host 테스트 94개는
+         조립의 *정리 순서*만 봤다 — **"실제로 주입됐는가" 를 보는 테스트가 없었다.**
+         잡은 것은 게이트가 아니라 **step 8 의 실물 캡처**(버튼이 회색으로 떴다)이고,
+         지금은 `AppCompositionTests.Create_GivesThePaneWorkingExternalTools` (95번째
+         Host 테스트)가 그 자리를 막는다. **경계 자체는 그대로다** — 다음에 포트를
+         선택 인자로 열 때 같은 테스트를 함께 만들어야 한다 (§규칙 19)
+         ✅ `PaneTabsViewModelTests.Reactivating_RefreshesOnceThenWatchesAgain` 플레이키를
+         닫았다 (2026-08-24). 전체 병렬 실행에서 **사흘 만에 두 번** 5초 상한을 넘었고
+         단독으로는 59~142ms 에 통과한다. `WaitForAsync` 의 상한을 **5초 → 30초**로 올렸다.
+         단언은 그대로라 테스트가 약해지지 않는다 — **그 상한은 마감이 아니라 매달림을
+         실패로 바꾸는 장치이고**(헬퍼 주석), 진짜 매달림은 `--blame-hang-timeout 120s` 가
+         다시 받는다. **게이트가 이유 없이 빨개지면 사람이 빨간 것을 무시하는 법을 배운다** —
+         그것이 고친 이유다
          ⚠ `SetSplit_Folding_ReleasesTheWatch` 가 한 번 플레이키했다 —
          `NavigateAsync` 가 감시 루프가 서는 것을 기다리지 않아서다. `watcher.Current` 를
          기다린 뒤 `WatchStream.Finished` 를 보도록 고쳤고 3회 반복 안정이다
          ⚠ **저장소 Debug 빌드로 앱을 띄우면 산출물을 잠근다** — 확인이 끝나면 반드시
          죽인다. 설치본은 잠그지 않는다 (위 §배포 절차 의 경고)
          ⛔ 도그푸딩 게이트는 없다 — 스크립트를 지웠다 (ADR-007 §폐기)
-phases/  0-core-model · 1-core-pipeline · 2-viewmodel 모두 completed
+phases/  0-core-model · 1-core-pipeline · 2-viewmodel · 3-toolbar-overflow ·
+         4-known-folder-icons · 5-external-tools 모두 step 완료
 ```
 
 
@@ -116,10 +163,13 @@ dotnet build -c Release --nologo -warnaserror
 자리다. 실패한다면 **창이 안 뜨는 모양**이고, 그것은 새 버전이 시작되는 것을 보는
 것으로만 배제된다.
 
-## 포트 현황 — 16/16
+## 포트 현황 — 19/19
 
 2026-08-10 에 넷이 늘었다. 셋은 트리와 즐겨찾기가, 하나는 설정 창이 요구한 것이다
-(docs/PRD-v2.md §10·§10-2·§12). 2026-08-12 에 다크모드가 하나를 더 늘렸다 (§19).
+(docs/PRD-v2.md §10·§10-2·§12). 2026-08-12 에 다크모드가 하나를 더 늘렸고 (§19),
+2026-08-21 에 알려진 폴더가 하나를 더 늘렸다 (§20). **2026-08-24 에 외부 도구가 둘을
+늘렸다** (§21 · ADR-022) — 아래 둘은 **구현체는 있는데 조립이 아직 없다** (위 §현재 상태
+§작업트리).
 
 | 포트 | 구현 | 왜 따로인가 |
 |---|---|---|
@@ -128,6 +178,9 @@ dotnet build -c Release --nologo -warnaserror
 | `INetworkPlaceList` | `Shell/Storage/ShellNetworkPlaceList.cs` | '네트워크 위치 추가' 는 드라이브 문자를 만들지 않아 `WNetGetConnection` 에 안 잡힌다. **COM 이라 STA 를 들고 정리 목록에 들어간다** |
 | `IFavoriteStore` | `Shell/Favorites/JsonFavoriteStore.cs` | 즐겨찾기는 캐시가 아니라 사용자 데이터다 — 뷰 상태와 **다른 파일**이어야 한다 |
 | `ISystemThemeSource` | `Shell/Settings/RegistrySystemThemeSource.cs` | OS 가 라이트/다크인가. 레지스트리 값 하나라 COM 도 STA 도 필요 없지만, 다른 시스템 조회 포트와 같은 이유로 비동기다 (ADR-020) |
+| `IKnownFolderList` | `Shell/Locations/KnownFolderList.cs` | 알려진 폴더 다섯의 위치. **조회가 저장소에 닿는다** — 리디렉션된 폴더(OneDrive·도메인 로밍)에서는 네트워크로 내려간다. COM 이 아니라 STA 도 정리도 필요 없다 (`AppComposition` 정리 목록에 없다 — `RegistrySystemThemeSource`·`SystemDriveList` 와 같은 자리) |
+| `IExternalToolCatalog` | `Shell/Tools/AppPathsToolCatalog.cs` | 설치된 외부 도구를 찾는다. **실패는 `null`, 취소만 예외.** **캐시하지 않는다** — 상주 앱이라 창이 다시 보일 때마다 다시 묻는다. COM 이 아니라 STA 도 정리도 없다 (ADR-022) |
+| `IExternalToolLauncher` | `Shell/Tools/ProcessToolLauncher.cs` | 외부 도구를 그 폴더를 작업 디렉터리로 띄운다. **실패는 `LocationErrorKind`, 던지지 않는다** — 실패가 정상 상황이라 호출자가 상태표시줄 한 줄로 만든다. 탐지와 가른 이유가 이 칸의 차이다 (ADR-022) |
 
 아래 표는 v1 의 열하나다.
 
@@ -145,7 +198,7 @@ dotnet build -c Release --nologo -warnaserror
 | `IFolderWatcher` | `Shell/Watching/FileSystemFolderWatcher.cs` | 계약 4 + 실물 5 |
 | `IFolderSource` | `Shell/Enumeration/RoutingFolderSource.cs` → `FileSystemFolderSource` · `NetworkShareSource` | 계약 6 + 실물 10 + 라우팅 5 + 공유 5 |
 | `ITypeNameProvider` | `Shell/Presentation/ShellTypeNameProvider.cs` | 13 |
-| `IThumbnailSource` | `Shell/Presentation/ShellThumbnailSource.cs` | 23 |
+| `IThumbnailSource` | `Shell/Presentation/ShellThumbnailSource.cs` — 메서드 셋: `GetThumbnailAsync`(내용 미리보기) · `GetTypeIconAsync`(확장자별 형식 아이콘) · `GetItemIconAsync`(경로별 항목 아이콘 · v0.8.1). **포트 개수는 안 늘었다** — 메서드가 는 것이다 | 23 |
 | `IItemActivator` | `Shell/Activation/ShellItemActivator.cs` | 16 |
 | `IFileOperations` | `Shell/Operations/ShellFileOperations.cs` | 48 |
 | `IClipboardBridge` | `Shell/Operations/ShellClipboardBridge.cs` | 24 |
@@ -195,9 +248,95 @@ WindowShown(`Startup/WindowPresenter`, 매 활성화) · FirstItem(`Diagnostics/
 닫기 = 숨기기 · 트레이 완전 종료 · 시작 상태 복원도 실물 확인됐다 (manual-plan §B-2).
 
 
-## 다음 작업 (2026-08-12 갱신)
+## 다음 작업 (2026-08-24 갱신)
 
-### 0. 창 결함 둘 — 끝났고 나갔다 (v0.6.1). **열린 항목 없음**
+### 0. 2구간(v0.8.5) 외부 도구 — **나갔다. 사람 확인 일곱이 전부 닫혔다**
+
+게이트 4종 ✅ · 테스트 **2280** ✅ (2026-08-24). 전문은 `docs/PRD-v2.md` §21 · `ADR-022` ·
+step 목록은 `phases/5-external-tools/index.json`. **서명본을 굽고 설치까지 했다**
+(`-NoUpload` · `HISTORY.md` §v0.8.5). **업로드·푸시는 안 했다.**
+
+✅ **조립 누락은 닫혔다** (커밋 `ecbb175`). `AppComposition.Create` 가
+`AppPathsToolCatalog`·`ProcessToolLauncher` 를 만들어 `Pane()` 과 `SettingsViewModel` 에
+넘긴다 (정리 목록에는 안 넣었다 — COM 이 아니다). 그 전까지는 버튼 둘과 `[실행해 보기]` 가
+실물에서 회색이었고 게이트 넷은 전부 초록이었다. 되돌리면
+`AppCompositionTests.Create_GivesThePaneWorkingExternalTools` 가 실패한다 — 확인했다.
+**아래 일곱은 이제 그대로 밟을 수 있다.**
+
+**✅ 닫힌 다섯** (2026-08-24 · UI Automation + 프로세스 명령줄로 밟았다. 합성 마우스는
+안 썼다 — 포그라운드를 못 잡으면 조용히 실패한다, §규칙 13):
+
+1. **`C:\` 에서 `[>_]`** — WezTerm 이 `start --cwd "C:\"` 로 떴다 (사용자 지정:
+   `C:\Program Files\WezTerm\wezterm-gui.exe` · `start --cwd "{path}"`).
+2. **NAS** — `\\10.10.10.23\home` 에서 둘 다 활성이고 `start --cwd "\\10.10.10.23\home"`
+   이 나갔다 (**표시형 그대로다 — `\\?\UNC\` 가 안 샌다**). `\\10.10.10.23` 로 한 단
+   올라가니 **둘 다 `IsEnabled=False`**. 막히는 것은 서버 루트 하나뿐이다.
+3. **`[VS]`** — `Code.exe "C:\Users\SOOJANG\orca"` (따옴표 하나). HKCU App Paths 의
+   `code.exe` 를 지우고 **창을 숨겼다 다시 보이자 네 페인의 `[VS]` 가 전부 비활성**이
+   됐고 `[>_]` 는 활성을 유지했다(도구를 따로 묻는다는 증거). **같은 PID 였다** — 상주
+   프로세스에서 재탐지가 돈다. 레지스트리는 복구했고 복구 뒤 넷 다 다시 활성이다.
+6. **접힘** — 창 **900 DIP** 4분할에서 `[VS]`·`[>_]` 가 툴바에서 사라지고(0개)
+   `···` 가 네 페인에 뜨며(4개) **알려진 폴더는 남았다**(4개). 1094 DIP 에서는 좁은
+   페인만 접혔다. ⚠ **최대화에서 접히는지는 아직 실측 전이다** — 확인한 최대화는 넓은
+   모니터라 페인이 약 1044 였고 아무것도 안 접혔다. §21 의 420 은 여전히 계산값이다.
+7. **서명 설치본이 실제로 뜬다** — `Setup.exe --silent` 로 0.8.4 → 0.8.5, 창이 떴고
+   `error.log` 마지막 항목은 닷새 전 것이다 (`HISTORY.md` §v0.8.5).
+
+**✅ 사용자가 닫은 나머지** (2026-08-24 · *"모두 정상"*):
+
+4. **실루엣이 갈린다** — `[VS]`·`[>_]` 가 서로, 그리고 기존 계열(선 `E8A4`·`E8FD` ·
+   사각 `E8A9`·`E15B` · 폴더 `E8B7` · 점 `E712`)과 구분된다.
+   **이 툴바의 계열이 셋이 됐다: 선 · 사각 · 채우기** (`DESIGN.md` §7).
+5. **다크·라이트 대비와 비활성 회색이 양쪽에서 읽힌다.**
+   ⚠ 확인하려고 `theme` 을 `Light` 로 바꿨다가 **`Dark` 로 되돌려 놓았다.**
+7-b. **페인 우클릭이 정상이다** — §10 의 `StaticResource` 크래시가 컴파일·테스트를
+   다 통과하고 **첫 우클릭에서** 터졌던 자리다. 이번 구간은 `MainWindow.xaml` 의 리소스를
+   셋(`ToolPathButton`·지오메트리 둘) 늘렸으므로 같은 위험이 있었다.
+   ⚠ **합성 입력으로 못 밟는다** — 사람이 직접 눌러야 하는 항목이다.
+8. **설정의 `[실행해 보기]` 가 돈다** (곁항목 · 2026-08-24). 상태 폴더에서 WezTerm 이
+   뜨고 패널에 `사용자 지정 을(를) 열었습니다` 가 찍힌다.
+   ⚠ 문구가 어색하다 — 라벨이 *"사용자 지정"* 이라 조사가 붙으면 읽히지 않는다.
+   **관측만 해 두고 안 고쳤다** (프리셋 다섯은 자연스럽다).
+
+**2구간에 열린 항목은 없다.** §곁에 남은 구멍이라 적어 뒀던 것은 격리 리뷰(2026-08-24)가
+진단을 정정하고 코드로 닫았다 — 아래 참조.
+
+✅ **격리 리뷰가 크래시 사슬 하나와 진단 오류 하나를 잡았다** (2026-08-24 · `harness-reviewer`
+서브에이전트가 서버 과부하로 여섯 번 죽었지만 남긴 재현 테스트를 같은 worktree 에서 직접
+돌려 확인했다):
+
+1. **범위 밖 `TerminalPreset` 값이 앱을 세 갈래로 크래시시켰다.** `Enum.TryParse` 는
+   정의되지 않은 값이어도 숫자 문자열이면 성공한다 — `"terminalPreset": "99"` 가 든 파일을
+   읽으면 `(TerminalPreset)99` 가 그대로 실렸다. 그 값이 `SettingsViewModel.SelectedTerminal`
+   (XAML 바인딩 getter — **설정 패널을 여는 것만으로 터진다**) · `[실행해 보기]` ·
+   `PaneViewModel.OpenInTerminalAsync`(커맨드 밖 예외라 §규칙 10 대로 **프로세스 전체가
+   죽는다**) 세 곳에서 던졌다. `JsonSettingsStore.Parse`(`Shell/Settings/JsonSettingsStore.cs`)
+   에 `Enum.IsDefined` 검사를 더해 막았다.
+2. **진단 정정 — "새 탭이 탐지를 안 돈다" 는 절반만 맞았다.** 진짜 원인은 `Adopt` 가 아니라
+   `PaneViewModel.Terminal`(그리고 `PaneTabsViewModel.Terminal`) setter 의 **record 값 비교
+   조기 반환**이었다. 새 페인의 필드 기본값이 이미 앱 전체 기본값(`WindowsTerminal`)과
+   같아서 — **프리셋을 한 번도 안 바꾼 대다수 사용자**의 새 탭·분할 페인은 영원히 탐지가
+   안 돌았다. `PowerShell7` 로 바꾼 사람만 우연히 됐다. `externalToolsCts is null`(아직
+   한 번도 탐지를 안 돈 상태)을 값 비교의 예외로 둬서 첫 대입은 항상 돌게 고쳤다.
+   **기존 테스트 둘(`ANewTab_StartsWithTheTerminalThePaneIsAlreadyUsing`·
+   `APaneBornFromSplitting_StartsWithTheSameTerminal`)이 이 자리를 놓친 이유도 확인했다** —
+   둘 다 `PowerShell7`·`CommandPrompt` 를 써서 우연히 결함을 비켜 갔다. 기본 프리셋으로
+   실제 탐지가 도는지 보는 테스트를 새로 넣었다.
+
+테스트 2277 → **2280**. 게이트 4종 재확인 ✅.
+
+### 0-0. 1구간(v0.8.0→v0.8.4) 툴바 오버플로·알려진 폴더·항목 아이콘 — **닫혔다**
+
+사람 확인이 끝났다 (2026-08-21). **전문은 `HISTORY.md` §1구간 사람 확인 으로 옮겼다** —
+닫힌 항목 여덟과 그때의 경고(`Setup.exe` 의 `--silent` · 합성 클릭으로 못 밟는 우클릭 ·
+`theme` 되돌리기)가 거기 그대로 있다. **열린 항목이었던 라이트 테마 대비는 2026-08-24 에
+2구간 확인과 함께 닫혔다** (§다음 작업 0 의 5번 — 사용자가 양쪽을 보고 *"모두 정상"*).
+**1구간에 열린 항목은 없다.**
+
+
+
+
+### 창 결함 둘 — 끝났고 나갔다 (v0.6.1). **열린 항목 없음**
 
 사용자가 쓰다가 찾은 것 셋을 고쳤다. 커밋 `63eba31` · `ad5b06b` · `4b10c15` · `e0b2c03`.
 
@@ -396,6 +535,7 @@ v0.7.0. **설치본이 자동 업데이트 알림으로 교체되고 다크로 �
 | §0.4.1~0.4.3 배포 | `HISTORY.md` §배포 기록 | 표로 접었다. **절차는 여기 위 §배포 절차 에 남겼다** |
 | §B-1 / §B-3 / §B-4 표면 | `HISTORY.md` | v1 View 구간이 만든 표면과 배선 |
 | §마감이 만든 표면 | `HISTORY.md` §마감이 만든 표면 | 아이콘·타이틀바·breadcrumb·여유 용량 |
+| §다음 작업 0-0 (1구간 사람 확인 전문) | `HISTORY.md` §1구간 사람 확인 | 2026-08-24 에 옮겼다. 닫힌 항목 여덟과 그때의 경고들(`Setup.exe --silent` · 합성 클릭으로 못 밟는 우클릭 · `theme` 되돌리기). **열린 것은 라이트 테마 대비 하나**이고 그 한 줄은 여기 남겼다 |
 
 **소스 주석이 거는 것은 옮기지 않았다** — `§규칙 1~15` · `§phase B` · `§현재 상태` ·
 `§포트 현황` · `§열린 결정` 은 전부 이 파일에 그대로 있다. **규칙은 순번 리스트라 번호가
@@ -503,6 +643,38 @@ v0.7.0. **설치본이 자동 업데이트 알림으로 교체되고 다크로 �
    저장도 복원도 되지 않는다.** `FakeSettingsStore` 는 `AppSettings` 를 객체째로 들고 있어
    Core 의 계약 테스트가 그대로 통과한다 — **새 설정의 라운드트립은
    `JsonSettingsStoreTests` 에서 본다** (§규칙 2 와 같은 계열).
+
+19. **선택 인자(`= null`)로 주입하는 포트는 조립을 빠뜨려도 아무도 안 잡는다** (2026-08-24).
+   `PaneViewModel`·`SettingsViewModel` 이 `IExternalToolCatalog`·`IExternalToolLauncher` 를
+   기본값 `null` 로 받는다 — 기존 테스트를 한 줄도 안 고치려고 그렇게 했고 그 값은 실제로
+   받았다. 대신 **`AppComposition` 이 넘기는 것을 잊어도 컴파일 오류가 아니고**, 결과는
+   예외가 아니라 **버튼이 회색인 채로 남는 것**이다. 게이트 넷이 전부 초록인 채로
+   실제로 그렇게 나갔다: ViewModel 테스트는 포트를 fake 로 직접 넣어 만들고,
+   그때의 `FlexDir.Host.Tests` 94개는 조립의 *정리 순서*만 봤다 —
+   **"실제로 주입됐는가" 를 보는 테스트가 없었다.**
+   **잡은 것은 게이트가 아니다** — step 8 이 툴바를 실물 캡처했을 때 버튼 둘이 회색으로
+   떴고, step 9 가 배포 직전에 `blocked` 로 세웠다. **이제 막는 것은**
+   `AppCompositionTests.Create_GivesThePaneWorkingExternalTools` 다 (커밋 `ecbb175`) —
+   프리셋을 명령 프롬프트로 두고 `CanOpenInTerminal` 을 본다. `cmd.exe` 는 모든 Windows 에
+   있어 기계마다 답이 갈리지 않는다.
+   > **규칙**: 포트를 선택 인자로 열면 **조립 쪽에 그것을 보는 테스트를 함께 만든다.**
+   > 그러지 않을 거면 **필수 인자로 받아 컴파일러에게 맡긴다** — 둘 중 하나여야 하고,
+   > "기존 테스트를 안 고치려고" 는 앞의 것을 건너뛸 사유가 되지 못한다.
+   > **이 규칙은 닫힌 결함의 기록이 아니라 다음 포트에 거는 조건이다** — 이번 것은
+   > 실물 캡처가 우연히 잡았고, 캡처가 없는 자리였으면 배포까지 나갔다.
+
+20. **WPF 기본 템플릿이 색을 상수로 박아 둔 컨트롤이 있다** (2026-08-24). `ComboBox` 는
+   기본 템플릿이 배경을 `ComboBox.Static.Background`(`#FFF0F0F0`)로 그린다 — 시스템 색이
+   아니라 **템플릿 안의 상수**라, `Background` 를 줘도 **설정만 되고 그려지지는 않는다.**
+   다크에서 흰 상자로 떴고 실물 캡처로만 잡혔다. 이 앱은 테마를 브러시의 `Color` 로 푸는데
+   (ADR-020) 그 방식은 **브러시를 참조하는 템플릿에만 닿는다.**
+   > **규칙**: 새 컨트롤을 다크에서 한 번은 실물로 본다. `Background` 가 안 먹으면
+   > 색을 더 주지 말고 **템플릿째 간다** — `x:Key` 를 달아 그 자리에만 붙이고
+   > 암시적 스타일로 만들지 않는다 (`SettingsCombo`·`SettingsComboItem` 이 그 본이다).
+   > 곁의 함정 하나: **템플릿을 갈면 `DisplayMemberPath` 가 닫힌 상자에서 끊긴다** —
+   > `ContentPresenter` 에 `ContentTemplateSelector={TemplateBinding ItemTemplateSelector}`
+   > 가 있어야 닿는다. 목록은 멀쩡한데 닫힌 상자만 `ToString()` 이 뜬다.
+
 
 ## 구현체가 다음 phase 에 넘긴 사실
 

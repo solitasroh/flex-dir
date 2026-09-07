@@ -1,6 +1,7 @@
 using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
 using FlexDir.Core.Tests.Fakes;
+using FlexDir.Core.Tools;
 
 using Xunit;
 
@@ -46,6 +47,16 @@ public class FakeSettingsStoreTests
     }
 
     [Fact]
+    public void Default_OpensWindowsTerminal()
+    {
+        // Windows 11 의 기본 터미널이다. 없는 기계에서는 탐지가 null 을 내고 버튼이 비활성이
+        // 되며, 그때 설정에서 다른 것을 고르면 된다 — 기본값이 틀렸다고 앱이 막히지 않는다.
+        Assert.Equal(TerminalPreset.WindowsTerminal, AppSettings.Default.TerminalPreset);
+        Assert.Null(AppSettings.Default.TerminalExecutable);
+        Assert.Null(AppSettings.Default.TerminalArguments);
+    }
+
+    [Fact]
     public async Task SavedSettings_AreLoadedBack()
     {
         var store = new FakeSettingsStore();
@@ -55,11 +66,66 @@ public class FakeSettingsStoreTests
             StartFolder = Path(@"C:\work"),
             ShowHiddenItems = true,
             Theme = ThemeMode.Dark,
+            TerminalPreset = TerminalPreset.Custom,
+            TerminalExecutable = @"C:\tools\wezterm-gui.exe",
+            TerminalArguments = "start --cwd \"{path}\"",
         };
 
         await store.SaveAsync(settings, CancellationToken.None);
 
         Assert.Equal(settings, await store.LoadAsync(CancellationToken.None));
+    }
+
+    // ── 터미널 선택 (docs/PRD-v2.md §20) ─────────────────────────
+    //
+    // 프리셋과 사용자 지정 두 항목을 하나의 TerminalChoice 로 접는다. 실행하는 쪽과 실행
+    // 파일을 탐지하는 쪽이 각자 접으면 조용히 다른 답을 낸다 — ResolveStartFolder 와 같은
+    // 이유로 규칙이 Core 에 있다.
+
+    [Theory]
+    [InlineData(TerminalPreset.WindowsTerminal)]
+    [InlineData(TerminalPreset.PowerShell7)]
+    [InlineData(TerminalPreset.WindowsPowerShell)]
+    [InlineData(TerminalPreset.CommandPrompt)]
+    [InlineData(TerminalPreset.GitBash)]
+    public void ResolveTerminal_WithAPreset_CarriesThePresetAlone(TerminalPreset preset)
+    {
+        // 프리셋의 실행 파일·인자는 ExternalToolCommand.Resolve 의 표에서 나온다. 여기서
+        // 사용자 지정 칸을 함께 실으면 Custom 을 써 보고 되돌린 사람의 옛 값이 프리셋 인자로
+        // 새어 나간다.
+        var settings = new AppSettings
+        {
+            TerminalPreset = preset,
+            TerminalExecutable = @"C:\tools\wezterm-gui.exe",
+            TerminalArguments = "start --cwd \"{path}\"",
+        };
+
+        Assert.Equal(new TerminalChoice(preset), settings.ResolveTerminal());
+    }
+
+    [Fact]
+    public void ResolveTerminal_WithCustom_CarriesTheExecutableAndArguments()
+    {
+        var settings = new AppSettings
+        {
+            TerminalPreset = TerminalPreset.Custom,
+            TerminalExecutable = @"C:\tools\wezterm-gui.exe",
+            TerminalArguments = "start --cwd \"{path}\"",
+        };
+
+        Assert.Equal(
+            new TerminalChoice(TerminalPreset.Custom, @"C:\tools\wezterm-gui.exe", "start --cwd \"{path}\""),
+            settings.ResolveTerminal());
+    }
+
+    [Fact]
+    public void ResolveTerminal_WithCustomAndNothingTyped_DoesNotThrow()
+    {
+        // 사용자 지정을 고르고 아직 경로를 안 적은 중간 상태다 (StartFolder 와 같은 자리).
+        // 던지면 설정 창이 뜨는 도중에 죽는다 — 버튼이 비활성일 뿐이다.
+        var settings = new AppSettings { TerminalPreset = TerminalPreset.Custom };
+
+        Assert.Equal(new TerminalChoice(TerminalPreset.Custom, null, null), settings.ResolveTerminal());
     }
 
     // ── 다크모드 판정 ───────────────────────────────────────────────

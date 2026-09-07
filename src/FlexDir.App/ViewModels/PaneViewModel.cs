@@ -16,6 +16,7 @@ using FlexDir.Core.Operations;
 using FlexDir.Core.Presentation;
 using FlexDir.Core.Sorting;
 using FlexDir.Core.Storage;
+using FlexDir.Core.Tools;
 using FlexDir.Core.ViewState;
 using FlexDir.Core.Watching;
 
@@ -84,6 +85,17 @@ public sealed class RowViewModel
 /// </summary>
 /// <param name="Key">그룹 기준. <c>null</c> 이 "없음" 이다 — 커맨드에 그대로 넘어간다.</param>
 public sealed record GroupOption(string Label, SortKey? Key, bool IsSelected);
+
+/// <summary>
+/// 알려진 폴더 메뉴의 항목 하나. <see cref="KnownFolder"/> 와 달리 <see cref="Location"/> 이
+/// nullable 이 아니다 — 없는 폴더는 <see cref="PaneViewModel.ToOptions"/> 가 걸러 여기까지
+/// 오지 않는다. View 에 null 검사를 남기면 WPF 바인딩은 런타임 조회라 그 검사가 조용히
+/// 실패한다 (docs/PRD-v2.md §17).
+/// </summary>
+/// <param name="Icon">그 폴더의 shell 아이콘. 아직 안 왔거나 못 읽었으면 <c>null</c> 이다 —
+/// 거르는 기준은 경로 하나라 아이콘이 없어도 항목은 남는다. 기본값이 있는 마지막 자리인
+/// 이유: 아이콘 없이 두 인자로 만드는 자리(<c>ToOptions</c>)가 먼저 있었다.</param>
+public sealed record KnownFolderOption(string Label, LocationId Location, ThumbnailBitmap? Icon = null);
 
 /// <summary>
 /// 그룹화를 켠 Details 의 한 줄 — 그룹 헤더이거나 항목이다 (docs/PRD-v2.md §6-1).
@@ -186,6 +198,22 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     private const double LargeIconRowPitch = 148;
 
+    /// <summary>
+    /// 알려진 폴더 아이콘의 요청 크기. 메뉴 슬롯은 16 DIP 지만 150% 배율에서는 24 장치
+    /// 픽셀이라 16 원본은 뭉갠다 — 32 를 받아 View 가 줄이는 쪽이 선명하다.
+    /// </summary>
+    private const int KnownFolderIconSize = 32;
+
+    /// <summary>
+    /// 에디터에 넘기는 인자 틀. VS Code 는 <b>인자로 받은 폴더</b>를 연다 — 작업 디렉터리를
+    /// 보지 않는다. 따옴표는 여기 한 번뿐이다 (<see cref="ExternalToolCommand.FormatArguments"/>
+    /// 는 붙이지 않는다).
+    /// </summary>
+    private const string EditorArguments = $"\"{ExternalToolCommand.PathToken}\"";
+
+    /// <summary>실패 문구가 부르는 이름. 터미널과 달리 에디터는 하나뿐이라 표가 필요 없다.</summary>
+    private const string EditorLabel = "VS Code";
+
     private readonly IFolderSource folderSource;
     private readonly IFolderWatcher folderWatcher;
     private readonly EnumerationSession session;
@@ -198,6 +226,15 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
 
     /// <summary>여유 용량 포트. 주입되지 않으면 그 자리를 비운다 (선택 주입).</summary>
     private readonly IDriveSpace? driveSpace;
+
+    /// <summary>알려진 폴더 포트. 주입되지 않으면 메뉴만 빈 채로 나머지가 돈다 (선택 주입).</summary>
+    private readonly IKnownFolderList? knownFolders;
+
+    /// <summary>외부 도구 탐지 포트. 주입되지 않으면 버튼 둘이 비활성인 채로 돈다 (선택 주입).</summary>
+    private readonly IExternalToolCatalog? externalTools;
+
+    /// <summary>외부 도구 실행 포트. 주입되지 않으면 두 커맨드가 아무 일도 하지 않는다 (선택 주입).</summary>
+    private readonly IExternalToolLauncher? toolLauncher;
     private readonly IUiDispatcher dispatcher;
     private readonly IFormatProvider culture;
     private readonly TimeZoneInfo timeZone;
@@ -214,6 +251,13 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// </para>
     /// </summary>
     private readonly ThumbnailRequestScheduler thumbnails;
+
+    /// <summary>
+    /// 알려진 폴더 메뉴의 아이콘 조회에 쓴다. 목록 항목의 그림은 <see cref="thumbnails"/> 가
+    /// 스케줄링하지만, 이쪽은 다섯 개뿐이라 정책 없이 포트를 바로 부른다 — 부르는 곳이
+    /// 개수가 정해진 곳이어야 한다는 <see cref="IThumbnailSource.GetItemIconAsync"/> 의 계약이다.
+    /// </summary>
+    private readonly IThumbnailSource thumbnailSource;
 
     /// <summary>
     /// 확장자 → 유형 이름. 확장자마다 한 번만 조회한다 (docs/SHELL_NOTES.md §아이콘).
@@ -280,6 +324,26 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     private bool isAddressEditing;
 
     private Task freeSpaceWork = Task.CompletedTask;
+    private Task knownFoldersWork = Task.CompletedTask;
+
+    /// <summary>이미 물었다. 알려진 폴더는 프로세스가 사는 동안 바뀌지 않는다 (ADR-003 상주).</summary>
+    private bool knownFoldersAsked;
+
+    private TerminalChoice terminal = new(TerminalPreset.WindowsTerminal);
+
+    /// <summary>에디터의 실행 파일. <c>null</c> 이면 이 기계에 VS Code 가 없다.</summary>
+    private string? editorExecutable;
+
+    /// <summary>지금 고른 터미널의 실행 파일. <c>null</c> 이면 그것이 이 기계에 없다.</summary>
+    private string? terminalExecutable;
+
+    /// <summary>
+    /// 진행 중인 탐지의 취소원. <b>부를 때마다 교체한다</b> — 창을 빠르게 여닫으면 조회가
+    /// 겹치고, 먼저 시작한 느린 조회가 나중 답을 덮으면 화면이 과거로 되돌아간다.
+    /// </summary>
+    private CancellationTokenSource? externalToolsCts;
+
+    private Task externalToolsWork = Task.CompletedTask;
     private string? renamingName;
     private string? focusedName;
     private string addressEdit = string.Empty;
@@ -340,7 +404,12 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         TimeProvider? timeProvider = null,
         // 선택 주입이다 (timeProvider 와 같은 자리). 주지 않으면 여유 용량 자리가 빈 채로
         // 나머지가 그대로 돈다 — 이 포트 하나 때문에 페인 테스트 수백 개를 고치지 않는다.
-        IDriveSpace? driveSpace = null)
+        IDriveSpace? driveSpace = null,
+        // 같은 이유로 선택이다. 주지 않으면 알려진 폴더 메뉴가 빈 채로 나머지가 돈다.
+        IKnownFolderList? knownFolders = null,
+        // 같은 이유로 선택이다. 주지 않으면 외부 도구 버튼이 비활성인 채로 나머지가 돈다.
+        IExternalToolCatalog? externalTools = null,
+        IExternalToolLauncher? toolLauncher = null)
     {
         ArgumentNullException.ThrowIfNull(folderSource);
         ArgumentNullException.ThrowIfNull(folderWatcher);
@@ -356,6 +425,9 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(contextMenus);
 
         this.driveSpace = driveSpace;
+        this.knownFolders = knownFolders;
+        this.externalTools = externalTools;
+        this.toolLauncher = toolLauncher;
 
         // 감시 알림을 받은 항목은 다시 읽어야 한다 (TryGetItemAsync) — 세션은 폴더 열거만 안다.
         this.folderSource = folderSource;
@@ -374,6 +446,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 시계만 기본값이 있다 — 실물은 시스템 시계면 충분하고, 바꿔 넣는 쪽은 TypeAhead 의
         // 리셋 판정을 결정적으로 채점하는 테스트뿐이다 (docs/DESIGN.md §9).
         this.timeProvider = timeProvider ?? TimeProvider.System;
+        this.thumbnailSource = thumbnailSource;
         thumbnails = new ThumbnailRequestScheduler(thumbnailSource, dispatcher);
 
         // 선택이 바뀌면 상태표시줄이 따라간다 (docs/DESIGN.md §6).
@@ -400,6 +473,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             {
                 OnPropertyChanged(nameof(AddressText));
                 OnPropertyChanged(nameof(Title));
+
+                // 외부 도구 버튼의 판정이 여기에 달려 있다 (서버 루트에서는 비활성이다).
+                // 알리지 않으면 \\server 에서 \\server\share 로 내려가도 회색인 채로 남는다.
+                NotifyExternalToolsChanged();
             }
         }
     }
@@ -776,6 +853,169 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     /// 폴더 열기는 이 조회를 기다리지 않는다.
     /// </summary>
     internal Task FreeSpaceWork => freeSpaceWork;
+
+    /// <summary>알려진 폴더 메뉴에 올릴 항목. 포트를 주지 않았거나 아직 못 읽었으면 빈 목록이다.</summary>
+    public IReadOnlyList<KnownFolderOption> KnownFolderOptions { get; private set; } = [];
+
+    /// <summary>
+    /// 진행 중인 알려진 폴더 조회가 끝나면 완료된다. 테스트의 관측 지점이다
+    /// (<see cref="FreeSpaceWork"/> 와 같은 수).
+    /// </summary>
+    internal Task KnownFoldersWork => knownFoldersWork;
+
+    /// <summary>
+    /// 포트가 낸 목록에서 메뉴에 올릴 것을 고른다. 판정만 갈라 채점한다
+    /// (<c>TabStripPanel.Widths</c> 와 같은 수).
+    /// <para>
+    /// <see cref="KnownFolder.Location"/> 이 없는 항목은 뺀다 — 눌러도 갈 곳이 없는 항목은
+    /// <c>Command</c> 가 null 인 <c>MenuItem</c> 과 같은 자리가 된다 (docs/PRD-v2.md §17).
+    /// 순서는 입력 그대로다: 순서의 정본은 <see cref="KnownFolderKind"/> 선언 순서 하나여야 한다.
+    /// </para>
+    /// </summary>
+    internal static IReadOnlyList<KnownFolderOption> ToOptions(IReadOnlyList<KnownFolder> folders)
+    {
+        ArgumentNullException.ThrowIfNull(folders);
+
+        var options = new List<KnownFolderOption>(folders.Count);
+
+        foreach (var folder in folders)
+        {
+            if (folder.Location is { } location)
+            {
+                options.Add(new KnownFolderOption(folder.Label, location));
+            }
+        }
+
+        return options;
+    }
+
+    /// <summary>
+    /// 터미널 버튼이 열 것. <c>WorkspaceViewModel</c> 이 설정에서 밀어 넣는다
+    /// (<see cref="ShowHiddenItems"/> 와 같은 자리 — 페인은 설정을 모른다).
+    /// <para>
+    /// <b>바뀌면 다시 찾는다.</b> 프리셋이 바뀌면 탐지 대상이 바뀐다. 값이 실제로 달라질
+    /// 때만이다: 설정 적용은 값을 통째로 밀어 넣으므로 같은 값을 걸러내지 않으면 설정 창을
+    /// 닫을 때마다 레지스트리 조회가 나간다.
+    /// </para>
+    /// <para>
+    /// <b>단, 이 페인이 아직 한 번도 탐지를 안 돈 상태(<c>externalToolsCts is null</c>)면
+    /// 값이 같아도 돌린다.</b> 새 페인의 <c>terminal</c> 필드 기본값이 앱 전체 기본값
+    /// (<see cref="TerminalPreset.WindowsTerminal"/>)과 같아서, 값 비교만으로 걸렀을 때는
+    /// 새 탭·분할로 생긴 페인이 프리셋을 한 번도 안 바꾼 대다수 사용자에게 영원히 탐지가
+    /// 안 돌았다 (2026-08-24 리뷰 — <c>Adopt</c>·<c>RestoreAsync</c> 는 값만 밀고 별도로
+    /// <see cref="RefreshExternalTools"/> 를 부르지 않는다).
+    /// </para>
+    /// </summary>
+    public TerminalChoice Terminal
+    {
+        get => terminal;
+        set
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            // record 라 값 비교다 — 같은 내용의 다른 인스턴스는 같은 것으로 본다.
+            if (terminal == value && externalToolsCts is not null)
+            {
+                return;
+            }
+
+            terminal = value;
+            RefreshExternalTools();
+        }
+    }
+
+    /// <summary>
+    /// <c>[VS]</c> 가 눌리는가. 탐지됐고, 현재 폴더가 서버 루트가 아니어야 한다
+    /// (<see cref="ExternalToolCommand.CanRunAt"/>).
+    /// </summary>
+    public bool CanOpenInEditor => editorExecutable is not null
+        && ExternalToolCommand.CanRunAt(CurrentLocation);
+
+    /// <summary><c>[&gt;_]</c> 가 눌리는가. 같은 판정이다.</summary>
+    public bool CanOpenInTerminal => terminalExecutable is not null
+        && ExternalToolCommand.CanRunAt(CurrentLocation);
+
+    /// <summary>
+    /// 진행 중인 외부 도구 탐지가 끝나면 완료된다. 테스트의 관측 지점이다
+    /// (<see cref="KnownFoldersWork"/> 와 같은 수).
+    /// </summary>
+    internal Task ExternalToolsWork => externalToolsWork;
+
+    /// <summary>
+    /// 외부 도구를 다시 찾는다. 시작 시 한 번, 그리고 창이 다시 보일 때마다
+    /// <c>WorkspaceViewModel</c> 이 부른다 — 상주 앱(ADR-003)이라 그 사이에 사용자가
+    /// VS Code 를 설치하거나 지웠을 수 있다.
+    /// <para>
+    /// <b>기다리지 않는다</b> (<see cref="LoadKnownFolders"/> 와 같은 수). 다만 그쪽은 한 번만
+    /// 묻고 이쪽은 <b>부를 때마다 다시 묻는다</b> — 캐시하면 지운 뒤에도 버튼이 살아 있다.
+    /// 레지스트리·파일시스템 조회이므로 UI 스레드 밖이어야 한다 (CLAUDE.md §3).
+    /// </para>
+    /// </summary>
+    public void RefreshExternalTools()
+    {
+        if (externalTools is null)
+        {
+            return;
+        }
+
+        // 나중 것이 이긴다. 앞선 조회를 끊고 자리를 넘긴다 — Dispose 하지 않는 이유는
+        // WatchRun 과 같다: 취소와 진행 중 조회가 경합하면 이미 정리된 원본에 손이 간다.
+        var previous = externalToolsCts;
+        var generation = new CancellationTokenSource();
+
+        externalToolsCts = generation;
+        previous?.Cancel();
+
+        externalToolsWork = Find(generation.Token);
+
+        async Task Find(CancellationToken ct)
+        {
+            // 프리셋은 시작 시점의 값으로 고정한다. 조회 중에 바뀌면 그 변경이 새 조회를
+            // 걸고, 이 조회의 답은 아래 가드가 버린다.
+            var choice = terminal;
+            string? editor;
+            string? terminalPath;
+
+            try
+            {
+                editor = await externalTools.FindEditorAsync(ct).ConfigureAwait(false);
+
+                // Custom 은 탐지 대상이 아니다 (IExternalToolCatalog 계약) — 사용자가 적은
+                // 경로는 찾아 주는 것이 아니라 받는 것이다. 틀렸으면 실행이 실패하고 그
+                // 사유가 상태표시줄에 뜬다. 아직 안 적은 중간 상태는 "없다" 로 접는다.
+                terminalPath = choice.Preset == TerminalPreset.Custom
+                    ? (string.IsNullOrWhiteSpace(choice.Executable) ? null : choice.Executable)
+                    : await externalTools.FindTerminalAsync(choice.Preset, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 더 새로운 조회가 자리를 가져갔다. 조용히 물러난다 — 그쪽이 답한다.
+                return;
+            }
+            catch (Exception)
+            {
+                // 계약은 던지지 않는 것이지만 (IExternalToolCatalog), 새면 버튼만 비활성으로
+                // 남는다 — 외부 도구를 못 찾는 것이 폴더를 못 여는 사건이 되면 안 된다.
+                editor = null;
+                terminalPath = null;
+            }
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                // 취소를 무시하는 구현은 뒤늦게도 답한다. 도착 시점에 한 번 더 본다 —
+                // 이것이 없으면 느린 앞선 조회가 나중 답을 덮어 화면이 과거로 되돌아간다.
+                if (externalToolsCts != generation)
+                {
+                    return;
+                }
+
+                editorExecutable = editor;
+                terminalExecutable = terminalPath;
+
+                NotifyExternalToolsChanged();
+            }).ConfigureAwait(false);
+        }
+    }
 
     /// <summary>
     /// 주소줄 breadcrumb 의 칸들. 폴더를 열기 전에는 비어 있다 (목업 <c>.addr .seg</c>).
@@ -1257,6 +1497,102 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
     [RelayCommand]
     private Task OpenAddressAsync(string? address, CancellationToken ct)
         => address is null ? Task.CompletedTask : NavigateAsync(address, ct);
+
+    /// <summary>
+    /// 알려진 폴더 메뉴의 항목으로 이동한다. <b>현재 탭에서</b> 이동하고 (새 탭을 열지
+    /// 않는다 — 사용자 확정 사항), <see cref="NavigateAsync(LocationId, CancellationToken)"/>
+    /// 를 지나므로 히스토리에 남는다 — 뒤로가기가 원래 자리로 돌아와야 한다.
+    /// </summary>
+    [RelayCommand]
+    public Task OpenKnownFolderAsync(KnownFolderOption? option, CancellationToken ct = default)
+        => option is null ? Task.CompletedTask : NavigateAsync(option.Location, ct);
+
+    /// <summary>
+    /// <c>[VS]</c> — 현재 폴더를 VS Code 로 연다. <b>선택 항목은 보지 않는다</b>
+    /// (docs/PRD-v2.md §19).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanOpenInEditor))]
+    private Task OpenInEditorAsync(CancellationToken ct)
+        => LaunchToolAsync(editorExecutable, EditorArguments, EditorLabel, ct);
+
+    /// <summary>
+    /// <c>[&gt;_]</c> — 현재 폴더를 설정이 가리키는 터미널로 연다.
+    /// <para>
+    /// <see cref="ExternalToolCommand.Resolve"/> 에서 인자 틀만 가져온다. 실행 파일은
+    /// 그쪽이 낸 <b>이름</b>이 아니라 카탈로그가 찾아 둔 <b>전체 경로</b>다.
+    /// </para>
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanOpenInTerminal))]
+    private Task OpenInTerminalAsync(CancellationToken ct)
+        => LaunchToolAsync(
+            terminalExecutable,
+            ExternalToolCommand.Resolve(terminal).Arguments,
+            ExternalToolCommand.Label(terminal.Preset),
+            ct);
+
+    /// <summary>
+    /// 외부 도구 하나를 띄우고, <b>실패했을 때만</b> 상태표시줄에 사유를 낸다.
+    /// <para>
+    /// 성공을 말하지 않는 이유: 상태표시줄의 항목 수 요약이 이유 없이 지워진다. 실패도
+    /// 대화상자가 아니라 한 줄이다 (docs/UI_GUIDE.md §금지 목록).
+    /// </para>
+    /// </summary>
+    private async Task LaunchToolAsync(
+        string? executable, string arguments, string label, CancellationToken ct)
+    {
+        // CanExecute 가 거짓이어도 불릴 수 있다 — Command 가 살아 있는 MenuItem 은 정상으로
+        // 뜨고 눌린다 (docs/PRD-v2.md §17). 판정을 여기서 한 번 더 한다.
+        if (toolLauncher is null
+            || executable is null
+            || currentLocation is not { } folder
+            || !ExternalToolCommand.CanRunAt(folder))
+        {
+            return;
+        }
+
+        LocationErrorKind result;
+
+        try
+        {
+            result = await toolLauncher
+                .LaunchAsync(executable, ExternalToolCommand.FormatArguments(arguments, folder), folder, ct)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+        catch (Exception)
+        {
+            // 커맨드 밖으로 나간 예외는 잡을 사람이 없고 프로세스를 죽인다
+            // (.harness/HANDOFF.md §규칙 10 — 실물에서 밟았다). 포트가 안 던지는 계약이어도
+            // 여기서 한 번 더 막는다: 사용자에게는 열지 못한 것으로 보이면 된다.
+            result = LocationErrorKind.Unknown;
+        }
+
+        if (result == LocationErrorKind.None)
+        {
+            return;
+        }
+
+        await dispatcher
+            .InvokeAsync(() => StatusText = ExternalToolMessages.Describe(result, label))
+            .ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 외부 도구 버튼 둘의 판정이 바뀌었음을 알린다. <b>커맨드까지 알려야 한다</b> —
+    /// <c>[RelayCommand]</c> 는 <c>CanExecute</c> 의 변화를 스스로 감지하지 않으므로
+    /// 빠뜨리면 버튼이 영원히 회색이다 (<see cref="OnSelectionChanged"/> 와 같은 자리).
+    /// </summary>
+    private void NotifyExternalToolsChanged()
+    {
+        OnPropertyChanged(nameof(CanOpenInEditor));
+        OnPropertyChanged(nameof(CanOpenInTerminal));
+
+        OpenInEditorCommand.NotifyCanExecuteChanged();
+        OpenInTerminalCommand.NotifyCanExecuteChanged();
+    }
 
     /// <summary>
     /// 목록의 빈 곳 클릭 — 선택 해제 (탐색기와 같다). 비활성 페인이었다면 활성 전환도 된다.
@@ -2108,6 +2444,7 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         // 열거가 끝난 뒤에 묻는다. 앞에 두면 저장소에 닿는 조회(네트워크에서 초 단위)가
         // 첫 항목 도착을 뒤로 민다 — 그것이 이 앱의 예산 항목이다 (docs/PRD.md §5).
         MeasureFreeSpace(run, location, ct);
+        LoadKnownFolders(ct);
 
         return new LoadResult(false, null);
     }
@@ -2150,6 +2487,100 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 {
                     FreeSpaceText = text;
                 }
+            }).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// 알려진 폴더 메뉴를 뒤에서 채운다 (<see cref="MeasureFreeSpace"/> 와 같은 수 —
+    /// 기다리지 않는다). <b>한 번만 묻는다</b>: 알려진 폴더는 프로세스가 사는 동안 바뀌지
+    /// 않고 이 앱은 상주라(ADR-003), 탐색마다 물으면 폴더를 열 때마다 저장소 조회가 하나씩
+    /// 더 붙는다. 리디렉션된 폴더(OneDrive · 로밍 프로필)는 네트워크로 내려가므로 이 경로는
+    /// UI 스레드 밖이어야 한다 (CLAUDE.md §3).
+    /// </summary>
+    private void LoadKnownFolders(CancellationToken ct)
+    {
+        if (knownFolders is null || knownFoldersAsked)
+        {
+            return;
+        }
+
+        knownFoldersAsked = true;
+        knownFoldersWork = Load();
+
+        async Task Load()
+        {
+            IReadOnlyList<KnownFolder> folders;
+
+            try
+            {
+                folders = await knownFolders.ListAsync(ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // 취소된 폴더 열기에 얹혀 있었을 뿐이다. 다음 열기가 다시 묻는다.
+                knownFoldersAsked = false;
+                return;
+            }
+            catch (Exception)
+            {
+                // 계약은 던지지 않는 것이지만 (IKnownFolderList), 새면 메뉴만 빈 채로 간다 —
+                // 알려진 폴더를 못 읽는 것이 폴더를 못 여는 사건이 되면 안 된다.
+                return;
+            }
+
+            var options = ToOptions(folders);
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                KnownFolderOptions = options;
+
+                // 자동 속성이라 스스로 알리지 않는다 — 이것이 없으면 메뉴가 영원히 비어 있다.
+                OnPropertyChanged(nameof(KnownFolderOptions));
+            }).ConfigureAwait(false);
+
+            if (options.Count == 0)
+            {
+                return;
+            }
+
+            // 아이콘은 목록이 뜬 뒤에 잇는다 — 다섯 번의 shell 조회가 리디렉션된 폴더에서
+            // 초 단위로 걸릴 수 있고, 그동안 메뉴가 비면 기능이 없는 것처럼 보인다.
+            var withIcons = new List<KnownFolderOption>(options.Count);
+
+            foreach (var option in options)
+            {
+                ThumbnailBitmap? icon;
+
+                try
+                {
+                    icon = await thumbnailSource
+                        .GetItemIconAsync(option.Location, KnownFolderIconSize, ct)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // 취소된 폴더 열기에 얹혀 있었을 뿐이다. 다음 열기가 다시 묻는다.
+                    knownFoldersAsked = false;
+                    return;
+                }
+                catch (Exception)
+                {
+                    // 계약은 던지지 않는 것이지만 (IThumbnailSource), 새면 그 항목만 아이콘
+                    // 없이 남는다 — 거르는 기준은 경로 하나라 항목은 빠지지 않는다.
+                    icon = null;
+                }
+
+                withIcons.Add(option with { Icon = icon });
+            }
+
+            await dispatcher.InvokeAsync(() =>
+            {
+                // record 는 불변이다. 인스턴스를 두고 속성만 바꾸면 View 가 다시 그릴 신호를
+                // 못 받으므로 목록을 통째로 새로 만들어 교체하고 다시 알린다 (GroupOptions 와
+                // 같은 자리).
+                KnownFolderOptions = withIcons;
+                OnPropertyChanged(nameof(KnownFolderOptions));
             }).ConfigureAwait(false);
         }
     }
@@ -2934,6 +3365,10 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
         var current = Interlocked.Exchange(ref watch, null);
 
         current?.Cancel();
+
+        // 진행 중인 외부 도구 탐지도 끊는다. 페인이 사라진 뒤에도 레지스트리를 훑고 있을
+        // 이유가 없다 (WatchRun 과 같은 이유로 Dispose 는 하지 않는다).
+        externalToolsCts?.Cancel();
 
         // 열거를 먼저 접는다. 감시 루프가 열거 완료를 기다리고 있을 수 있고, 그 대기는
         // 취소로도 풀리지만 순서를 이렇게 두면 남은 배치까지 조용히 끝난다.

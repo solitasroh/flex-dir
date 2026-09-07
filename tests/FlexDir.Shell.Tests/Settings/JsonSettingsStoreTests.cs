@@ -1,5 +1,6 @@
 using FlexDir.Core.Locations;
 using FlexDir.Core.Settings;
+using FlexDir.Core.Tools;
 using FlexDir.Shell.Settings;
 
 using Xunit;
@@ -112,6 +113,130 @@ public class JsonSettingsStoreTests : IDisposable
         WriteRawFile("""{ "startMode": "Fixed", "showHiddenItems": true }""");
 
         Assert.Equal(ThemeMode.System, (await CreateStore().LoadAsync(CancellationToken.None)).Theme);
+    }
+
+    // ── 터미널 선택 (docs/PRD-v2.md §20) ─────────────────────────
+    //
+    // 바로 위 §테마 주석이 적어 둔 그 자리다. 아래 왕복은 전부 **새 인스턴스**로 읽는다 —
+    // 같은 인스턴스로 다시 읽으면 메모리를 읽게 되어 Document·SaveAsync·Parse 중 무엇을
+    // 빠뜨려도 통과한다. 그것이 2026-08-12 에 다크모드가 새어 나간 방식이다.
+
+    [Fact]
+    public async Task SavedCustomTerminal_SurvivesARoundTrip()
+    {
+        var settings = new AppSettings
+        {
+            TerminalPreset = TerminalPreset.Custom,
+            TerminalExecutable = "wezterm-gui.exe",
+            TerminalArguments = "start --cwd \"{path}\"",
+        };
+
+        await CreateStore().SaveAsync(settings, CancellationToken.None);
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(TerminalPreset.Custom, loaded.TerminalPreset);
+        Assert.Equal("wezterm-gui.exe", loaded.TerminalExecutable);
+        Assert.Equal("start --cwd \"{path}\"", loaded.TerminalArguments);
+    }
+
+    [Fact]
+    public async Task EveryPreset_SurvivesARoundTrip()
+    {
+        // 열거형을 돌려 확인한다 — 프리셋을 늘리고 저장을 빠뜨리면 여기서 잡힌다.
+        foreach (var preset in Enum.GetValues<TerminalPreset>())
+        {
+            await CreateStore().SaveAsync(
+                new AppSettings { TerminalPreset = preset }, CancellationToken.None);
+
+            Assert.Equal(preset, (await CreateStore().LoadAsync(CancellationToken.None)).TerminalPreset);
+        }
+    }
+
+    [Fact]
+    public async Task SavedPreset_IsWrittenAsAReadableName()
+    {
+        // 숫자로 남기면 열거형 중간에 값이 끼는 날 저장 파일이 조용히 다른 뜻이 된다.
+        await CreateStore().SaveAsync(
+            new AppSettings { TerminalPreset = TerminalPreset.WindowsTerminal }, CancellationToken.None);
+
+        Assert.Contains(
+            "\"terminalPreset\": \"WindowsTerminal\"",
+            await File.ReadAllTextAsync(FilePath),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task UnknownPreset_FallsBackToWindowsTerminal()
+    {
+        // 손으로 고치다 오타가 났거나 옛/새 버전이 남긴 값이다. 던지면 설정 전체를 잃는다.
+        WriteRawFile("""{ "terminalPreset": "Nonsense", "theme": "Dark", "showHiddenItems": true }""");
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(TerminalPreset.WindowsTerminal, loaded.TerminalPreset);
+        Assert.Equal(ThemeMode.Dark, loaded.Theme);
+        Assert.True(loaded.ShowHiddenItems);
+    }
+
+    [Fact]
+    public async Task OutOfRangeNumericPreset_FallsBackToWindowsTerminal()
+    {
+        // Enum.TryParse 는 정의되지 않은 값이어도 숫자 문자열이면 성공한다 — "99" 가
+        // (TerminalPreset)99 로 그대로 실리면 ExternalToolCommand.Label 이 그 값에서
+        // 던지고, 그 값은 SettingsViewModel.SelectedTerminal(바인딩 getter) ·
+        // [실행해 보기] · PaneViewModel.OpenInTerminalAsync(커맨드) 세 곳을 무너뜨린다
+        // (2026-08-24 리뷰에서 세 갈래 다 재현했다). Enum.IsDefined 로 막는다.
+        WriteRawFile("""{ "terminalPreset": "99" }""");
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(TerminalPreset.WindowsTerminal, loaded.TerminalPreset);
+    }
+
+    [Fact]
+    public async Task AFileFromBeforeTerminalSettings_TakesTheDefaults()
+    {
+        // v0.8.x 가 실제로 남기던 형식이다 — 그 시절에는 터미널 항목이 없었다.
+        WriteRawFile("""
+            {
+              "startMode": "Fixed",
+              "startFolder": "C:\\work",
+              "showHiddenItems": true,
+              "theme": "Dark"
+            }
+            """);
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Equal(TerminalPreset.WindowsTerminal, loaded.TerminalPreset);
+        Assert.Null(loaded.TerminalExecutable);
+        Assert.Null(loaded.TerminalArguments);
+
+        Assert.Equal(StartFolderMode.Fixed, loaded.StartMode);
+        Assert.Equal(Loc(@"C:\work"), loaded.StartFolder);
+        Assert.True(loaded.ShowHiddenItems);
+        Assert.Equal(ThemeMode.Dark, loaded.Theme);
+    }
+
+    [Fact]
+    public async Task BlankCustomExecutable_IsStoredAsNothing()
+    {
+        // 설정 창의 텍스트 상자를 비우면 빈 문자열이 온다. "" 와 null 을 다르게 다루면
+        // '적지 않았다' 를 판정하는 자리마다 조건이 둘씩 는다.
+        await CreateStore().SaveAsync(
+            new AppSettings
+            {
+                TerminalPreset = TerminalPreset.Custom,
+                TerminalExecutable = string.Empty,
+                TerminalArguments = "   ",
+            },
+            CancellationToken.None);
+
+        var loaded = await CreateStore().LoadAsync(CancellationToken.None);
+
+        Assert.Null(loaded.TerminalExecutable);
+        Assert.Null(loaded.TerminalArguments);
     }
 
     [Fact]

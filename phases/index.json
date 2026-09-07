@@ -14,6 +14,21 @@
       "dir": "2-viewmodel",
       "status": "completed",
       "completed_at": "2026-08-03T22:57:24+0900"
+    },
+    {
+      "dir": "3-toolbar-overflow",
+      "status": "completed",
+      "completed_at": "2026-08-21T15:45:31+0900"
+    },
+    {
+      "dir": "4-known-folder-icons",
+      "status": "completed",
+      "completed_at": "2026-08-21T17:44:01+0900"
+    },
+    {
+      "dir": "5-external-tools",
+      "status": "completed",
+      "completed_at": "2026-08-24T12:25:58+0900"
     }
   ]
 }
