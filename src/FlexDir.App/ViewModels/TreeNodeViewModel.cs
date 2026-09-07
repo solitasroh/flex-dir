@@ -79,8 +79,11 @@ public sealed partial class TreeNodeViewModel : ObservableObject
         internal set => SetProperty(ref label, value);
     }
 
-    /// <summary>사용자가 고정한 항목인가. 트리 맨 위에 서고 메뉴가 다르다.</summary>
+    /// <summary>사용자가 고정한 항목인가. 즐겨찾기 그룹 아래에 서고 메뉴가 다르다.</summary>
     public bool IsFavorite { get; }
+
+    /// <summary>경로가 없는 표시용 그룹인가. 일반 폴더 노드는 항상 아니다.</summary>
+    public bool IsGroup => false;
 
     /// <summary>
     /// 네트워크 저장소인가. 아이콘을 가르는 값이다 — <b>펼치는 값이 로컬과 다르기</b>

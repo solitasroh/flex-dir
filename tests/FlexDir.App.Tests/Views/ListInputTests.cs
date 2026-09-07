@@ -37,6 +37,39 @@ public class ListInputTests
         Assert.Equal(expected, ListInput.Choose(modifiers));
     }
 
+    // ── Ctrl+A → ViewModel 전체 선택 ─────────────────────────────
+
+    [Theory]
+    [InlineData(Key.A, ModifierKeys.Control, false, true)]
+    [InlineData(Key.A, ModifierKeys.None, false, false)]
+    [InlineData(Key.A, ModifierKeys.Control | ModifierKeys.Shift, false, false)]
+    [InlineData(Key.C, ModifierKeys.Control, false, false)]
+    [InlineData(Key.A, ModifierKeys.Control, true, false)]
+    public void IsSelectAllGesture_TakesOnlyPlainCtrlAOutsideTheRenameEditor(
+        Key key,
+        ModifierKeys modifiers,
+        bool isEditing,
+        bool expected)
+    {
+        Assert.Equal(expected, ListInput.IsSelectAllGesture(key, modifiers, isEditing));
+    }
+
+    [Fact]
+    public void TrySelectAll_ExecutesTheListsViewModelCommand()
+    {
+        OnSta(() =>
+        {
+            var list = new ListBox();
+            var command = new CountingCommand();
+            ListInput.SetSelectAllCommand(list, command);
+
+            var handled = ListInput.TrySelectAll(list, Key.A, ModifierKeys.Control, list);
+
+            Assert.True(handled);
+            Assert.Equal(1, command.ExecuteCount);
+        });
+    }
+
     // ── 편집기 안의 클릭 (B-4 실물이 잡은 자리) ───────────────────
 
     [Fact]
@@ -228,8 +261,10 @@ public class ListInputTests
         ListInput.SetOpenCommand(element, command);
         ListInput.SetEmptyCommand(element, command);
         ListInput.SetRenameCommand(element, command);
+        ListInput.SetSelectAllCommand(element, command);
 
         Assert.Same(command, ListInput.GetRenameCommand(element));
+        Assert.Same(command, ListInput.GetSelectAllCommand(element));
         Assert.Same(command, ListInput.GetSelectCommand(element));
         Assert.Same(command, ListInput.GetToggleCommand(element));
         Assert.Same(command, ListInput.GetRangeCommand(element));
@@ -303,5 +338,20 @@ public class ListInputTests
         public void Execute(object? parameter)
         {
         }
+    }
+
+    private sealed class CountingCommand : ICommand
+    {
+        public int ExecuteCount { get; private set; }
+
+        public event EventHandler? CanExecuteChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public bool CanExecute(object? parameter) => true;
+
+        public void Execute(object? parameter) => ExecuteCount++;
     }
 }

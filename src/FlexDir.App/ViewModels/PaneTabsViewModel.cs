@@ -67,8 +67,7 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
     /// <summary>
     /// 진행 중인 탭 전환의 취소원. <b>전환마다 앞선 것을 취소한다</b> — 탭을 빠르게 오가면
-    /// 이전 탭의 해제와 새 탭의 구독이 경합한다 (docs/PRD-v2.md §17 구조 렌즈). 트리
-    /// 따라가기가 이미 같은 수를 쓴다 (<c>FolderTreeViewModel.RevealAsync</c>).
+    /// 이전 탭의 해제와 새 탭의 구독이 경합한다 (docs/PRD-v2.md §17 구조 렌즈).
     /// </summary>
     private CancellationTokenSource? switching;
 
@@ -247,13 +246,6 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     /// </para>
     /// </summary>
     public event EventHandler<ClosedTab>? TabClosed;
-
-    /// <summary>
-    /// 이 페인이 보는 폴더가 바뀌었다 — <b>활성 탭의 이동과 탭 전환 둘 다</b>다. 트리가
-    /// 따라가는 근거이며 (docs/PRD-v2.md §10-3) 탭 전환도 같은 자리를 지나야 한다
-    /// (docs/PRD-v2.md §17 자명하게).
-    /// </summary>
-    public event EventHandler? ActiveLocationChanged;
 
     /// <summary>진행 중인 탭 전환. 테스트가 "끝났는가" 를 보는 자리다.</summary>
     internal Task SwitchWork => switchWork;
@@ -635,8 +627,6 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
         switchWork = SwitchAsync(leaving, tab, next.Token);
 
-        // 탭 전환도 "이 페인이 보는 폴더가 바뀌었다" 다 — 트리가 따라간다.
-        ActiveLocationChanged?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -674,9 +664,6 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
         Interlocked.Exchange(ref switching, next)?.Cancel();
 
         switchWork = OpenAsync(active, next.Token);
-
-        // 편 페인이 보는 폴더는 트리가 따라갈 자리다 — 탭 전환과 같은 사건이다.
-        ActiveLocationChanged?.Invoke(this, EventArgs.Empty);
 
         return switchWork;
     }
@@ -1065,18 +1052,6 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
     private void OnTabPropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(PaneViewModel.CurrentLocation))
-        {
-            // 배경 탭의 이동은 트리를 끌고 다니지 않는다 — 그러면 트리가 어느 쪽을
-            // 가리키는지 알 수 없고, 그 탐색은 전부 저장소 호출이다.
-            if (ReferenceEquals(sender, active))
-            {
-                ActiveLocationChanged?.Invoke(this, EventArgs.Empty);
-            }
-
-            return;
-        }
-
         if (args.PropertyName == nameof(PaneViewModel.IsPinned))
         {
             // 고정은 목록을 건드리지 않는다. 바뀌는 것은 그릴 순서와 닫힘 여부뿐이다.

@@ -723,6 +723,24 @@ public class WorkspaceViewModelTests
         Assert.Null(workspace.Left().CurrentLocation);
     }
 
+    [Fact]
+    public async Task PaneNavigation_DoesNotMoveTheFolderTree()
+    {
+        var docs = Folder(@"C:\Temp\Docs", ("a.txt", 100));
+        var elsewhere = Folder(@"C:\Temp\Elsewhere", ("b.txt", 100));
+        drives.Drives.Add(new DriveEntry(docs, "Docs", null));
+        var (workspace, tree) = CreateWorkspaceWithTree();
+        await workspace.RestoreAsync(null);
+
+        tree.Roots[0].IsSelected = true;
+        Assert.Equal(docs, workspace.Left().CurrentLocation);
+
+        await workspace.Left().NavigateAsync(elsewhere);
+
+        Assert.True(tree.Roots[0].IsSelected);
+        Assert.Equal(elsewhere, workspace.Left().CurrentLocation);
+    }
+
     // ── 헬퍼 ──────────────────────────────────────────────────────
 
     // ── 시작 폴더 복원 (phase B-2) ────────────────────────────────

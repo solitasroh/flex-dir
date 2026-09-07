@@ -243,6 +243,48 @@ public class FolderTreeViewModelTests
         Assert.Equal(["Users"], node.Children.Select(child => child.Label));
     }
 
+    [Fact]
+    public async Task CollapseAllCommand_CollapsesEveryRealizedLevel()
+    {
+        var system = Path(@"C:\");
+        var data = Path(@"D:\");
+        var users = system.Combine("Users");
+        var soojang = users.Combine("SOOJANG");
+        folders.Folders[system] = [Folder(system, "Users")];
+        folders.Folders[users] = [Folder(users, "SOOJANG")];
+        folders.Folders[soojang] = [Folder(soojang, "Projects")];
+        folders.Folders[data] = [Folder(data, "Archive")];
+        drives.Drives.Add(new DriveEntry(system, "로컬 디스크 (C:)", null));
+        drives.Drives.Add(new DriveEntry(data, "데이터 (D:)", null));
+
+        var tree = CreateTree();
+        await tree.LoadAsync(CancellationToken.None);
+        var systemDrive = tree.Roots[0];
+        var dataDrive = tree.Roots[1];
+        systemDrive.IsExpanded = true;
+        var user = Assert.Single(systemDrive.Children);
+        user.IsExpanded = true;
+        var profile = Assert.Single(user.Children);
+        profile.IsExpanded = true;
+        dataDrive.IsExpanded = true;
+        var enumerations = folders.EnumerateCalls.Count;
+
+        tree.CollapseAllCommand.Execute(null);
+
+        Assert.False(systemDrive.IsExpanded);
+        Assert.False(user.IsExpanded);
+        Assert.False(profile.IsExpanded);
+        Assert.False(dataDrive.IsExpanded);
+        Assert.True(systemDrive.IsRealized);
+        Assert.True(user.IsRealized);
+        Assert.True(profile.IsRealized);
+        Assert.True(dataDrive.IsRealized);
+
+        systemDrive.IsExpanded = true;
+
+        Assert.Equal(enumerations, folders.EnumerateCalls.Count);
+    }
+
     // ── 즐겨찾기 (docs/PRD-v2.md §10-2 · 사용자 결정 2026-08-10) ────
 
     [Fact]
@@ -262,6 +304,33 @@ public class FolderTreeViewModelTests
     }
 
     [Fact]
+    public async Task LoadAsync_GroupsFavoritesUnderOneCollapsedNodeForDisplay()
+    {
+        drives.Drives.Add(new DriveEntry(Path(@"C:\"), "로컬 디스크 (C:)", null));
+        await favorites.SaveAsync(
+            [
+                new Favorite(Path(@"C:\work"), "작업"),
+                new Favorite(Path(@"C:\docs"), "문서"),
+            ],
+            CancellationToken.None);
+
+        var tree = CreateTree();
+        LocationId? navigation = null;
+        tree.NavigationRequested += (_, location) => navigation = location;
+        await tree.LoadAsync(CancellationToken.None);
+
+        var group = Assert.IsType<FavoriteGroupViewModel>(tree.DisplayRoots[0]);
+        Assert.Equal("즐겨찾기", group.Label);
+        Assert.False(group.IsExpanded);
+        Assert.Equal(["작업", "문서"], group.Children.Select(node => node.Label));
+        Assert.Equal("로컬 디스크 (C:)", Assert.IsType<TreeNodeViewModel>(tree.DisplayRoots[1]).Label);
+
+        group.IsSelected = true;
+
+        Assert.Null(navigation);
+    }
+
+    [Fact]
     public async Task AddFavoriteAsync_PutsItAtTheTopAndSaves()
     {
         var tree = await LoadedTreeAsync();
@@ -270,6 +339,7 @@ public class FolderTreeViewModelTests
 
         Assert.Equal("work", tree.Roots[0].Label);
         Assert.True(tree.Roots[0].IsFavorite);
+        Assert.Same(tree.Roots[0], Assert.Single(tree.FavoriteGroup.Children));
 
         // 즉시 남긴다 — 창을 강제로 끄더라도 방금 넣은 것이 사라지면 안 된다.
         Assert.Equal(1, favorites.Saves);
@@ -287,6 +357,19 @@ public class FolderTreeViewModelTests
         // 파일시스템이 대소문자를 구분하지 않으므로 같은 폴더다.
         Assert.Single(tree.Roots, node => node.IsFavorite);
         Assert.Equal(1, favorites.Saves);
+    }
+
+    [Fact]
+    public async Task AddFavoriteAsync_KeepsTheFavoriteGroupExpanded()
+    {
+        var tree = await LoadedTreeAsync();
+        await tree.AddFavoriteAsync(Path(@"C:\a"), CancellationToken.None);
+        tree.FavoriteGroup.IsExpanded = true;
+
+        await tree.AddFavoriteAsync(Path(@"C:\b"), CancellationToken.None);
+
+        Assert.True(tree.FavoriteGroup.IsExpanded);
+        Assert.Equal(["a", "b"], tree.FavoriteGroup.Children.Select(node => node.Label));
     }
 
     [Fact]

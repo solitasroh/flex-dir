@@ -111,9 +111,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// <summary>숨김 정책이 바뀌어 다시 읽는 중인 작업. 테스트가 "끝났는가" 를 보는 자리다.</summary>
     private Task hiddenItemsWork = Task.CompletedTask;
 
-    /// <summary>진행 중인 트리 따라가기. 테스트가 "끝났는가" 를 보는 자리다.</summary>
-    private Task treeRevealWork = Task.CompletedTask;
-
     /// <summary>진행 중인 분할 변경 — 접기의 감시 해제와 펴기의 열기. 테스트가 보는 자리다.</summary>
     private Task splitWork = Task.CompletedTask;
 
@@ -190,8 +187,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 안으로 새어 든다.
             //
             // <b>페인마다 거는 배선(<see cref="Wire"/>)과 갈리는 자리다</b> — 트리는 창에
-            // 하나뿐이라 페인이 늘어도 이 구독은 하나여야 한다. 반대 방향(페인이 옮기면
-            // 트리가 따라간다)이 페인마다인 것과 짝이다.
+            // 하나뿐이라 페인이 늘어도 이 구독은 하나여야 한다.
             //
             // 기다리지 않는다 — 이벤트 핸들러는 동기이고, 페인은 열거 실패를 자기
             // 상태표시줄에 낸다 (PaneViewModel.FillAsync).
@@ -262,9 +258,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// <summary>숨김 정책 변경에 이어지는 재열거. 테스트가 "끝났는가" 를 보는 자리다.</summary>
     internal Task HiddenItemsWork => hiddenItemsWork;
 
-    /// <summary>진행 중인 트리 따라가기. 테스트가 "끝났는가" 를 보는 자리다.</summary>
-    internal Task TreeRevealWork => treeRevealWork;
-
     /// <summary>진행 중인 분할 변경. 테스트가 "끝났는가" 를 보는 자리다.</summary>
     internal Task SplitWork => splitWork;
 
@@ -322,9 +315,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             OnPropertyChanged(nameof(OtherPane));
             OnPropertyChanged(nameof(OtherTab));
 
-            // 가리키는 페인이 바뀌었으니 트리도 옮겨간다 — Tab 으로 옮긴 뒤에도 트리가
-            // 다른 페인의 자리를 가리키면 어느 쪽을 보고 있는지 알 수 없다.
-            RevealInTree();
         }
     }
 
@@ -1041,13 +1031,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
 
         if (Tree is { } tree)
         {
-            // 활성 페인이 옮기면 트리가 그 자리를 편다 (docs/PRD-v2.md §10-3 · 사용자 요청
-            // 2026-08-10). 되먹임을 끊는 것은 트리 쪽이다 (FolderTreeViewModel 의 revealing).
-            //
-            // 페인이 "활성 탭이 보는 폴더가 바뀌었다" 를 모아 낸다 — 탭 전환도 그 신호다
-            // (docs/PRD-v2.md §17 자명하게).
-            pane.ActiveLocationChanged += OnPaneLocationChanged;
-
             // 목록 우클릭의 '즐겨찾기에 추가'. 페인은 트리를 모르므로 여기서 잇는다 —
             // 페인 간 복사를 워크스페이스가 잇는 것과 같은 자리다.
             pane.PinRequested += (_, paths) => _ = tree.AddFavoritesAsync(paths);
@@ -1096,20 +1079,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 페인이 보는 폴더가 바뀌면 트리를 그리로 편다 — <b>활성 탭의 이동과 탭 전환 둘 다</b>가
-    /// 이 자리를 지난다 (docs/PRD-v2.md §17 자명하게). <b>활성 페인만</b> 본다 (사용자 결정
-    /// 2026-08-10) — 다른 페인까지 따라가면 트리가 어느 것을 가리키는지 알 수 없고, 그 탐색은
-    /// 전부 저장소 호출이다.
-    /// </summary>
-    private void OnPaneLocationChanged(object? sender, EventArgs args)
-    {
-        if (ReferenceEquals(sender, activePane))
-        {
-            RevealInTree();
-        }
-    }
-
-    /// <summary>
     /// 활성 탭이 바뀌었다. <b>View 가 물고 있는 자리가 통째로 바뀐다</b> —
     /// <see cref="ActiveTab"/>·<see cref="OtherTab"/> 은 파생 속성이라 값 비교로 걸러낼 수 없다.
     /// </summary>
@@ -1136,21 +1105,6 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// </summary>
     private static Core.Locations.LocationId? ActiveFolder(PaneTabsState? state)
         => state is { Tabs.Count: > 0 } tabs ? tabs.Tabs[tabs.ActiveIndex].Folder : null;
-
-    /// <summary>
-    /// 활성 페인이 보는 폴더를 트리에서 편다 (docs/PRD-v2.md §10-3).
-    /// <para>
-    /// <b>기다리지 않는다</b> — 부르는 곳이 전부 속성 변경 알림이고, 여는 것은 저장소에
-    /// 닿는다 (CLAUDE.md §3). 앞선 따라가기를 끊는 것은 트리가 한다 (<c>RevealAsync</c>).
-    /// </para>
-    /// </summary>
-    private void RevealInTree()
-    {
-        if (Tree is { } tree && ActiveTab.CurrentLocation is { } folder)
-        {
-            treeRevealWork = tree.RevealAsync(folder);
-        }
-    }
 
     /// <summary>
     /// 저장된 설정. 패널이 배선되지 않았으면 기본값이다 — 그때 시작 폴더는 마지막 폴더로,
