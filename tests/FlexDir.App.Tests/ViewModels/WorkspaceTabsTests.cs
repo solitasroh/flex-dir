@@ -18,8 +18,8 @@ namespace FlexDir.App.Tests.ViewModels;
 /// <summary>
 /// 탭이 창의 배선을 한 단 깊게 한다 (docs/PRD-v2.md §17 · ADR-018 · docs/ARCHITECTURE.md §4).
 /// <para>
-/// <b>여기서 재는 것의 본체는 배선 일곱이다</b> — 트리 따라가기(양방향) · 즐겨찾기 고정 ·
-/// 설정의 시작 폴더 지정 · 페인 간 복사 · 이동 · 반대편 폴더 열기 · 마우스 뒤로/앞으로.
+/// <b>여기서 재는 것의 본체는 배선 여섯이다</b> — 즐겨찾기 고정 · 설정의 시작 폴더 지정 ·
+/// 페인 간 복사 · 이동 · 반대편 폴더 열기 · 마우스 뒤로/앞으로.
 /// 전부 <c>ActivePane</c> 을 지나던 것이고 이제 "활성 페인의 <b>활성 탭</b>" 으로 간다.
 /// 한 페인에 탭을 둘 두고 <b>활성이 아닌 탭이 대상이 되지 않는지</b>를 본다 — 탭이 하나뿐인
 /// 페인으로 재면 전부 통과하므로 이 파일의 모든 테스트가 탭을 둘 이상 만든다.
@@ -192,7 +192,7 @@ public class WorkspaceTabsTests
         Assert.Contains(nameof(WorkspaceViewModel.OtherTab), announced);
     }
 
-    // ── 배선 일곱 ─────────────────────────────────────────────────
+    // ── 배선 여섯 ─────────────────────────────────────────────────
 
     [Fact]
     public async Task TreeNavigation_GoesToTheActiveTabOfTheActivePane()
@@ -206,66 +206,9 @@ public class WorkspaceTabsTests
         var (background, foreground) = await TwoTabsAsync(workspace.LeftTabs());
 
         tree.Roots[0].IsSelected = true;
-        await workspace.TreeRevealWork;
 
         Assert.Equal(target, foreground.CurrentLocation);
         Assert.NotEqual(target, background.CurrentLocation);
-    }
-
-    [Fact]
-    public async Task TreeReveal_FollowsTheActiveTabAndTheTabSwitchItself()
-    {
-        // 배선 1 (반대방향). 탭 전환도 "활성 페인이 보는 폴더가 바뀌었다" 이므로 같은 자리를
-        // 지나야 한다 (docs/PRD-v2.md §17 자명하게).
-        var (workspace, tree, _) = CreateWithTree();
-        await workspace.RestoreAsync(null, CancellationToken.None);
-
-        var first = Sub(@"C:\", "one");
-        var second = Sub(@"C:\", "two");
-        await tree.LoadAsync(CancellationToken.None);
-
-        await workspace.Left().NavigateAsync(first);
-        await workspace.TreeRevealWork;
-        Assert.Equal(first, Selected(tree));
-
-        // 새 탭에서 다른 곳으로 옮긴다.
-        var created = workspace.LeftTabs().NewTab();
-        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
-        await created.NavigateAsync(second);
-        await workspace.TreeRevealWork;
-        Assert.Equal(second, Selected(tree));
-
-        // 전환만으로 트리가 돌아온다 — 이 탭의 폴더는 그대로다.
-        workspace.LeftTabs().Activate(workspace.LeftTabs().Tabs[0]);
-        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
-        await workspace.TreeRevealWork;
-
-        Assert.Equal(first, Selected(tree));
-    }
-
-    [Fact]
-    public async Task TreeReveal_IgnoresABackgroundTabMoving()
-    {
-        // 배경 탭이 트리를 끌고 다니면 트리가 어느 쪽을 가리키는지 알 수 없고, 그 탐색은
-        // 전부 저장소 호출이다.
-        var (workspace, tree, _) = CreateWithTree();
-        await workspace.RestoreAsync(null, CancellationToken.None);
-
-        var first = Sub(@"C:\", "one");
-        var second = Sub(@"C:\", "two");
-        await tree.LoadAsync(CancellationToken.None);
-
-        await workspace.Left().NavigateAsync(first);
-        var background = workspace.Left();
-
-        workspace.LeftTabs().NewTab();
-        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
-        await workspace.TreeRevealWork;
-
-        await background.NavigateAsync(second);
-        await workspace.TreeRevealWork;
-
-        Assert.NotEqual(second, Selected(tree));
     }
 
     [Fact]
@@ -847,38 +790,6 @@ public class WorkspaceTabsTests
 
         return folder;
     }
-
-    /// <summary>트리가 펼 수 있도록 드라이브 아래에 폴더를 등록한다.</summary>
-    private LocationId Sub(string parentPath, string name)
-    {
-        var parent = Loc(parentPath);
-        var child = parent.Combine(name);
-
-        if (!source.Folders.TryGetValue(parent, out var items))
-        {
-            items = [];
-            source.Folders[parent] = items;
-        }
-
-        items.Add(new FileItem(name, child, 0, DateTimeOffset.UnixEpoch, FileItemFlags.Directory));
-        source.Folders[child] = [];
-
-        if (!drives.Drives.Any(drive => drive.Root.Equals(parent)))
-        {
-            drives.Drives.Add(new DriveEntry(parent, parentPath, null));
-        }
-
-        return child;
-    }
-
-    private static LocationId? Selected(FolderTreeViewModel tree)
-        => Walk(tree).FirstOrDefault(node => node.IsSelected)?.Location;
-
-    private static IEnumerable<TreeNodeViewModel> Walk(FolderTreeViewModel tree)
-        => tree.Roots.SelectMany(Walk);
-
-    private static IEnumerable<TreeNodeViewModel> Walk(TreeNodeViewModel node)
-        => new[] { node }.Concat(node.Children.SelectMany(Walk));
 
     private static LocationId Loc(string path)
     {

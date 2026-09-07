@@ -1983,12 +1983,11 @@
             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
 
             <!-- 자식도 가상화한다. 노드마다 패널이 따로이므로 TreeView 에만 걸면 펼친
-                 폴더의 항목 수만큼 컨테이너가 산다. 파생 패널인 이유는 TreeScroll 이
-                 BringIndexIntoView 를 불러야 하기 때문이다 (protected 라 밖으로 연다). -->
+                 폴더의 항목 수만큼 컨테이너가 산다. -->
             <Setter Property="ItemsPanel">
                 <Setter.Value>
                     <ItemsPanelTemplate>
-                        <v:RealizingStackPanel />
+                        <VirtualizingStackPanel />
                     </ItemsPanelTemplate>
                 </Setter.Value>
             </Setter>
@@ -2065,6 +2064,11 @@
                                 <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
                             </DataTrigger>
 
+                            <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                                <Setter TargetName="Glyph" Property="Text" Value="&#xE735;" />
+                                <Setter TargetName="Glyph" Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                            </DataTrigger>
+
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Row" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
@@ -2075,6 +2079,11 @@
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsGroup}" Value="True">
+                    <Setter Property="ContextMenu" Value="{x:Null}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!-- 즐겨찾기 이름 편집. 목록과 같은 편집기를 쓴다 (Views/RenameEditor.cs) —
@@ -2119,6 +2128,11 @@
                 <TextBox Style="{StaticResource TreeItemNameEditor}"
                          Text="{Binding EditingLabel, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             </Grid>
+        </HierarchicalDataTemplate>
+
+        <HierarchicalDataTemplate DataType="{x:Type vm:FavoriteGroupViewModel}" ItemsSource="{Binding Children}">
+            <TextBlock Text="{Binding Label}" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextBrush}" VerticalAlignment="Center" />
         </HierarchicalDataTemplate>
 
         <!-- ═══ 설정 패널 (docs/PRD-v2.md §12) ═══
@@ -2326,8 +2340,20 @@
                         WindowChrome.IsHitTestVisibleInChrome="True">
                 <!-- 트리 토글은 페인 툴바가 아니라 여기 있다 — 트리는 창에 하나이고,
                      페인 툴바에 두면 같은 버튼이 둘이 된다 (docs/PRD-v2.md §10). -->
-                <Button Style="{StaticResource ToolButton}" Content="&#xE700;" Margin="6,0,0,0"
-                        ToolTip="폴더 트리" Command="{Binding ToggleTreeCommand}" />
+                <Button Content="&#xE700;" Margin="6,0,0,0" Command="{Binding ToggleTreeCommand}">
+                    <Button.Style>
+                        <Style TargetType="Button" BasedOn="{StaticResource ToolButton}">
+                            <Setter Property="AutomationProperties.Name" Value="폴더 트리 접기" />
+                            <Setter Property="ToolTip" Value="폴더 트리 접기" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Tree.IsVisible}" Value="False">
+                                    <Setter Property="AutomationProperties.Name" Value="폴더 트리 펴기" />
+                                    <Setter Property="ToolTip" Value="폴더 트리 펴기" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
 
                 <!-- 활성 페인이 보고 있는 폴더를 고정한다 (docs/PRD-v2.md §10-2).
                      트리 조작이라 트리 토글 옆이다 — 페인 툴바에 두면 버튼이 둘이 된다. -->
@@ -2392,30 +2418,53 @@
 
             <Border Background="{DynamicResource PaneBgBrush}"
                     BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="1" CornerRadius="6,6,0,0">
-                <!-- 가상화를 명시한다. TreeView 의 기본 패널은 StackPanel 이라 그대로 두면
-                     펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
-                <!-- TreeScroll.Path 는 트리가 따라간 경로다 (docs/PRD-v2.md §10-3).
-                     프로그램이 정한 선택으로는 TreeView 가 스크롤하지 않고, 가상화 때문에
-                     화면 밖 노드는 컨테이너조차 없어 루트부터 실현하며 내려가야 한다. -->
-                <!-- 가로 스크롤을 끈다 (사용자 결정 2026-08-12). 탐색기 탐색창에도 없다.
-                     Hidden 이 아니라 Disabled 인 이유: Hidden 은 막대만 감출 뿐 내용을 여전히
-                     무한 폭으로 재서, 따라가기의 BringIntoView (TreeScroll) 가 깊은 노드를
-                     가로로 밀고 사용자는 되돌릴 수단이 없다. Disabled 는 내용을 뷰포트 폭에
-                     묶어 밀 곳 자체를 없앤다 — 긴 이름은 라벨의 CharacterEllipsis 가 받는다. -->
-                <TreeView ItemsSource="{Binding Tree.Roots}"
-                          ItemContainerStyle="{StaticResource TreeNodeItem}"
-                          v:FavoriteDropInput.Enabled="True"
-                          v:TreeScroll.Path="{Binding Tree.RevealedPath}"
-                          Background="Transparent" BorderThickness="0" Padding="4"
-                          VirtualizingStackPanel.IsVirtualizing="True"
-                          VirtualizingStackPanel.VirtualizationMode="Recycling"
-                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                    <TreeView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <v:RealizingStackPanel />
-                        </ItemsPanelTemplate>
-                    </TreeView.ItemsPanel>
-                </TreeView>
+                <DockPanel>
+                    <!-- 트리 전용 툴바. 창 전체를 감추는 버튼은 타이틀바에 남고, 여기서는
+                         트리 안에서 펼친 노드를 한 번에 접는다. 글자를 써서 아이콘 뜻을
+                         추측하게 하지 않는다. -->
+                    <Border DockPanel.Dock="Top" Height="28"
+                            Background="{DynamicResource ChromeBgBrush}"
+                            BorderBrush="{DynamicResource StrokeBrush}" BorderThickness="0,0,0,1">
+                        <DockPanel LastChildFill="True">
+                            <Button DockPanel.Dock="Right" Content="모두 접기"
+                                    Command="{Binding Tree.CollapseAllCommand}"
+                                    AutomationProperties.Name="폴더 노드 모두 접기"
+                                    ToolTip="펼친 폴더를 모두 접습니다."
+                                    Margin="2,1,4,2" Padding="6,2">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource CrumbButton}">
+                                        <Setter Property="Height" Value="24" />
+                                        <Setter Property="FontSize" Value="11" />
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                            <TextBlock Text="폴더" Margin="8,0,0,0"
+                                       FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Text2Brush}"
+                                       VerticalAlignment="Center" />
+                        </DockPanel>
+                    </Border>
+
+                    <!-- 가상화를 명시한다. TreeView 의 기본 패널은 StackPanel 이라 그대로 두면
+                         펼친 폴더의 항목 수만큼 컨테이너가 산다 (ADR-016 이 지킨 축). -->
+                    <!-- 가로 스크롤을 끈다 (사용자 결정 2026-08-12). 탐색기 탐색창에도 없다.
+                         Hidden 이 아니라 Disabled 인 이유: Hidden 은 막대만 감출 뿐 내용을 여전히
+                         무한 폭으로 잰다. Disabled 는 내용을 뷰포트 폭에 묶고 긴 이름은 라벨의
+                         CharacterEllipsis 가 받는다. -->
+                    <TreeView ItemsSource="{Binding Tree.DisplayRoots}"
+                              ItemContainerStyle="{StaticResource TreeNodeItem}"
+                              v:FavoriteDropInput.Enabled="True"
+                              Background="Transparent" BorderThickness="0" Padding="4"
+                              VirtualizingStackPanel.IsVirtualizing="True"
+                              VirtualizingStackPanel.VirtualizationMode="Recycling"
+                              ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <TreeView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <VirtualizingStackPanel />
+                            </ItemsPanelTemplate>
+                        </TreeView.ItemsPanel>
+                    </TreeView>
+                </DockPanel>
             </Border>
 
             <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch"

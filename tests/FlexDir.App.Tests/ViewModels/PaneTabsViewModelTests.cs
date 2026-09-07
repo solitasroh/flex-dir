@@ -1326,54 +1326,6 @@ public class PaneTabsViewModelTests
         Assert.Equal(2, tabs.Tabs.Count);
     }
 
-    [Fact]
-    public async Task ActiveLocationChanged_FiresOnBothNavigationAndTabSwitch()
-    {
-        // 트리가 따라가는 근거다 (docs/PRD-v2.md §10-3). 탭 전환도 "활성 페인이 보는 폴더가
-        // 바뀌었다" 이므로 같은 자리를 지나야 한다.
-        var a = Folder(@"C:\A", "a.txt");
-        var b = Folder(@"C:\B", "b.txt");
-        await using var tabs = CreateTabs();
-        await OpenAsync(tabs, a);
-
-        var first = tabs.Active;
-        var second = tabs.NewTab();
-        await tabs.SwitchWork.WaitAsync(Limit);
-        await second.NavigateAsync(b);
-
-        var changed = 0;
-        tabs.ActiveLocationChanged += (_, _) => changed++;
-
-        tabs.Activate(first);
-        await tabs.SwitchWork.WaitAsync(Limit);
-        Assert.True(changed >= 1, "탭 전환이 트리를 옮긴다");
-
-        await first.NavigateAsync(b);
-        Assert.True(changed >= 2, "활성 탭의 이동이 트리를 옮긴다");
-    }
-
-    [Fact]
-    public async Task ActiveLocationChanged_DoesNotFireForBackgroundTabs()
-    {
-        // 배경 탭이 트리를 끌고 다니면 트리가 어느 쪽을 가리키는지 알 수 없고, 그 탐색은
-        // 전부 저장소 호출이다.
-        var a = Folder(@"C:\A", "a.txt");
-        var b = Folder(@"C:\B", "b.txt");
-        await using var tabs = CreateTabs();
-        await OpenAsync(tabs, a);
-        var background = tabs.Active;
-
-        tabs.NewTab();
-        await tabs.SwitchWork.WaitAsync(Limit);
-
-        var changed = 0;
-        tabs.ActiveLocationChanged += (_, _) => changed++;
-
-        await background.NavigateAsync(b);
-
-        Assert.Equal(0, changed);
-    }
-
     // ── 정리 ──────────────────────────────────────────────────────
 
     [Fact]
