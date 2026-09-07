@@ -665,7 +665,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     // 복사가 "어디로" 만 정하는 것과 같은 구도다.
 
     /// <summary>
-    /// 새 탭 (<c>Ctrl+T</c>). 활성 페인에, 지금 폴더를 복제해서 활성 탭 바로 오른쪽에.
+    /// 새 탭 (<c>Ctrl+T</c>). 활성 페인에, 시작 폴더 설정을 적용해 활성 탭 바로 오른쪽에.
     /// </summary>
     [RelayCommand]
     private void NewTab() => activePane.NewTab();
@@ -912,7 +912,7 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     {
         while (allPanes.Count < count)
         {
-            var pane = new PaneTabsViewModel(paneFactory);
+            var pane = new PaneTabsViewModel(paneFactory, ResolveNewTabLocation);
 
             // 한 번도 없던 자리다 — 기억이 없으므로 활성 페인을 복제한다. 0번은 복제할
             // 대상이 아직 없다 (생성자가 부르는 첫 호출).
@@ -1105,6 +1105,10 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     /// </summary>
     private static Core.Locations.LocationId? ActiveFolder(PaneTabsState? state)
         => state is { Tabs.Count: > 0 } tabs ? tabs.Tabs[tabs.ActiveIndex].Folder : null;
+
+    /// <summary>새 탭이 열 폴더. 설정이 없거나 고정 경로가 비었으면 지금 폴더를 쓴다.</summary>
+    private Core.Locations.LocationId? ResolveNewTabLocation(Core.Locations.LocationId? current)
+        => Settings?.Current.ResolveStartFolder(current, current) ?? current;
 
     /// <summary>
     /// 저장된 설정. 패널이 배선되지 않았으면 기본값이다 — 그때 시작 폴더는 마지막 폴더로,

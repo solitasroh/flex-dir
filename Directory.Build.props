@@ -10,9 +10,12 @@
     이 값이 정본이다 — 올리지 않고 릴리스하면 아무도 갱신되지 않는다.
 
     semver 다. vpk 가 이 값을 패키지 이름과 피드 항목에 그대로 쓴다 (scripts/pack.ps1).
+
+    개발 중에는 미리 올리지 않는다. 배포할 변경이 모두 확정된 뒤 사용자가 정한 최종 patch
+    버전으로 한 번만 올린다 (사용자 결정 2026-09-07).
   -->
   <PropertyGroup>
-    <Version>0.9.0</Version>
+    <Version>0.9.1</Version>
   </PropertyGroup>
 
 </Project>

@@ -207,9 +207,11 @@ public static class ListInput
         }
 
         list.PreviewMouseLeftButtonDown += OnMouseDown;
+        list.PreviewMouseMove += OnMouseMove;
         list.PreviewMouseLeftButtonUp += OnMouseUp;
         list.PreviewMouseRightButtonUp += OnRightButtonUp;
         list.MouseDoubleClick += OnDoubleClick;
+        list.LostMouseCapture += OnLostMouseCapture;
     }
 
     /// <summary><c>SelectAllCommand</c>가 걸리는 순간 자기 키 이벤트를 직접 훅한다.</summary>
@@ -399,7 +401,7 @@ public static class ListInput
         // 선택 커맨드를 실행하므로 그 뒤에 물으면 언제나 참이 된다.
         var hadFocus = list.IsKeyboardFocusWithin;
         var item = ItemAt(list, args.OriginalSource as DependencyObject);
-        var selection = item is null ? null : SelectionOf(list);
+        var selection = SelectionOf(list);
         var wasSelected = selection is not null && item is not null && selection.IsSelected(item.Name);
         var wasSole = wasSelected && selection!.Count == 1;
 
@@ -415,9 +417,16 @@ public static class ListInput
 
         if (item is null)
         {
+            if (selection is not null)
+            {
+                MarqueeSelection.Start(list, args.GetPosition(list), selection);
+            }
+
             GetEmptyCommand(list)?.Execute(null);
             return;
         }
+
+        MarqueeSelection.Cancel(list);
 
         if (DefersSelection(Keyboard.Modifiers, args.ClickCount, wasSelected))
         {
@@ -441,8 +450,16 @@ public static class ListInput
     /// </summary>
     private static void OnMouseUp(object sender, MouseButtonEventArgs args)
     {
+        var list = (ItemsControl)sender;
+
+        if (MarqueeSelection.End(list))
+        {
+            args.Handled = true;
+            return;
+        }
+
         // 편집기 안에서 뗀 것이다. 미뤄 둔 클릭은 그대로 두고 (다음 클릭이 접는다) 물러난다.
-        if (IsEditing((DependencyObject)sender, args.OriginalSource as DependencyObject))
+        if (IsEditing(list, args.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -461,6 +478,19 @@ public static class ListInput
             ScheduleRename(click.List);
         }
     }
+
+    private static void OnMouseMove(object sender, MouseEventArgs args)
+    {
+        var list = (ItemsControl)sender;
+
+        if (MarqueeSelection.Move(list, args.GetPosition(list), args.LeftButton, Keyboard.Modifiers))
+        {
+            args.Handled = true;
+        }
+    }
+
+    private static void OnLostMouseCapture(object sender, MouseEventArgs args)
+        => MarqueeSelection.Cancel((ItemsControl)sender);
 
     private static void OnDoubleClick(object sender, MouseButtonEventArgs args)
     {
