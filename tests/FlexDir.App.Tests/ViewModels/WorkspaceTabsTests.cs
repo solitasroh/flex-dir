@@ -124,6 +124,43 @@ public class WorkspaceTabsTests
     }
 
     [Fact]
+    public async Task NewTabEntryPoints_UseTheConfiguredStartFolder()
+    {
+        var chosen = Folder(@"C:\Start");
+        var elsewhere = Folder(@"C:\Elsewhere");
+        settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.Fixed, StartFolder = chosen });
+        var (workspace, _, _) = CreateWithSettings();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+        await workspace.Left().NavigateAsync(elsewhere);
+
+        workspace.NewTabCommand.Execute(null);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(chosen, workspace.Left().CurrentLocation);
+
+        await workspace.Left().NavigateAsync(elsewhere);
+        workspace.LeftTabs().AddTabCommand.Execute(null);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(chosen, workspace.Left().CurrentLocation);
+    }
+
+    [Fact]
+    public async Task NewTab_InLastFolderMode_UsesTheCurrentFolder()
+    {
+        var current = Folder(@"C:\Current");
+        settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.LastFolder });
+        var (workspace, _, _) = CreateWithSettings();
+        await workspace.RestoreAsync(null, CancellationToken.None);
+        await workspace.Left().NavigateAsync(current);
+
+        workspace.NewTabCommand.Execute(null);
+        await workspace.LeftTabs().SwitchWork.WaitAsync(Limit);
+
+        Assert.Equal(current, workspace.Left().CurrentLocation);
+    }
+
+    [Fact]
     public async Task Persist_SavesEveryTabOfBothPanesIncludingBackgroundOnes()
     {
         var left = Folder(@"C:\L0");

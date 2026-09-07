@@ -128,6 +128,10 @@ dotnet build -c Release --nologo -warnaserror
 #                                        ④ git push  →  pwsh -File scripts/pack.ps1
 ```
 
+**버전은 배포 직전에 한 번만 올린다** (사용자 결정 2026-09-07). 기능 작업 도중 중간 번호를
+선점하지 않고, 배포할 변경이 모두 확정된 뒤 사용자가 정한 최종 patch 버전을
+`Directory.Build.props`에 반영한다.
+
 > **①을 빼먹으면 ②가 파일 잠금으로 깨진다.** 도그푸딩 중인 `FlexDir.Host` 는 자기가
 > 띄워진 산출물을 잠그고 그 빌드는 오류 수십 개를 낸다 — **Debug 든 Release 든
 > 마찬가지다.** 한때 이 문서는 "Release 실행 파일로 띄우면 된다" 고 적었지만 그러면

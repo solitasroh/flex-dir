@@ -46,6 +46,7 @@ public sealed record ClosedTab(int Index, TabState State);
 public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposable
 {
     private readonly Func<PaneViewModel> createPane;
+    private readonly Func<LocationId?, LocationId?>? resolveNewTabLocation;
     private readonly ObservableCollection<PaneViewModel> tabs = [];
 
     private PaneViewModel active;
@@ -76,11 +77,14 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     /// <param name="paneFactory">
     /// 탭 하나를 만드는 법. 포트 열두 개를 묶는 자리가 <c>Host</c> 에 이미 있다.
     /// </param>
-    public PaneTabsViewModel(Func<PaneViewModel> paneFactory)
+    public PaneTabsViewModel(
+        Func<PaneViewModel> paneFactory,
+        Func<LocationId?, LocationId?>? newTabLocationResolver = null)
     {
         ArgumentNullException.ThrowIfNull(paneFactory);
 
         createPane = paneFactory;
+        resolveNewTabLocation = newTabLocationResolver;
         Tabs = new ReadOnlyObservableCollection<PaneViewModel>(tabs);
 
         // 탭 줄은 탭이 1개여도 항상 보인다 (docs/PRD-v2.md §17). 그래서 "탭 0개" 는 어느
@@ -252,10 +256,10 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
     /// <summary>
     /// 새 탭 (<c>Ctrl+T</c> · <c>+</c>). <b>활성 탭 바로 오른쪽</b>에 서고 즉시 활성이 되며
-    /// 지금 보는 폴더를 복제한다 (사용자 결정 2026-08-11 · docs/PRD-v2.md §17).
+    /// 워크스페이스가 준 시작 폴더 규칙을 적용한다. 규칙이 없으면 지금 보는 폴더를 복제한다.
     /// <para>
-    /// 맨 뒤가 아닌 이유: 복제라 제목이 같은 탭 둘이 나란히 서는데, 방금 생긴 것이 어느
-    /// 쪽인지 보이고 원본으로 돌아가는 길이 바로 왼쪽이어야 한다.
+    /// 맨 뒤가 아닌 이유: 새 탭을 만든 문맥이 활성 탭 바로 옆에 남고, 원래 탭으로 돌아가는
+    /// 길도 바로 왼쪽이어야 한다.
     /// </para>
     /// <para>
     /// 폴더를 여는 것은 <see cref="SwitchWork"/> 에서 돈다 — 여기서 기다리면 느린 경로에서
@@ -268,7 +272,8 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
 
         // 위치만 실어 둔다. 여는 시점은 활성이 되는 순간이고, 그 경로는 배경 탭이 처음
         // 활성이 될 때와 완전히 같다 (Activate).
-        tab.PendingLocation = active.CurrentLocation ?? active.PendingLocation;
+        var current = active.CurrentLocation ?? active.PendingLocation;
+        tab.PendingLocation = resolveNewTabLocation?.Invoke(current) ?? current;
 
         Activate(tab);
 
@@ -384,9 +389,8 @@ public sealed partial class PaneTabsViewModel : ObservableObject, IAsyncDisposab
     /// 탭을 복제한다 (컨텍스트 메뉴). <b>복제한 탭 바로 오른쪽</b>에 서고 활성이 된다 —
     /// 기준이 활성 탭이 아니라 우클릭한 탭이라는 점만 <see cref="NewTab"/> 과 다르다.
     /// <para>
-    /// <b>따라오는 것은 폴더뿐이다.</b> 고정과 사용자 제목은 따라오지 않는다 — <c>Ctrl+T</c>
-    /// 가 복제하는 것도 폴더이고 (docs/PRD-v2.md §17), 제목까지 따라오면 같은 이름 둘이 서서
-    /// 어느 쪽이 원본인지 알 수 없다.
+    /// <b>따라오는 것은 폴더뿐이다.</b> 고정과 사용자 제목은 따라오지 않는다. 제목까지
+    /// 따라오면 같은 이름 둘이 서서 어느 쪽이 원본인지 알 수 없다.
     /// </para>
     /// </summary>
     public PaneViewModel Duplicate(PaneViewModel tab)

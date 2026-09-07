@@ -44,6 +44,7 @@ public static class DragDropInput
     /// 드래그가 아니다 — 막지 않으면 이름을 고치다 마우스를 끌면 파일이 딸려 나간다.
     /// </summary>
     private static bool fromEditor;
+    private static bool fromItem;
 
     public static bool GetEnabled(DependencyObject element) => (bool)element.GetValue(EnabledProperty);
 
@@ -85,6 +86,8 @@ public static class DragDropInput
         => Math.Abs(to.X - from.X) > SystemParameters.MinimumHorizontalDragDistance
             || Math.Abs(to.Y - from.Y) > SystemParameters.MinimumVerticalDragDistance;
 
+    internal static bool IsFileDragOrigin(bool hasItem, bool isEditing) => hasItem && !isEditing;
+
     /// <summary>
     /// 무엇을 싣는가 — 선택된 이름들의 경로다.
     /// <para>
@@ -117,6 +120,7 @@ public static class DragDropInput
     {
         origin = args.GetPosition((IInputElement)sender);
         fromEditor = ListInput.IsEditing((DependencyObject)sender, args.OriginalSource as DependencyObject);
+        fromItem = ListInput.ItemAt((DependencyObject)sender, args.OriginalSource as DependencyObject) is not null;
     }
 
     private static void OnMouseMove(object sender, MouseEventArgs args)
@@ -125,7 +129,7 @@ public static class DragDropInput
 
         if (args.LeftButton != MouseButtonState.Pressed
             || dragging
-            || fromEditor
+            || !IsFileDragOrigin(fromItem, fromEditor)
             || !HasLeftTheStartingPoint(origin, args.GetPosition(list))
             || list.DataContext is not PaneViewModel pane)
         {

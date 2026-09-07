@@ -101,6 +101,18 @@ public class DragDropInputTests
         Assert.True(DragDropInput.HasLeftTheStartingPoint(origin, new Point(0, -dy - 1)));
     }
 
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    public void IsFileDragOrigin_RequiresAnItemOutsideTheRenameEditor(
+        bool hasItem,
+        bool isEditing,
+        bool expected)
+    {
+        Assert.Equal(expected, DragDropInput.IsFileDragOrigin(hasItem, isEditing));
+    }
+
     // ── 무엇을 싣는가 ─────────────────────────────────────────────
 
     [Fact]
