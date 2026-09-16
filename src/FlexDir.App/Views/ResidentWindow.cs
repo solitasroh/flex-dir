@@ -1,5 +1,7 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 
 using FlexDir.App.ViewModels;
 
@@ -41,6 +43,18 @@ public static class ResidentWindow
                 // 스레드 친화성 예외가 StartAsync 의 버림 속으로 삼켜져 창이 영영 안 뜬다
                 // (실물에서 그랬다).
                 window.Dispatcher.InvokeAsync(() => Apply(window, workspace.WindowPlacement));
+            }
+        };
+
+        // 보이는 순간마다 자리를 확인한다 — 복원 때가 아니다. 상주 프로세스에서는 창이 숨은
+        // 채로 며칠을 가고, 그 사이 사용자가 모니터를 다시 놓는다. 숨은 창은 Windows 가 옮겨
+        // 주지 않아 다음 Show 가 옛 좌표로 나간다 (2026-09-16 실측: y=-1589 에 떠서 "안 켜진다").
+        // IsVisibleChanged 는 첫 표시도 덮으므로 저장된 배치가 처음부터 화면 밖인 경우도 여기다.
+        window.IsVisibleChanged += (_, e) =>
+        {
+            if (e.NewValue is true)
+            {
+                EnsureOnScreen(window);
             }
         };
 
@@ -115,6 +129,24 @@ public static class ResidentWindow
     internal static WindowState FirstState(WindowState restored, bool alreadyShown)
         => restored == WindowState.Maximized && !alreadyShown ? WindowState.Normal : restored;
 
+    /// <summary>
+    /// 어느 모니터에도 걸치지 않는 창을 두는 자리 — 주 모니터 작업영역의 가운데 (사용자 결정
+    /// 2026-09-16). 크기는 사용자가 맞춘 것이라 지키되, 작업영역보다 크면 그만큼 줄인다 —
+    /// 캡션이 작업영역 위로 나가면 끌어올 길이 없다.
+    /// <para>단위를 가리지 않는다. 호출자가 물리 픽셀로 재서 물리 픽셀로 옮긴다.</para>
+    /// </summary>
+    internal static Rect Fit(Rect window, Rect work)
+    {
+        var width = Math.Min(window.Width, work.Width);
+        var height = Math.Min(window.Height, work.Height);
+
+        return new Rect(
+            work.X + (work.Width - width) / 2,
+            work.Y + (work.Height - height) / 2,
+            width,
+            height);
+    }
+
     private static void Apply(Window window, WindowPlacement? placement)
     {
         if (placement is null)
@@ -151,4 +183,105 @@ public static class ResidentWindow
         window.Loaded -= Maximize;
         window.WindowState = WindowState.Maximized;
     }
+
+    /// <summary>
+    /// 창이 어느 모니터에도 걸치지 않으면 주 모니터 작업영역 안으로 옮긴다 (<see cref="Fit"/>).
+    /// <para>
+    /// WPF 의 <c>Left</c>/<c>Top</c> 이 아니라 HWND 를 물리 픽셀로 옮긴다. 화면 밖 창의 DIP 는
+    /// "가장 가까운" 모니터의 배율로 환산된 값이라 주 모니터 배율과 다를 수 있고, 그 값으로
+    /// 좌표를 계산하면 옮긴 자리가 또 어긋난다. 물리 픽셀로 재고 물리 픽셀로 옮기면 WPF 가
+    /// <c>WM_WINDOWPOSCHANGED</c> 로 자기 속성을 맞춘다.
+    /// </para>
+    /// <para>
+    /// 판정은 OS 에 맡긴다 (<c>MonitorFromRect</c>) — 모니터가 L 자로 놓이면 가상 화면
+    /// 경계 상자 안에도 모니터 없는 구멍이 있어, 경계 상자로 재면 그 구멍을 "화면 안" 으로 읽는다.
+    /// 한 픽셀이라도 걸치면 그대로 둔다 — 사용자가 일부러 걸쳐 둔 창을 옮기면 그것이 결함이다.
+    /// </para>
+    /// </summary>
+    private static void EnsureOnScreen(Window window)
+    {
+        if (PresentationSource.FromVisual(window) is not HwndSource source
+            || !GetWindowRect(source.Handle, out var bounds)
+            || MonitorFromRect(ref bounds, MonitorDefaultToNull) != IntPtr.Zero)
+        {
+            return;
+        }
+
+        var primary = MonitorFromPoint(default, MonitorDefaultToPrimary);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+
+        if (primary == IntPtr.Zero || !GetMonitorInfo(primary, ref info))
+        {
+            return;
+        }
+
+        var fitted = Fit(ToRect(bounds), ToRect(info.Work));
+
+        SetWindowPos(
+            source.Handle,
+            IntPtr.Zero,
+            (int)fitted.X,
+            (int)fitted.Y,
+            (int)fitted.Width,
+            (int)fitted.Height,
+            SwpNoZOrder | SwpNoActivate);
+    }
+
+    private static Rect ToRect(Rectangle value)
+        => new(value.Left, value.Top, value.Right - value.Left, value.Bottom - value.Top);
+
+    private const uint MonitorDefaultToNull = 0;
+    private const uint MonitorDefaultToPrimary = 1;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rectangle
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PhysicalPoint
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        public int Size;
+        public Rectangle Monitor;
+        public Rectangle Work;
+        public uint Flags;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr window, out Rectangle bounds);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromRect(ref Rectangle bounds, uint flags);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromPoint(PhysicalPoint point, uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(
+        IntPtr window,
+        IntPtr insertAfter,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint flags);
 }
