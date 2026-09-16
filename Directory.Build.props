@@ -15,7 +15,7 @@
     버전으로 한 번만 올린다 (사용자 결정 2026-09-07).
   -->
   <PropertyGroup>
-    <Version>0.9.1</Version>
+    <Version>0.9.2</Version>
   </PropertyGroup>
 
 </Project>
