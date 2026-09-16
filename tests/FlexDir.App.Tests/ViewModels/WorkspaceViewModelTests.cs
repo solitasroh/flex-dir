@@ -787,6 +787,44 @@ public class WorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task RestoreAsync_CallsBackOnceTheLayoutStands_BeforeTheFoldersFinishOpening()
+    {
+        // 2026-09-16 실측: 창이 뜨기까지 16초·46초. 창은 폴더 열기가 전부 끝난 뒤에 떴고, 그
+        // 열기 중 하나가 드라이브 목록이었다 (SystemDriveList — 끊긴 매핑 드라이브의 IsReady 가
+        // 초 단위로 선다). 배치·페인·탭은 파일 하나 읽으면 서는데 창이 저장소를 기다릴 이유가
+        // 없다 — 그 순간을 호출자에게 알려 창을 먼저 보이게 한다. 폴더는 그 안에 나중에 찬다.
+        var left = Folder(@"C:\Temp\Left", ("a.txt", 100));
+        var placement = new WindowPlacement(120, 80, 1400, 900, Maximized: false);
+        await viewStates.SaveGlobalAsync(
+            (GlobalViewState.Default with { Window = placement }).WithTwoPanes(PaneTabsState.Single(left)),
+            CancellationToken.None);
+        var storage = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        source.Gate = storage.Task;
+        var workspace = CreateWorkspace();
+        var laidOut = new TaskCompletionSource<(WindowPlacement? Placement, int Items)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var restoring = workspace.RestoreAsync(
+            null,
+            _ =>
+            {
+                laidOut.SetResult((workspace.WindowPlacement, workspace.Left().Items.Count));
+                return Task.CompletedTask;
+            });
+
+        var seen = await laidOut.Task;
+        Assert.Equal(placement, seen.Placement);
+        Assert.Equal(0, seen.Items);
+        Assert.False(restoring.IsCompleted);
+
+        storage.SetResult();
+        await restoring;
+
+        Assert.Equal(left, workspace.Left().CurrentLocation);
+        Assert.Single(workspace.Left().Items);
+    }
+
+    [Fact]
     public async Task PersistAsync_SavesTheCurrentFoldersOfBothPanes()
     {
         var left = Folder(@"C:\Temp\Left", ("a.txt", 100));

@@ -384,14 +384,31 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     }
 
     /// <summary>
-    /// 저장된 전역 상태(분할 모양·비율·창 배치·마지막 폴더)를 복원한다.
+    /// 저장된 전역 상태(분할 모양·비율·창 배치·마지막 폴더)를 복원한다. 폴더까지 다 열리면 끝난다.
     /// <para>
     /// 페인은 마지막 폴더로, 기억이 없으면 <paramref name="fallbackFolder"/> 로 간다 —
     /// 빈 페인으로 시작하면 매번 주소를 쳐야 한다. 폴백마저 없으면 비워 둔다.
     /// 사라진 폴더는 페인이 알아서 상위로 올라간다 (docs/PRD.md §4).
     /// </para>
     /// </summary>
-    public async Task RestoreAsync(Core.Locations.LocationId? fallbackFolder, CancellationToken ct = default)
+    public Task RestoreAsync(Core.Locations.LocationId? fallbackFolder, CancellationToken ct = default)
+        => RestoreAsync(fallbackFolder, onLaidOut: null, ct);
+
+    /// <summary>
+    /// 복원하되, 배치가 선 순간을 <paramref name="onLaidOut"/> 으로 알린다. 나머지는 위와 같다.
+    /// </summary>
+    /// <param name="onLaidOut">
+    /// 배치·페인·탭이 선 순간에 부른다 — 폴더 열기는 <b>시작만 됐고 끝나지 않았다.</b> 창을
+    /// 보일 자리다 (Host 의 ActivationRouter). 폴더가 다 열리기를 기다려 창을 보이면 저장소
+    /// 하나가 창을 붙잡는다 — 2026-09-16 실측: 끊긴 NAS 매핑 드라이브의 목록(SystemDriveList 의
+    /// <c>IsReady</c>)에 창이 46초 뒤에 떴고, 사용자에게는 "실행했는데 안 켜진다" 였다. 배치는
+    /// 파일 하나 읽으면 서므로 창이 뛰지 않고, 폴더는 그 안에 도착하는 대로 찬다.
+    /// <see langword="null"/> 이면 부르지 않는다.
+    /// </param>
+    public async Task RestoreAsync(
+        Core.Locations.LocationId? fallbackFolder,
+        Func<CancellationToken, Task>? onLaidOut,
+        CancellationToken ct = default)
     {
         var state = await LoadGlobalAsync(ct).ConfigureAwait(false);
 
@@ -460,6 +477,15 @@ public sealed partial class WorkspaceViewModel : ObservableObject
                 // §13 의 폭주가 보이지 않는 자리에서 돈다.
                 open: index < state.PaneCount,
                 ct));
+        }
+
+        // 여기까지가 배치다 — 열기는 전부 시작됐고 (각 열거의 세대는 이미 열렸다) 끝나기만
+        // 남았다. 창은 지금 보여야 한다: 이 뒤의 기다림은 저장소의 것이고 얼마나 걸릴지 모른다
+        // (CLAUDE.md §3). 인자로 온 폴더를 이 안에서 열어도 복원된 폴더를 이긴다 — 나중에 시작한
+        // 열거가 앞의 것을 낡게 한다 (PaneViewModel.LoadAsync 의 세대 판정).
+        if (onLaidOut is not null)
+        {
+            await onLaidOut(ct).ConfigureAwait(false);
         }
 
         // 함께 연다 — 페인은 독립이라 하나가 느려도 (네트워크·대용량) 다른 것을 막지 않는다.

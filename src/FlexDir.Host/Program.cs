@@ -127,7 +127,7 @@ internal static class Program
 
         // 실행 자체가 첫 활성화다. 기다리지 않는다 — 메시지 펌프가 아직 돌지 않았고,
         // 여기서 기다리면 조립이 UI 스레드에서 열거를 기다리게 된다.
-        // 시작은 마지막 폴더 복원 → 활성화 순서다. 폴백은 사용자 프로필이다 (phase B-2 결정).
+        // 시작은 배치 복원 → 활성화(창) → 폴더 도착 순서다. 폴백은 사용자 프로필이다 (phase B-2 결정).
         _ = router.StartAsync(
             args,
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

@@ -100,6 +100,38 @@ public class ActivationRouterTests
     }
 
     [Fact]
+    public async Task StartAsync_PresentsTheWindowBeforeTheFoldersFinishOpening()
+    {
+        // 창은 배치가 서는 즉시 뜬다 — 폴더는 그 안에 나중에 채워진다 (2026-09-16 실측: 끊긴
+        // NAS 드라이브 하나에 창이 46초 뒤에 떴다). 복원이 저장소를 기다리는 동안 창을
+        // 붙잡으면 "실행했는데 안 켜진다" 와 구별되지 않는다.
+        var last = Folder(@"C:\Temp\Left", "a.txt");
+        await viewStates.SaveGlobalAsync(
+            FlexDir.Core.ViewState.GlobalViewState.Default.WithTwoPanes(FlexDir.Core.ViewState.PaneTabsState.Single(last)),
+            CancellationToken.None);
+        var storage = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        source.Gate = storage.Task;
+        var workspace = CreateWorkspace();
+        var presented = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var router = new ActivationRouter(workspace, usage, new FixedClock(Now), _ =>
+        {
+            presented.TrySetResult(workspace.Left().Items.Count);
+            return Task.CompletedTask;
+        });
+
+        var starting = router.StartAsync([], @"C:\Users\Me", CancellationToken.None);
+
+        Assert.Equal(0, await presented.Task);
+        Assert.False(starting.IsCompleted);
+
+        storage.SetResult();
+        await starting;
+
+        Assert.Equal(last, workspace.Left().CurrentLocation);
+        Assert.Single(workspace.Left().Items);
+    }
+
+    [Fact]
     public async Task ActivateAsync_PresentsTheWindowOnEveryActivation()
     {
         // 활성화 = 사용자가 창을 요구한 순간이다 (ADR-003). 첫 실행도, 상주 중 두 번째

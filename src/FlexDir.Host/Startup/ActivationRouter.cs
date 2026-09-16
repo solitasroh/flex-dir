@@ -45,8 +45,9 @@ public sealed class ActivationRouter
     }
 
     /// <summary>
-    /// 첫 실행. 마지막 폴더를 복원한 뒤 첫 활성화를 처리한다 — 이 순서가 존재 이유다:
-    /// 복원이 활성화 뒤에 오면 인자로 요구한 폴더를 마지막 폴더가 덮는다.
+    /// 첫 실행. 배치를 복원하고, 폴더 열기가 <b>끝나기를 기다리지 않고</b> 첫 활성화를 처리한다.
+    /// 활성화가 복원의 열거 시작보다 뒤여야 한다는 것이 순서의 존재 이유다: 앞서면 인자로
+    /// 요구한 폴더를 마지막 폴더가 덮는다.
     /// </summary>
     /// <param name="fallbackFolderPath">
     /// 기억이 없을 때 여는 폴더 (사용자 프로필). 환경을 읽는 곳은 조립뿐이므로 경로
@@ -64,8 +65,12 @@ public sealed class ActivationRouter
                 ? parsed
                 : null;
 
-        await workspace.RestoreAsync(fallback, ct).ConfigureAwait(false);
-        await ActivateAsync(args, ct).ConfigureAwait(false);
+        // 활성화(창 표시·인자 폴더)는 배치가 선 순간에 — 폴더 열기가 끝나기 전에 — 한다.
+        // 2026-09-16 실측: 끊긴 NAS 드라이브 목록 하나에 창이 46초 뒤에 떴다. 인자의 폴더는
+        // 복원이 시작한 열거보다 뒤에 시작하므로 그것을 이긴다 (WorkspaceViewModel.RestoreAsync).
+        await workspace
+            .RestoreAsync(fallback, laidOut => ActivateAsync(args, laidOut), ct)
+            .ConfigureAwait(false);
     }
 
     /// <summary>

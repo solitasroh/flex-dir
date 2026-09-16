@@ -28,6 +28,13 @@ public sealed class FakeFolderSource : IFolderSource
     /// <summary>항목을 하나 낼 때마다 이 만큼 await 한다. 0 이면 즉시.</summary>
     public int YieldDelayMilliseconds { get; set; }
 
+    /// <summary>
+    /// 열거가 첫 항목을 내기 전에 기다리는 관문. 기본값은 이미 완료된 Task 다 — 미완료 Task 를
+    /// 넣으면 "저장소가 아직 답하지 않는" 상태를 만들 수 있다 (끊긴 네트워크 경로가 그 모양이다).
+    /// <see cref="FakeFileOperations.Gate"/> 와 같은 knob 이다.
+    /// </summary>
+    public Task Gate { get; set; } = Task.CompletedTask;
+
     /// <summary>N 번째 항목을 낸 뒤 예외를 던진다. null 이면 던지지 않는다.</summary>
     public (int AfterItems, LocationErrorKind Kind)? FailureInjection { get; set; }
 
@@ -79,6 +86,9 @@ public sealed class FakeFolderSource : IFolderSource
         [EnumeratorCancellation] CancellationToken ct)
     {
         ObserveCancellation(ct);
+
+        // 관문이 먼저다 — 실제 저장소도 "폴더가 있는가" 를 답하기까지가 느린 부분이다.
+        await Gate;
 
         if (!Folders.TryGetValue(folder, out var items))
         {
