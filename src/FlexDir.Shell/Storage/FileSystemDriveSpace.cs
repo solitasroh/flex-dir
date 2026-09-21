@@ -18,7 +18,7 @@ namespace FlexDir.Shell.Storage;
 /// <b>하지만 UI 스레드에서 부를 수는 없다.</b> 이 호출은 저장소에 닿고, 네트워크 경로와
 /// 응답하지 않는 이동식 볼륨에서는 초 단위로 블로킹한다 (CLAUDE.md §3). 그래서
 /// <see cref="Task.Run(Action, CancellationToken)"/> 으로 넘긴다 — 아파트먼트가 아니라
-/// <b>블로킹</b>이 여기서 막는 것이다 (docs/HANDOFF 규칙 8: 둘은 다른 문제다).
+/// <b>블로킹</b>이 여기서 막는 것이다 (.harness/HANDOFF.md §규칙 8: 둘은 다른 문제다).
 /// </para>
 ///
 /// <para>

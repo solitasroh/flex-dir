@@ -63,6 +63,14 @@ FlexDir.Host.Tests  → Host, Core, Shell, App, Core.Tests, App.Tests
 | `IExternalToolCatalog` | 설치된 외부 도구를 찾는다 — `FindEditorAsync(ct)` · `FindTerminalAsync(preset, ct)`, 둘 다 `ValueTask<string?>`. **실패는 `null`, 취소만 예외.** **캐시하지 않는다** — 상주 앱이라 창이 다시 보일 때마다 다시 묻는다 (v0.8.5 · docs/PRD-v2.md §21). 구현 `Shell/Tools/AppPathsToolCatalog.cs` (COM 이 아니라 STA 도 정리도 없다) |
 | `IExternalToolLauncher` | 외부 도구를 그 폴더를 작업 디렉터리로 띄운다 — `LaunchAsync(executable, arguments, workingFolder, ct)` → `ValueTask<LocationErrorKind>`. **실패는 `LocationErrorKind`, 던지지 않는다** — 실패가 정상 상황이라 호출자가 상태표시줄 한 줄로 만든다 (`None` 이 성공). 구현 `Shell/Tools/ProcessToolLauncher.cs` |
 
+| `ITypeNameProvider` | 확장자에 붙은 형식 이름("텍스트 문서"). 구현 `Shell/Presentation/ShellTypeNameProvider.cs` |
+| `ISettingsStore` | 사용자 설정 — 시작 폴더 · 숨김/시스템 항목 · 테마 · 터미널 선택. **캐시가 아니라 사용자의 의도라** 뷰 상태와 다른 파일(`settings.json`)에 쓴다. 구현 `Shell/Settings/JsonSettingsStore.cs` |
+| `ISystemThemeSource` | OS 가 라이트인가 다크인가. 레지스트리 값 하나라 COM 도 STA 도 필요 없지만, 다른 시스템 조회 포트와 같은 이유로 비동기다 (ADR-020). 구현 `Shell/Settings/RegistrySystemThemeSource.cs` |
+| `IFavoriteStore` | 즐겨찾기. 캐시가 아니라 사용자 데이터라 뷰 상태와 **다른 파일**이다. 구현 `Shell/Favorites/JsonFavoriteStore.cs` |
+| `IDriveList` | 드라이브 목록. COM 이 아니라 `DriveInfo`+`mpr.dll` 이라 STA 도 정리도 없다. 구현 `Shell/Storage/SystemDriveList.cs` |
+| `INetworkPlaceList` | '네트워크 위치 추가' 로 등록된 곳. 드라이브 문자를 만들지 않아 `WNetGetConnection` 에 안 잡힌다. **COM 이라 STA 를 들고 정리 목록에 들어간다.** 구현 `Shell/Storage/ShellNetworkPlaceList.cs` |
+| `IUpdateSource` | 새 버전 확인 · 내려받기 · 교체 후 재시작. 받는 것을 미리 끝내고 설치 시점만 사용자가 고른다. 구현 `Shell/Updates/VelopackUpdateSource.cs` |
+
 포트는 **경로를 문자열이 아니라 `LocationId` 로** 주고받는다. v1 은 로컬
 파일시스템 경로만 담지만, v2 의 UNC·shell 네임스페이스(PIDL)를 같은 타입으로
 표현할 수 있어야 한다. 이 추상화가 없으면 v2 에서 전면 수정이 된다.
