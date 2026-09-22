@@ -122,14 +122,43 @@ public class PaneDropTests
     }
 
     [Fact]
-    public async Task DropAsync_CopyIntoTheSameFolder_IsAllowed()
+    public async Task DropAsync_CopyIntoTheFolderTheItemsAlreadyLiveIn_IsANoOp()
     {
-        // shell 이 사본을 만드는 정상 조작이다 (CopySelectionToAsync 와 같은 판단).
+        // 2026-09-22 사용자 신고로 뒤집혔다. 예전에는 '사본을 만드는 정상 조작' 으로 보고
+        // 그대로 shell 에 넘겼는데, 돌아오는 것은 사본이 아니라 "원본과 대상 파일 이름이
+        // 같습니다" 대화상자다. 게다가 이 경로는 의도해서 들어오지 않는다 — 항목을 한 번
+        // 누르고 손이 조금 밀리면 그것이 드래그가 되고, 놓인 자리는 보던 폴더다.
         var pane = CreatePane();
 
         await pane.DropAsync([@"C:\Dst\a.txt"], Loc(@"C:\Dst"), isMove: false);
 
-        Assert.Single(operations.Copies);
+        Assert.Empty(operations.Copies);
+    }
+
+    [Fact]
+    public async Task DropAsync_CopySkipsOnlyTheItemsAlreadyInTheTargetFolder()
+    {
+        // 이동과 같은 규칙이다 — 남은 것은 마저 복사한다. 다른 앱이 실어 보낸 목록에
+        // 대상 폴더의 파일이 섞여 있다고 잘 끌어온 파일까지 버리면 안 된다.
+        var pane = CreatePane();
+
+        await pane.DropAsync([@"C:\Dst\a.txt", @"C:\Src\b.txt"], Loc(@"C:\Dst"), isMove: false);
+
+        var (sources, _) = Assert.Single(operations.Copies);
+        Assert.Equal([Loc(@"C:\Src\b.txt")], sources);
+    }
+
+    [Fact]
+    public async Task DropAsync_OntoTheDraggedFolderItself_IsANoOp()
+    {
+        // 폴더 행 위에서 같은 일이 나면 대상은 그 폴더 자신이 된다
+        // (DragDropInput.TargetFolder). 폴더를 자기 안으로 넣는 것도 shell 이 오류로 돌려준다.
+        var pane = CreatePane();
+
+        await pane.DropAsync([@"C:\Dst\sub"], Loc(@"C:\Dst\sub"), isMove: false);
+
+        Assert.Empty(operations.Copies);
+        Assert.Empty(operations.Moves);
     }
 
     [Fact]

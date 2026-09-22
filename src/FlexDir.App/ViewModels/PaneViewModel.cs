@@ -1870,10 +1870,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
                 continue;
             }
 
-            // 제자리 이동은 아무 일도 아니다 — 그대로 shell 에 넘기면 오류 대화상자가 뜬다
-            // (MoveSelectionToAsync 와 같은 판단). 복사는 막지 않는다: 사본을 만드는 정상
-            // 조작이다.
-            if (isMove && location.TryGetParent(out var parent) && parent.Equals(targetFolder))
+            // 제자리 드롭은 아무 일도 아니다 — 그대로 shell 에 넘기면 대화상자가 뜬다
+            // (MoveSelectionToAsync 와 같은 판단).
+            //
+            // **복사도 같다** (2026-09-22 사용자 신고로 뒤집혔다). 예전에는 "사본을 만드는
+            // 정상 조작" 으로 보고 넘겼는데, 돌아오는 것은 사본이 아니라 <i>원본과 대상 파일
+            // 이름이 같습니다</i> 대화상자다. 그리고 이 경로로는 의도해서 들어오지 않는다:
+            // 항목을 누르고 손이 시스템 임계값만큼만 밀려도 드래그가 시작되고
+            // (DragDropInput.HasLeftTheStartingPoint), 그때 놓인 자리는 방금 보고 있던
+            // 폴더다. 사본이 필요하면 복사-붙여넣기가 그 자리다 — 거기는 shell 이 이름을
+            // 붙여 준다.
+            if (location.Equals(targetFolder)
+                || (location.TryGetParent(out var parent) && parent.Equals(targetFolder)))
             {
                 continue;
             }
