@@ -21,6 +21,9 @@ public sealed class InMemoryViewStateStore : IViewStateStore
 
     private GlobalViewState global = GlobalViewState.Default;
 
+    /// <summary>전역 상태를 몇 번 썼는가. "안 바뀜으면 쓰지 않는다" 를 채점하는 자리다.</summary>
+    public int GlobalSaves { get; private set; }
+
     public ValueTask<FolderViewState?> TryLoadAsync(LocationId folder, CancellationToken ct)
     {
         ArgumentNullException.ThrowIfNull(folder);
@@ -52,6 +55,8 @@ public sealed class InMemoryViewStateStore : IViewStateStore
         ct.ThrowIfCancellationRequested();
 
         global = state;
+        GlobalSaves++;
+
         return ValueTask.CompletedTask;
     }
 }

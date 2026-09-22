@@ -72,13 +72,37 @@ public static class ResidentWindow
             }
         };
 
-        window.Closing += (_, e) =>
+        // 배치를 닫을 때만 재면 그 사이의 저장은 전부 낡은 자리를 쓴다 — 창을 옮기고
+        // 띄워 둔 채 재부팅하면 다음 실행이 전전 자리에 뜼다. 재는 것만 하고 쓰지는 않는다:
+        // 저장은 아래 두 입구(비활성·닫기)가 한다. 끌기는 동안 초당 수십 번 들어오므로
+        // 여기서 저장하면 끌기 한 번에 파일을 수십 번 쓴다.
+        void TrackPlacement()
         {
-            // 배치는 닫는 순간의 것이 정본이다.
             if (Capture(window.RestoreBounds, window.WindowState) is { } placement)
             {
                 workspace.WindowPlacement = placement;
             }
+        }
+
+        window.LocationChanged += (_, _) => TrackPlacement();
+        window.SizeChanged += (_, _) => TrackPlacement();
+        window.StateChanged += (_, _) => TrackPlacement();
+
+        // 다른 앱으로 갔다. 상주 프로세스에서 창을 띄워 둔 채 며칠을 보내는 사람에게는
+        // 이것이 유일한 정기 저장 입구다 — 창을 닫지 않으면 재부팅까지 한 번도 저장되지
+        // 않았다. 바뀜 것이 없으면 파일에 닿지 않으므로 알트탭이 왕복을 만들지 않는다
+        // (WorkspaceViewModel.PersistIfChangedAsync). 기다리지 않는 이유는 닫기와 같다.
+        window.Deactivated += (_, _) =>
+        {
+            TrackPlacement();
+
+            _ = workspace.PersistIfChangedAsync();
+        };
+
+        window.Closing += (_, e) =>
+        {
+            // 배치는 닫는 순간의 것이 정본이다.
+            TrackPlacement();
 
             e.Cancel = true;
             window.Hide();

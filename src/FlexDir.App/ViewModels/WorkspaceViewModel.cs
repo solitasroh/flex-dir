@@ -67,6 +67,9 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     private readonly Func<PaneViewModel> paneFactory;
     private readonly IViewStateStore viewStates;
 
+    /// <summary>마지막으로 <b>쓰는 데 성공한</b> 상태. "바뀌었는가" 의 기준점이다.</summary>
+    private GlobalViewState? lastPersisted;
+
     /// <summary>
     /// 닫은 탭. <b>창 전체에 하나다</b> (docs/PRD-v2.md §17) — 끝이 가장 최근이다.
     /// 스택 타입을 쓰지 않는 이유: 깊이를 넘길 때 <b>가장 오래된 것</b>을 버려야 하고
@@ -499,31 +502,58 @@ public sealed partial class WorkspaceViewModel : ObservableObject
     {
         try
         {
-            // 접힌 페인도 담는다 (docs/PRD-v2.md §18) — 그러지 않으면 접기가 재시작을 건너며
-            // 닫기가 된다. 담을 탭이 하나도 없는 페인은 빠지고, 그러면 뒤의 페인이 앞으로
-            // 당겨진다: 자리를 비워 둘 길이 저장 포맷에 없다.
-            var panes = allPanes
-                .Select(pane => pane.Capture() is { } tabs ? new PaneState(tabs, pane.Columns) : null)
-                .OfType<PaneState>()
-                .ToArray();
+            var state = CaptureGlobal();
 
-            await viewStates
-                .SaveGlobalAsync(
-                    new GlobalViewState(
-                        SplitterRatio,
-                        WindowPlacement,
-                        panes.Length == 0 ? null : panes,
-                        splitCount,
-                        RowRatio,
-                        Tree?.IsVisible ?? true,
-                        Tree?.Width ?? GlobalViewState.DefaultTreeWidth),
-                    ct)
-                .ConfigureAwait(false);
+            await viewStates.SaveGlobalAsync(state, ct).ConfigureAwait(false);
+
+            // 쓴 뒤에만 기준이 된다 — 실패를 기준으로 잡으면 한 번 잠긴 파일이
+            // 그 세션의 저장을 영영 막는다 (<see cref="PersistIfChangedAsync"/>).
+            lastPersisted = state;
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
             // 읽기와 같은 이유로 삼킨다 — 저장 실패가 창을 닫는 길을 막으면 안 된다.
         }
+    }
+
+    /// <summary>
+    /// 직전 저장 이후로 바뀜 것이 있을 때만 저장한다.
+    /// <para>
+    /// 저장 시점을 늘리는 자리가 쓰는 입구다 (다른 앱으로 전환 · 세션 종료 —
+    /// <c>Views/ResidentWindow</c>). 예전에는 창을 닫을 때와 완전 종료 둘뿐이어서, 창을 띄워
+    /// 둔 채 재부팅하면 그날 옮긴 폴더가 통째로 날아갔다.
+    /// </para>
+    /// <para>
+    /// <b>바뀜 것이 없으면 파일에 손도 대지 않는다.</b> 알트탭 한 번에 상태 파일을
+    /// 다시 쓰면 그 파일이 네트워크 경로일 때 쓸데없는 왕복이 쌓인다. 판정은 공짜다 —
+    /// <see cref="GlobalViewState"/> 가 탭 목록까지 구조적으로 비교한다.
+    /// </para>
+    /// </summary>
+    public Task PersistIfChangedAsync(CancellationToken ct = default)
+        => lastPersisted is { } saved && CaptureGlobal() == saved
+            ? Task.CompletedTask
+            : PersistAsync(ct);
+
+    /// <summary>
+    /// 지금의 전역 상태. <b>접힌 페인도 담는다</b> (docs/PRD-v2.md §18) — 그러지 않으면
+    /// 접기가 재시작을 건너며 닫기가 된다. 담을 탭이 하나도 없는 페인은 빠지고, 그러면
+    /// 뒤의 페인이 앞으로 당겨진다: 자리를 비워 둘 길이 저장 포맷에 없다.
+    /// </summary>
+    private GlobalViewState CaptureGlobal()
+    {
+        var panes = allPanes
+            .Select(pane => pane.Capture() is { } tabs ? new PaneState(tabs, pane.Columns) : null)
+            .OfType<PaneState>()
+            .ToArray();
+
+        return new GlobalViewState(
+            SplitterRatio,
+            WindowPlacement,
+            panes.Length == 0 ? null : panes,
+            splitCount,
+            RowRatio,
+            Tree?.IsVisible ?? true,
+            Tree?.Width ?? GlobalViewState.DefaultTreeWidth);
     }
 
     /// <summary>

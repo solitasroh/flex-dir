@@ -99,6 +99,13 @@ internal static class Program
             unhandled.Handled = recovered;
         };
 
+        // 재부팅·로그오프. Windows 가 상주 프로세스를 끝내기 전에 주는 유일한 신호고,
+        // 창을 띄워 둔 채 재부팅하는 사람에게는 여기가 마지막 저장 기회다 (닫기는 숨기기라
+        // 그날 옮긴 폴더가 통째로 날아갔다). 기다린다 — 끝나기 전에 프로세스가 죽으면
+        // 저장하나 마나가 같아진다. 종료 경로의 PersistAsync 와 같은 수다 (아래 application.Run 뒤).
+        application.SessionEnding += (_, _) =>
+            composition.Workspace.PersistAsync(CancellationToken.None).GetAwaiter().GetResult();
+
         var presenter = new WindowPresenter(
             _ => uiDispatcher.InvokeAsync(() =>
             {

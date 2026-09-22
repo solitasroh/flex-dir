@@ -393,6 +393,65 @@ public class WorkspaceViewModelTests
     }
 
     [Fact]
+    public async Task PersistIfChanged_WithNothingChangedSinceTheLastSave_WritesNothing()
+    {
+        // 다른 앱으로 전환할 때마다 불리는 자리다 (Views/ResidentWindow) — 알트탭 한 번에
+        // 상태 파일을 다시 쓰면 그 파일이 네트워크 경로일 때 쓸데없는 왕복이 쌓인다.
+        var workspace = CreateWorkspace();
+        workspace.SplitterRatio = 0.4;
+        await workspace.PersistAsync();
+
+        var saves = viewStates.GlobalSaves;
+
+        await workspace.PersistIfChangedAsync();
+
+        Assert.Equal(saves, viewStates.GlobalSaves);
+    }
+
+    [Fact]
+    public async Task PersistIfChanged_AfterAChange_Writes()
+    {
+        var workspace = CreateWorkspace();
+        await workspace.PersistAsync();
+
+        var saves = viewStates.GlobalSaves;
+        workspace.SplitterRatio = 0.4;
+
+        await workspace.PersistIfChangedAsync();
+
+        Assert.Equal(saves + 1, viewStates.GlobalSaves);
+        Assert.Equal(0.4, (await viewStates.LoadGlobalAsync(CancellationToken.None)).SplitterRatio);
+    }
+
+    [Fact]
+    public async Task PersistIfChanged_WithNothingSavedYet_Writes()
+    {
+        // 기준이 없으면 "같다" 를 판정할 수 없다. 저장된 것과 같을 수도 있지만,
+        // 그때 한 번 더 쓰는 것이 한 번도 안 쓰는 것보다 싸다.
+        var workspace = CreateWorkspace();
+
+        // 테스트 준비(RememberingTwoPanes)가 이미 한 번 썼다 — 세는 것은 그 뒤의 한 번이다.
+        var saves = viewStates.GlobalSaves;
+
+        await workspace.PersistIfChangedAsync();
+
+        Assert.Equal(saves + 1, viewStates.GlobalSaves);
+    }
+
+    [Fact]
+    public async Task PersistIfChanged_AfterASaveThatFailed_TriesAgain()
+    {
+        // 실패를 기준점으로 잡으면 한 번 잠긴 파일이 그 세션의 저장을 영영 막는다.
+        var store = new FailingViewStateStore();
+        var workspace = new WorkspaceViewModel(CreatePane, store);
+
+        await workspace.PersistAsync();
+        await workspace.PersistIfChangedAsync();
+
+        Assert.Equal(2, store.GlobalSaveAttempts);
+    }
+
+    [Fact]
     public async Task PersistAsync_WithAFailingStore_DoesNotThrow()
     {
         // 저장 실패가 창을 닫는 길을 막으면 안 된다.
@@ -918,6 +977,9 @@ public class WorkspaceViewModelTests
     /// <summary>전역 상태를 읽지도 쓰지도 못하는 저장소. 설정 파일이 손상됐거나 잠긴 상황이다.</summary>
     private sealed class FailingViewStateStore : IViewStateStore
     {
+        /// <summary>쓰려고 시도한 횟수. 실패 뒤에도 다시 시도하는가를 보는 자리다.</summary>
+        public int GlobalSaveAttempts { get; private set; }
+
         public ValueTask<FolderViewState?> TryLoadAsync(LocationId folder, CancellationToken ct)
             => throw new IOException("뷰 상태를 읽을 수 없다.");
 
@@ -928,6 +990,10 @@ public class WorkspaceViewModelTests
             => throw new IOException("전역 상태를 읽을 수 없다.");
 
         public ValueTask SaveGlobalAsync(GlobalViewState state, CancellationToken ct)
-            => throw new IOException("전역 상태를 쓸 수 없다.");
+        {
+            GlobalSaveAttempts++;
+
+            throw new IOException("전역 상태를 쓸 수 없다.");
+        }
     }
 }
