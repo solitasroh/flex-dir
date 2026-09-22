@@ -191,6 +191,74 @@ public class ListInputTests
         OnSta(() => Assert.False(ListInput.IsGroupHeader(new Border(), null)));
     }
 
+    // ── 스크롤바 (2026-09-22 사용자 신고) ──────────────────
+    //
+    // 스크롤바는 목록의 빈 자리가 아니다. 빈 자리로 보면 둘이 함께 깨진다 — 끌려고
+    // 누를 때마다 선택이 통째로 풀리고(그룹 헤더와 같은 수다), 거기서 시작한 마키가
+    // 스크롤바의 캐프처를 뺏는 순간 자기 세션을 잃어 사각형이 화면에 남는다.
+
+    [Fact]
+    public void IsScrollBar_AClickOnTheScrollBar_IsNotTheEmptyPartOfTheList()
+    {
+        OnSta(() =>
+        {
+            // 실물의 OriginalSource 는 템플릿 속 RepeatButton·Thumb 라 더 깊지만, 걱는 길은
+            // 같다 — 위로 올라가다 ScrollBar 를 만나면 목록의 빈 자리가 아니다.
+            var bar = new System.Windows.Controls.Primitives.ScrollBar();
+            var list = new Border { Child = bar };
+
+            Assert.True(ListInput.IsScrollBar(list, bar));
+            Assert.Null(ListInput.ItemAt(list, bar));
+        });
+    }
+
+    [Fact]
+    public void IsScrollBar_AClickOnTheEmptyPartOfTheList_IsFalse()
+    {
+        OnSta(() =>
+        {
+            var empty = new Border();
+            var list = new Border { Child = empty };
+
+            Assert.False(ListInput.IsScrollBar(list, empty));
+        });
+    }
+
+    [Fact]
+    public void IsScrollBar_WithoutAnOrigin_IsFalse()
+    {
+        OnSta(() => Assert.False(ListInput.IsScrollBar(new Border(), null)));
+    }
+
+    // ── 캐프처 상실 (2026-09-22 사용자 신고) ────────────────
+    //
+    // LostMouseCapture 는 버블링이라 자식(스크롤바의 Thumb)이 캐프처를 잃은 것도
+    // 목록을 지난다. 그것을 "목록이 캐프처를 잃었다" 로 읽으면 막 시작한 마키를
+    // 자기가 취소한다 — 마키가 방금 그 캐프처를 뺏어오면서 난 이벤트다.
+
+    [Fact]
+    public void EndsTheMarquee_WhenTheListItselfLostTheCapture_IsTrue()
+    {
+        OnSta(() =>
+        {
+            var list = new Border();
+
+            Assert.True(ListInput.EndsTheMarquee(list, list));
+        });
+    }
+
+    [Fact]
+    public void EndsTheMarquee_WhenAChildLostTheCapture_IsFalse()
+    {
+        OnSta(() =>
+        {
+            var thumb = new System.Windows.Controls.Primitives.Thumb();
+            var list = new Border { Child = thumb };
+
+            Assert.False(ListInput.EndsTheMarquee(list, thumb));
+        });
+    }
+
     // ── 눌린 자리 → 항목 (phase B-3 · ADR-016) ────────────────────
 
     [Fact]

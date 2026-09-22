@@ -102,11 +102,17 @@ internal static class MarqueeSelection
 
             session.Selecting = true;
             ListInput.CancelPendingClick();
-            _ = Mouse.Capture(list);
 
+            // 어도너가 캡처보다 먼저다. 캡처를 가져오는 순간 이전 임자(스크롤바의
+            // Thumb 같은 자식)가 <c>LostMouseCapture</c> 를 올리고, 그것이 버블로 돌아와 이
+            // 세션을 재진입으로 취소시킬 수 있다 (ListInput.EndsTheMarquee 가 지금은 걸러낸다).
+            // 그때 어도너가 아직 세션에 없으면 정리하는 쪽이 지울 것을 못 보고, 돌아온 이 줄이
+            // 주인 없는 어도너를 레이어에 붙인다 — 화면에 남아 안 지워지는 사각형이 그것이었다.
             session.Layer = AdornerLayer.GetAdornerLayer(list);
             session.Adorner = new SelectionAdorner(list, session.Origin, at);
             session.Layer?.Add(session.Adorner);
+
+            _ = Mouse.Capture(list);
         }
 
         session.Adorner?.MoveTo(at);

@@ -275,8 +275,11 @@ public static class ListInput
 
         // 편집기 안의 우클릭은 TextBox 자신의 메뉴(잘라내기·복사·붙여넣기)다.
         // 그룹 헤더는 항목도 빈 자리도 아니다 — 폴더 메뉴를 띄우지 않는다.
+        // 스크롤바 클릭은 스크롤이다 — 빈 자리로 보면 선택이 풀리고 마키까지 시작한다
+        // (<see cref="IsScrollBar"/>).
         if (IsEditing(list, args.OriginalSource as DependencyObject)
-            || IsGroupHeader(list, args.OriginalSource as DependencyObject))
+            || IsGroupHeader(list, args.OriginalSource as DependencyObject)
+            || IsScrollBar(list, args.OriginalSource as DependencyObject))
         {
             return;
         }
@@ -342,6 +345,49 @@ public static class ListInput
     /// 접기·펴기는 헤더 자신의 버튼이 하므로 목록은 손대지 않고 물러난다.
     /// </para>
     /// </summary>
+    /// <summary>
+    /// 누른 자리가 스크롤바인가 (2026-09-22 사용자 신고).
+    /// <para>
+    /// 스크롤바는 목록 템플릿 안에 있어서 그 클릭이 목록의 터널링 핸들러를 먼저
+    /// 지난다. 그런데 거기 항목이 없으므로 빈 자리로 읽히고, 그러면 둘이 함께 깨진다:
+    /// 끌려고 누를 때마다 <b>선택이 통째로 풀리고</b> (그룹 헤더와 같은 수다),
+    /// 거기서 시작한 마키가 <b>스크롤바가 쥐고 있던 캐프처를 뺏는다</b> — 뺏긴 쪽이 올리는
+    /// <c>LostMouseCapture</c> 가 버블로 돌아와 방금 시작한 그 마키를 스스로 취소시킨다
+    /// (<see cref="EndsTheMarquee"/>). 사용자에게는 선택 사각형이 화면에 박혀 안 지워지는 것으로
+    /// 보였다.
+    /// </para>
+    /// <para>
+    /// 스크롤바 위의 누름은 목록이 <b>아예 손대지 않는다</b> (사용자 결정 2026-09-22) —
+    /// 스크롤만 하고 선택도 그대로 둔다. 탐색기와 같은 자리다.
+    /// </para>
+    /// </summary>
+    internal static bool IsScrollBar(DependencyObject list, DependencyObject? origin)
+    {
+        var node = origin;
+
+        while (node is not null && node != list)
+        {
+            if (node is System.Windows.Controls.Primitives.ScrollBar)
+            {
+                return true;
+            }
+
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 캐프처 상실이 마키를 끝내는가. <b>목록 자신이 잃은 것만 세어야 한다.</b>
+    /// <para>
+    /// <c>LostMouseCapture</c> 는 버블링이라 자식(스크롤바의 <c>Thumb</c>·<c>RepeatButton</c>)이
+    /// 잃은 것도 목록을 지난다. 그것까지 "목록이 캐프처를 잃었다" 로 읽으면, 마키가
+    /// 스스로 캐프처를 가져오면서 난 이벤트가 바로 그 마키를 취소시킨다.
+    /// </para>
+    /// </summary>
+    internal static bool EndsTheMarquee(object list, object? lostBy) => ReferenceEquals(list, lostBy);
+
     internal static bool IsGroupHeader(DependencyObject list, DependencyObject? origin)
     {
         var node = origin;
@@ -490,7 +536,14 @@ public static class ListInput
     }
 
     private static void OnLostMouseCapture(object sender, MouseEventArgs args)
-        => MarqueeSelection.Cancel((ItemsControl)sender);
+    {
+        if (!EndsTheMarquee(sender, args.OriginalSource))
+        {
+            return;
+        }
+
+        MarqueeSelection.Cancel((ItemsControl)sender);
+    }
 
     private static void OnDoubleClick(object sender, MouseButtonEventArgs args)
     {
