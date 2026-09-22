@@ -214,6 +214,50 @@ public class FakeSettingsStoreTests
         Assert.Equal(Path(@"C:\last"), settings.ResolveStartFolder(Path(@"C:\last"), Path(@"C:\home")));
     }
 
+    // ── 복원 폴더 규칙 ───────────────────────────────
+    //
+    // 시작 폴더 규칙과 갈라진다. 새 탭은 '정해 둔 폴더' 가 이기지만 (docs/PRD-v2.md §17),
+    // 세션 복원은 기억이 이긴다 — 고정 폴더가 복원을 이기면 활성 탭의 폴더가 그 자리에서
+    // 사라지고, 닫을 때 그 상태가 저장되어 기억이 영영 없어진다 (2026-09-22 사용자 신고 —
+    // 실물에서 페인 셋의 활성 탭이 홈으로 덮였다).
+
+    [Fact]
+    public void ResolveRestoreFolder_InFixedMode_StillTakesTheRememberedFolder()
+    {
+        var settings = new AppSettings
+        {
+            StartMode = StartFolderMode.Fixed,
+            StartFolder = Path(@"C:\work"),
+        };
+
+        Assert.Equal(Path(@"C:\last"), settings.ResolveRestoreFolder(Path(@"C:\last"), Path(@"C:\home")));
+    }
+
+    [Fact]
+    public void ResolveRestoreFolder_InFixedModeWithNothingRemembered_TakesTheChosenFolder()
+    {
+        // 첫 실행이다. 덮을 기억이 없으므로 '정해 둔 폴더' 가 그대로 쓰인다.
+        var settings = new AppSettings
+        {
+            StartMode = StartFolderMode.Fixed,
+            StartFolder = Path(@"C:\work"),
+        };
+
+        Assert.Equal(Path(@"C:\work"), settings.ResolveRestoreFolder(null, Path(@"C:\home")));
+    }
+
+    [Fact]
+    public void ResolveRestoreFolder_InLastFolderModeWithNothingRemembered_TakesTheFallback()
+    {
+        Assert.Equal(Path(@"C:\home"), AppSettings.Default.ResolveRestoreFolder(null, Path(@"C:\home")));
+    }
+
+    [Fact]
+    public void ResolveRestoreFolder_WithNeither_IsNull()
+    {
+        Assert.Null(AppSettings.Default.ResolveRestoreFolder(null, null));
+    }
+
     [Fact]
     public void ResolveStartFolder_DoesNotAskWhetherTheFolderStillExists()
     {

@@ -131,6 +131,26 @@ public sealed record AppSettings
         => StartMode == StartFolderMode.Fixed && StartFolder is { } chosen
             ? chosen
             : lastFolder ?? fallback;
+
+    /// <summary>
+    /// 세션 복원으로 탭 하나가 열 폴더. <paramref name="lastFolder"/> 는 그 탭이 마지막으로
+    /// 보던 곳이고 <paramref name="fallback"/> 은 기억이 없을 때의 자리다.
+    ///
+    /// <para>
+    /// <b><see cref="ResolveStartFolder"/> 와 갈라지는 자리다</b> — 여기서는 기억이
+    /// <see cref="StartFolderMode.Fixed"/> 를 이긴다. 고정 폴더가 복원을 이기면 활성 탭의
+    /// 폴더가 그 자리에서 사라지고 (배경 탭과 달리 들고 있을 자리가 없다), 창을 닫을 때
+    /// 그 상태가 저장되어 <b>기억이 영영 없어진다</b> — 재시작 한 번에 페인마다 하나씩이다.
+    /// 2026-09-22 사용자 신고가 그것이고, 그때 설정을 되돌려도 돌아올 것이 이미 없었다.
+    /// </para>
+    ///
+    /// <para>
+    /// 그래서 '정해 둔 폴더' 가 쓰이는 자리는 <b>기억이 없을 때</b>(첫 실행)와 새 탭이다
+    /// (docs/PRD-v2.md §17 — <c>Ctrl+T</c> 는 <see cref="ResolveStartFolder"/> 를 그대로 쓴다).
+    /// </para>
+    /// </summary>
+    public LocationId? ResolveRestoreFolder(LocationId? lastFolder, LocationId? fallback)
+        => lastFolder ?? ResolveStartFolder(null, fallback);
 }
 
 /// <summary>

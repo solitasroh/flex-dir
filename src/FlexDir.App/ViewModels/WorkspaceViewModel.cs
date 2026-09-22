@@ -466,12 +466,14 @@ public sealed partial class WorkspaceViewModel : ObservableObject
             // 같은 이유로 여기서 민다 — 페인은 설정을 모른다 (docs/PRD-v2.md §20).
             pane.Terminal = settings.ResolveTerminal();
 
-            // 시작 폴더 규칙은 Core 에 있다 (AppSettings.ResolveStartFolder) — 페인마다 한 번씩
-            // 같은 규칙을 지난다. 규칙이 정하는 것은 <b>활성 탭</b>이 열 폴더이고, 배경 탭은
-            // 기억된 자기 폴더를 그대로 든다 (docs/PRD-v2.md §17 세션 복원).
+            // 복원 폴더 규칙은 Core 에 있다 (AppSettings.ResolveRestoreFolder) — 페인마다 한 번씩
+            // 같은 규칙을 지난다. 기억된 폴더가 있으면 <b>'정해 둔 폴더' 설정보다 그것이
+            // 이긴다</b>: 고정 폴더가 활성 탭을 덮으면 그 탭의 폴더가 들고 있을 자리 없이 사라지고,
+            // 닫는 순간 저장되어 기억이 영영 없어진다 (2026-09-22 사용자 신고). 고정 폴더는
+            // 기억이 없을 때와 새 탭에서 쓰인다 (docs/PRD-v2.md §17 세션 복원).
             opens.Add(pane.RestoreAsync(
                 tabs,
-                settings.ResolveStartFolder(ActiveFolder(tabs), fallbackFolder),
+                settings.ResolveRestoreFolder(ActiveFolder(tabs), fallbackFolder),
 
                 // 접힌 채로 복원되는 페인은 열지 않는다 — 화면에 없는 페인이 감시를 들면
                 // §13 의 폭주가 보이지 않는 자리에서 돈다.

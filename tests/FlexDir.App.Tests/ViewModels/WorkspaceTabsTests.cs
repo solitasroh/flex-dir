@@ -103,10 +103,11 @@ public class WorkspaceTabsTests
     }
 
     [Fact]
-    public async Task Restore_InFixedStartMode_MovesOnlyTheActiveTab()
+    public async Task Restore_InFixedStartMode_MovesNoTabAtAll()
     {
-        // 시작 폴더 규칙이 정하는 것은 <b>활성 탭</b>이 열 폴더다 — 배경 탭은 기억된 자기
-        // 폴더를 그대로 든다 (docs/PRD-v2.md §17 세션 복원: "탭 목록 전부").
+        // 세션 복원은 기억된 탭만 연다 (docs/PRD-v2.md §17 세션 복원: "탭 목록 전부").
+        // 한때 활성 탭만은 고정 폴더로 덮었는데, 배경 탭과 달리 원래 폴더를 들고 있을 자리가
+        // 없어 닫는 순간 그 기억이 저장에서 사라졌다 (2026-09-22 사용자 신고).
         var remembered = Folder(@"C:\L0");
         var background = Folder(@"C:\L1");
         var chosen = Folder(@"C:\Start");
@@ -119,7 +120,7 @@ public class WorkspaceTabsTests
         var (workspace, _, _) = CreateWithSettings();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
-        Assert.Equal(chosen, workspace.Left().CurrentLocation);
+        Assert.Equal(remembered, workspace.Left().CurrentLocation);
         Assert.Equal(background, workspace.LeftTabs().Tabs[1].PendingLocation);
     }
 

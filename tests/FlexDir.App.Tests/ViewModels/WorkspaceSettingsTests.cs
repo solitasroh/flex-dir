@@ -81,8 +81,11 @@ public class WorkspaceSettingsTests
     // ── 시작 폴더 ─────────────────────────────────────────────────
 
     [Fact]
-    public async Task Restore_InFixedMode_OpensThatFolderInsteadOfTheLastOne()
+    public async Task Restore_InFixedMode_StillOpensWhatEachPaneWasLookingAt()
     {
+        // 고정 폴더가 복원을 이기면 활성 탭의 폴더가 열면서 사라지고, 닫을 때 그 상태가
+        // 저장돼 기억이 영영 없어진다 (2026-09-22 사용자 신고 — 페인 셋의 활성 탭이
+        // 홈으로 덮였고, 설정을 되돌렸을 때 돌아올 것이 남아 있지 않았다).
         var last = Folder(@"C:\last", ("a.txt", FileItemFlags.None));
         var chosen = Folder(@"C:\work", ("b.txt", FileItemFlags.None));
         await viewStates.SaveGlobalAsync(
@@ -93,8 +96,23 @@ public class WorkspaceSettingsTests
         var (workspace, _, _) = Create();
         await workspace.RestoreAsync(null, CancellationToken.None);
 
+        Assert.Equal(last, workspace.Left().CurrentLocation);
+        Assert.Equal(last, workspace.Right().CurrentLocation);
+    }
+
+    [Fact]
+    public async Task Restore_InFixedModeWithNothingRemembered_OpensTheChosenFolder()
+    {
+        // 기억이 없는 첫 실행이다. 덮을 것이 없으므로 '정해 둔 폴더' 가 그대로 쓰인다 —
+        // 이것이 그 모드가 복원 경로에서 가지는 유일한 자리다 (나머지는 새 탭).
+        var chosen = Folder(@"C:\work", ("b.txt", FileItemFlags.None));
+        var fallback = Folder(@"C:\home", ("c.txt", FileItemFlags.None));
+        settingsStore.Seed(new AppSettings { StartMode = StartFolderMode.Fixed, StartFolder = chosen });
+
+        var (workspace, _, _) = Create();
+        await workspace.RestoreAsync(fallback, CancellationToken.None);
+
         Assert.Equal(chosen, workspace.Left().CurrentLocation);
-        Assert.Equal(chosen, workspace.Right().CurrentLocation);
     }
 
     [Fact]
