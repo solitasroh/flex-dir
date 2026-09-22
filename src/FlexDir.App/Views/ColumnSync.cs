@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Media;
 
 using FlexDir.Core.ViewState;
 
@@ -30,8 +31,13 @@ namespace FlexDir.App.Views;
 /// </para>
 ///
 /// <para>
-/// 판정(<see cref="WidthsFor"/>·<see cref="Moved"/>)만 채점하고 드래그는 사람이 확인한다
-/// (CLAUDE.md §5).
+/// <b>경계를 더블클릭하면 그 컬럼이 지금 화면에 있는 내용에 맞춰진다</b> (탐색기와 같다 ·
+/// 사용자 요청 2026-09-22 — <see cref="AutoFitWidth"/>).
+/// </para>
+///
+/// <para>
+/// 판정(<see cref="WidthsFor"/>·<see cref="Moved"/>·<see cref="AutoFitWidth"/>)만 채점하고
+/// 드래그와 더블클릭은 사람이 확인한다 (CLAUDE.md §5).
 /// </para>
 /// </summary>
 public static class ColumnSync
@@ -103,8 +109,48 @@ public static class ColumnSync
         return double.IsFinite(moved) && moved > MinimumGrip ? moved : MinimumGrip;
     }
 
+    /// <summary>
+    /// 컬럼을 내용에 맞춘 폭 — 손잡이를 <b>더블클릭</b>했을 때 (사용자 요청 2026-09-22).
+    /// <paramref name="contentWidths"/> 는 지금 화면에 있는 셀들의 자연 폭이다.
+    /// <para>
+    /// <b>가장 넓은 것에 맞춘다</b> — 탐색기와 같다. 그보다 좁히면 맞추려고 누른 그 항목이
+    /// 잘린 채로 남는다.
+    /// </para>
+    /// <para>
+    /// <b>잴 것이 없으면 <see langword="null"/> 이고 폭은 그대로 둔다.</b> 빈 폴더에서
+    /// 0 으로 접으면 컬럼과 함께 손잡이도 사라져 되돌릴 길이 없어진다.
+    /// </para>
+    /// <para>
+    /// 화면 밖의 항목은 세지 않는다. 가상화 때문에 실현된 행만 잴 수 있기도 하지만,
+    /// <b>탐색기의 동작 자체가 그렇다</b> — 스크롤한 자리에서 다시 누르면 그 화면에 맞춘다.
+    /// </para>
+    /// </summary>
+    internal static double? AutoFitWidth(IEnumerable<double> contentWidths)
+    {
+        ArgumentNullException.ThrowIfNull(contentWidths);
+
+        double? widest = null;
+
+        foreach (var width in contentWidths)
+        {
+            // 레이아웃 전의 0·NaN, 무한대로 돌아온 측정은 버린다 — 그것이 최댓값이 되면
+            // 컬럼이 화면 밖으로 나간다.
+            if (double.IsFinite(width) && width > 0 && (widest is not { } max || width > max))
+            {
+                widest = width;
+            }
+        }
+
+        return widest is { } found ? Math.Max(found + Slack, MinimumGrip) : null;
+    }
+
     /// <summary>손잡이를 잡을 수 있는 최소 폭.</summary>
     private const double MinimumGrip = 32;
+
+    /// <summary>
+    /// 맞춘 폭에 더하는 여유. 소수점 반올림이 마지막 글자를 <c>…</c> 로 바꾸는 것을 막는다.
+    /// </summary>
+    private const double Slack = 2;
 
     /// <summary>끄는 중인 컬럼. 손잡이는 한 번에 하나뿐이라 static 으로 충분하다.</summary>
     private static string? dragging;
@@ -198,6 +244,23 @@ public static class ColumnSync
             Thumb.DragCompletedEvent,
             new DragCompletedEventHandler((_, _) => dragging = null));
 
+        // 경계 더블클릭 = 내용에 맞추기 (탐색기와 같다 · 사용자 요청 2026-09-22).
+        //
+        // 터널링이어야 한다 — 손잡이가 버블링 단계에서 마우스를 잡아 드래그로 삼킨다.
+        // 여기서 Handled 로 접지 않으면 맞추자마자 폭이 두 번째 클릭의 드래그를 따라간다.
+        grid.PreviewMouseLeftButtonDown += (sender, args) =>
+        {
+            if (args.ClickCount != 2
+                || sender is not Grid header
+                || GripAt(args.OriginalSource as DependencyObject, header) is not { Tag: string column })
+            {
+                return;
+            }
+
+            AutoFit(header, column);
+            args.Handled = true;
+        };
+
         // 복원이 Loaded 보다 먼저 온다 — 그때의 변경은 아래 콜백이 건너뛴다.
         grid.Loaded += (_, _) => Apply(grid);
     }
@@ -209,6 +272,148 @@ public static class ColumnSync
         {
             Apply(grid);
         }
+    }
+
+    /// <summary>눌린 자리 아래의 컬럼 손잡이. 손잡이 밖이면 <see langword="null"/>.</summary>
+    private static Thumb? GripAt(DependencyObject? origin, Grid header)
+    {
+        var node = origin;
+
+        while (node is not null && node != header)
+        {
+            if (node is Thumb grip)
+            {
+                return grip;
+            }
+
+            node = node is Visual ? VisualTreeHelper.GetParent(node) : null;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 컬럼을 지금 화면에 있는 내용에 맞춘다 (<see cref="AutoFitWidth"/>).
+    /// <para>
+    /// 재는 것은 <b>헤더 자신과 실현된 행들</b>이다 — 가상화된 목록에서 잴 수 있는 것이
+    /// 그것뿐이고, 탐색기가 맞추는 범위도 화면에 보이는 것까지다.
+    /// </para>
+    /// </summary>
+    private static void AutoFit(Grid header, string column)
+    {
+        var index = ColumnIndex(column);
+
+        var widths = CellWidths(header, index);
+
+        if (ListOf(header) is { } list)
+        {
+            widths = [.. widths, .. CellWidths(list, index)];
+        }
+
+        if (AutoFitWidth(widths) is not { } fitted)
+        {
+            return;
+        }
+
+        SetWidthOf(header, column, fitted);
+        Apply(header);
+    }
+
+    private static int ColumnIndex(string column) => column switch
+    {
+        "Name" => 0,
+        "Size" => 1,
+        "Type" => 2,
+        _ => 3,
+    };
+
+    /// <summary>
+    /// 헤더와 같은 페인의 목록. 둘은 같은 <c>DockPanel</c> 안의 형제다 (MainWindow.xaml).
+    /// </summary>
+    private static ItemsControl? ListOf(Grid header)
+        => VisualTreeHelper.GetParent(header) is { } panel ? FirstList(panel) : null;
+
+    private static ItemsControl? FirstList(DependencyObject parent)
+    {
+        var count = VisualTreeHelper.GetChildrenCount(parent);
+
+        for (var index = 0; index < count; index++)
+        {
+            var child = VisualTreeHelper.GetChild(parent, index);
+
+            if (child is ListBox list)
+            {
+                return list;
+            }
+
+            if (FirstList(child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// 한 컬럼에 놓인 셀들의 <b>자연 폭</b> — 잘리지 않고 다 보이려면 필요한 폭이다.
+    /// <para>
+    /// 행과 헤더는 컬럼 정의가 다섯인 <c>Grid</c> 라는 점이 같다 (MainWindow.xaml) —
+    /// 그것으로 셀의 부모를 알아본다. 손잡이는 세지 않는다: 자기 컬럼에 얹혀 있을 뿐이다.
+    /// </para>
+    /// </summary>
+    private static List<double> CellWidths(DependencyObject root, int column)
+    {
+        var widths = new List<double>();
+
+        Walk(root);
+
+        return widths;
+
+        void Walk(DependencyObject parent)
+        {
+            if (parent is Grid { ColumnDefinitions.Count: 5 } row)
+            {
+                var count = VisualTreeHelper.GetChildrenCount(row);
+
+                for (var index = 0; index < count; index++)
+                {
+                    if (VisualTreeHelper.GetChild(row, index) is FrameworkElement cell
+                        && cell is not Thumb
+                        && Grid.GetColumn(cell) == column)
+                    {
+                        widths.Add(NaturalWidth(cell));
+                    }
+                }
+            }
+
+            var children = VisualTreeHelper.GetChildrenCount(parent);
+
+            for (var index = 0; index < children; index++)
+            {
+                Walk(VisualTreeHelper.GetChild(parent, index));
+            }
+        }
+    }
+
+    /// <summary>
+    /// 폭 제한 없이 쟀을 때 이 요소가 바라는 폭. 여백도 포함된다 (<c>DesiredSize</c>).
+    /// <para>
+    /// 잰 뒤에 <c>InvalidateMeasure</c> 로 되돌린다 — 무한대로 잰 결과가 그대로 남으면
+    /// 다음 배치가 그 값을 쓴다.
+    /// </para>
+    /// </summary>
+    private static double NaturalWidth(FrameworkElement cell)
+    {
+        var height = cell.ActualHeight > 0 ? cell.ActualHeight : double.PositiveInfinity;
+
+        cell.Measure(new Size(double.PositiveInfinity, height));
+
+        var width = cell.DesiredSize.Width;
+
+        cell.InvalidateMeasure();
+
+        return width;
     }
 
     private static void Apply(Grid grid)
