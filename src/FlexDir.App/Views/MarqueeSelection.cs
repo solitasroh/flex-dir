@@ -23,6 +23,25 @@ internal static class MarqueeSelection
             new Point(Math.Min(from.X, to.X), Math.Min(from.Y, to.Y)),
             new Point(Math.Max(from.X, to.X), Math.Max(from.Y, to.Y)));
 
+    /// <summary>
+    /// 화면에 그릴 사각형 — 목록 안으로 자른 것 (2026-09-22 사용자 신고).
+    /// <para>
+    /// 끌기는 마우스 캡처를 쥐고 있어서 포인터가 목록 밖으로 나가도 이동이 계속 온다.
+    /// 어도너는 기본적으로 잘리지 않으므로 (adorner layer 는 창 전체를 덮는다) 그대로 그리면
+    /// 선택 사각형이 <b>툴바·breadcrumb·창 밖까지</b> 번진다.
+    /// </para>
+    /// <para>
+    /// <b>고르는 범위가 아니라 보이는 범위만 자른다.</b> 항목은 어차피 목록 안에 있어
+    /// (<see cref="VisibleItems"/> 가 뷰포트로 한 번 자른다) 무엇이 선택되는지는 달라지지 않는다.
+    /// </para>
+    /// </summary>
+    internal static Rect Clamp(Rect marquee, Size viewport)
+    {
+        marquee.Intersect(new Rect(viewport));
+
+        return marquee;
+    }
+
     internal static string[] HitNames(IEnumerable<MarqueeItemBounds> items, Rect marquee)
     {
         ArgumentNullException.ThrowIfNull(items);
@@ -255,7 +274,16 @@ internal static class MarqueeSelection
             fill.Freeze();
             stroke.Freeze();
 
-            drawingContext.DrawRectangle(fill, new Pen(stroke, 1), Bounds(origin, current));
+            // 목록 밖으로는 그리지 않는다 (<see cref="Clamp"/>). 빈 사각형은 아예 넘기지
+            // 않는다 — Rect.Empty 의 좌표는 무한대라 그리기가 던진다.
+            var marquee = Clamp(Bounds(origin, current), AdornedElement.RenderSize);
+
+            if (marquee.IsEmpty)
+            {
+                return;
+            }
+
+            drawingContext.DrawRectangle(fill, new Pen(stroke, 1), marquee);
         }
     }
 }
