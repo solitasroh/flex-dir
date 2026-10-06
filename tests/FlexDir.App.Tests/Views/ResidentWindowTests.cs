@@ -14,8 +14,8 @@ namespace FlexDir.App.Tests.Views;
 
 /// <summary>
 /// 창에 상주 규약(ADR-003)을 거는 behavior (phase B-2): 배치 복원, 닫기 = 숨기기 + 배치
-/// 저장. 배치의 접기/펴기 판정만 여기서 채점한다 — 실제 창은 STA 가 필요해 이벤트 훅과
-/// 함께 사람이 확인한다 (CLAUDE.md §5).
+/// 저장. 배치의 접기/펴기와 기록/복원의 방향만 여기서 채점한다 — 실제 창의 이벤트 훅과
+/// 최소화·복원 조작은 사람이 확인한다 (CLAUDE.md §5).
 /// </summary>
 public class ResidentWindowTests
 {
@@ -40,12 +40,12 @@ public class ResidentWindowTests
     }
 
     [Fact]
-    public void Capture_AMinimizedWindow_IsRememberedAsNormal()
+    public void Capture_AMinimizedWindow_DoesNotOverwriteTheLastPlacement()
     {
-        // 최소화된 채 닫힌 창을 최소화로 복원하면 다음 실행에서 창이 보이지 않는다.
+        // 최소화는 저장할 배치가 아니다. 직전의 일반/최대화 배치를 그대로 남긴다.
         var placement = ResidentWindow.Capture(new Rect(10, 20, 900, 600), WindowState.Minimized);
 
-        Assert.Equal(new WindowPlacement(10, 20, 900, 600, Maximized: false), placement);
+        Assert.Null(placement);
     }
 
     [Fact]
@@ -76,6 +76,92 @@ public class ResidentWindowTests
 
         Assert.Equal(new Rect(64, 32, 1280, 800), bounds);
         Assert.Equal(WindowState.Normal, state);
+    }
+
+    // ── 창에서 기록한 배치를 복원 요청으로 되돌리지 않는다 ────────
+
+    [Fact]
+    public void BindPlacement_RecordingChangedBounds_DoesNotRequestRestoration()
+    {
+        var workspace = CreateWorkspace();
+        workspace.WindowPlacement = new WindowPlacement(0, 0, 800, 600, Maximized: true);
+        var restorations = new List<WindowPlacement?>();
+        var track = ResidentWindow.BindPlacement(workspace, restorations.Add);
+
+        track(new Rect(10, 20, 900, 600), WindowState.Normal);
+
+        Assert.Equal(new WindowPlacement(10, 20, 900, 600, Maximized: false), workspace.WindowPlacement);
+        Assert.Empty(restorations);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task BindPlacement_Minimizing_PreservesAndPersistsThePreviousPlacement(bool maximized)
+    {
+        var viewStates = new InMemoryViewStateStore();
+        var workspace = CreateWorkspace(viewStates);
+        var placement = new WindowPlacement(10, 20, 900, 600, maximized);
+        workspace.WindowPlacement = placement;
+        var restorations = new List<WindowPlacement?>();
+        var track = ResidentWindow.BindPlacement(workspace, restorations.Add);
+
+        track(new Rect(10, 20, 900, 600), WindowState.Minimized);
+        await workspace.PersistAsync();
+
+        Assert.Equal(placement, workspace.WindowPlacement);
+        Assert.Equal(placement, (await viewStates.LoadGlobalAsync(CancellationToken.None)).Window);
+        Assert.Empty(restorations);
+    }
+
+    [Fact]
+    public async Task BindPlacement_RestoringTheWorkspace_RequestsTheSavedPlacement()
+    {
+        var viewStates = new InMemoryViewStateStore();
+        var placement = new WindowPlacement(120, 80, 1400, 900, Maximized: true);
+        await viewStates.SaveGlobalAsync(new GlobalViewState(0.5, placement), CancellationToken.None);
+        var workspace = CreateWorkspace(viewStates);
+        var restorations = new List<WindowPlacement?>();
+        ResidentWindow.BindPlacement(workspace, restorations.Add);
+
+        await workspace.RestoreAsync(null);
+
+        Assert.Equal(placement, Assert.Single(restorations));
+    }
+
+    [Fact]
+    public void BindPlacement_RecordingAfterAQueuedRestoration_DoesNotReplaceItsSnapshot()
+    {
+        var workspace = CreateWorkspace();
+        var queued = new Queue<Action>();
+        WindowPlacement? restored = null;
+        var track = ResidentWindow.BindPlacement(workspace, placement => queued.Enqueue(() => restored = placement));
+        var saved = new WindowPlacement(120, 80, 1400, 900, Maximized: true);
+
+        workspace.WindowPlacement = saved;
+        track(new Rect(10, 20, 900, 600), WindowState.Normal);
+
+        Assert.Single(queued)();
+        Assert.Equal(saved, restored);
+        Assert.Equal(new WindowPlacement(10, 20, 900, 600, Maximized: false), workspace.WindowPlacement);
+    }
+
+    [Fact]
+    public void BindPlacement_ApplyingTheRestoration_DoesNotRequestAnotherRestoration()
+    {
+        var workspace = CreateWorkspace();
+        Action<Rect, WindowState>? track = null;
+        var restorations = 0;
+        track = ResidentWindow.BindPlacement(workspace, _ =>
+        {
+            restorations++;
+            // 복원 중에도 위치/크기 이벤트가 난다. 서로 다른 중간 배치가 다시 복원되면 안 된다.
+            track!(new Rect(10, 20, 900, 600), WindowState.Normal);
+        });
+
+        workspace.WindowPlacement = new WindowPlacement(120, 80, 1400, 900, Maximized: true);
+
+        Assert.Equal(1, restorations);
     }
 
     // ── 최대화는 창이 뜬 뒤에 건다 ────────────────────────────────
@@ -156,9 +242,9 @@ public class ResidentWindowTests
         Assert.Throws<ArgumentNullException>(() => ResidentWindow.Attach(null!, CreateWorkspace()));
     }
 
-    private static WorkspaceViewModel CreateWorkspace()
+    private static WorkspaceViewModel CreateWorkspace(InMemoryViewStateStore? viewStates = null)
     {
-        var viewStates = new InMemoryViewStateStore();
+        viewStates ??= new InMemoryViewStateStore();
 
         PaneViewModel Pane() => new(
             new FakeFolderSource(), new FakeFolderWatcher(), new FakeTypeNameProvider(),

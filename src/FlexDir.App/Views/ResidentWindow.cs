@@ -19,8 +19,8 @@ namespace FlexDir.App.Views;
 /// </para>
 /// <para>
 /// 배치를 창에 적용하는 것은 View 의 일이라 여기가 자리다 (<c>WorkspaceViewModel</c> 은
-/// WPF 창을 만지지 않는다). 접기/펴기 판정(<see cref="Capture"/>·<see cref="Expand"/>)만
-/// 채점하고, 이벤트 훅은 사람이 확인한다 (CLAUDE.md §5).
+/// WPF 창을 만지지 않는다). 접기/펴기와 기록/복원의 방향만 채점하고, 실제 창의
+/// 이벤트 훅은 사람이 확인한다 (CLAUDE.md §5).
 /// </para>
 /// </summary>
 public static class ResidentWindow
@@ -34,17 +34,14 @@ public static class ResidentWindow
 
         // 복원은 창을 만든 뒤에 온다 (Program 이 만들고 StartAsync 가 복원한다). 배치가
         // 도착하면 받아 적는다 — 첫 표시는 복원 뒤이므로 (복원 → 활성화 순서) 창이 뛰지 않는다.
-        workspace.PropertyChanged += (_, e) =>
+        var trackPlacement = BindPlacement(workspace, placement =>
         {
-            if (e.PropertyName == nameof(WorkspaceViewModel.WindowPlacement))
-            {
-                // 이 이벤트는 UI 밖 스레드에서 온다 — 복원 사슬이 ConfigureAwait(false) 다.
-                // 날 이벤트에는 바인딩 엔진의 마샬링이 없어서, 여기서 창을 바로 만지면
-                // 스레드 친화성 예외가 StartAsync 의 버림 속으로 삼켜져 창이 영영 안 뜬다
-                // (실물에서 그랬다).
-                window.Dispatcher.InvokeAsync(() => Apply(window, workspace.WindowPlacement));
-            }
-        };
+            // 이 이벤트는 UI 밖 스레드에서 온다 — 복원 사슬이 ConfigureAwait(false) 다.
+            // 날 이벤트에는 바인딩 엔진의 마샬링이 없어서, 여기서 창을 바로 만지면
+            // 스레드 친화성 예외가 StartAsync 의 버림 속으로 삼켜져 창이 영영 안 뜬다
+            // (실물에서 그랬다).
+            window.Dispatcher.InvokeAsync(() => Apply(window, placement));
+        });
 
         // 보이는 순간마다 자리를 확인한다 — 복원 때가 아니다. 상주 프로세스에서는 창이 숨은
         // 채로 며칠을 가고, 그 사이 사용자가 모니터를 다시 놓는다. 숨은 창은 Windows 가 옮겨
@@ -78,10 +75,7 @@ public static class ResidentWindow
         // 여기서 저장하면 끌기 한 번에 파일을 수십 번 쓴다.
         void TrackPlacement()
         {
-            if (Capture(window.RestoreBounds, window.WindowState) is { } placement)
-            {
-                workspace.WindowPlacement = placement;
-            }
+            trackPlacement(window.RestoreBounds, window.WindowState);
         }
 
         window.LocationChanged += (_, _) => TrackPlacement();
@@ -119,15 +113,52 @@ public static class ResidentWindow
     }
 
     /// <summary>
+    /// 저장소에서 온 배치는 복원하고, 창에서 잰 배치는 기록만 한다. 기록이 낸
+    /// PropertyChanged 를 복원으로 되돌리면 최소화·이동·크기 변경을 창에 다시 적용한다.
+    /// </summary>
+    internal static Action<Rect, WindowState> BindPlacement(
+        WorkspaceViewModel workspace,
+        Action<WindowPlacement?> restore)
+    {
+        var recording = false;
+
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (!recording && e.PropertyName == nameof(WorkspaceViewModel.WindowPlacement))
+            {
+                restore(workspace.WindowPlacement);
+            }
+        };
+
+        return (bounds, state) =>
+        {
+            if (Capture(bounds, state) is { } placement)
+            {
+                // SetProperty 의 알림은 이 호출 안에서 동기적으로 온다.
+                recording = true;
+                try
+                {
+                    workspace.WindowPlacement = placement;
+                }
+                finally
+                {
+                    recording = false;
+                }
+            }
+        };
+    }
+
+    /// <summary>
     /// 창의 지금 모습을 배치로 접는다. 보인 적 없는 창(<c>RestoreBounds</c> 가 Empty)은
     /// <c>null</c> — 크기 0 을 저장하면 다음 실행에서 창이 보이지 않는다.
     /// <para>
-    /// 최대화는 <c>RestoreBounds</c>(풀었을 때의 자리)와 함께 남기고, 최소화는 보통 창으로
-    /// 접는다 — 최소화로 복원된 창은 뜨지 않은 것과 구별되지 않는다.
+    /// 최대화는 <c>RestoreBounds</c>(풀었을 때의 자리)와 함께 남기고, 최소화는 기록하지
+    /// 않는다 — 직전의 일반/최대화 배치를 유지해야 최소화 중 저장해도 복원 상태를 잃지 않는다.
     /// </para>
     /// </summary>
     internal static WindowPlacement? Capture(Rect restoreBounds, WindowState state)
-        => restoreBounds.IsEmpty || restoreBounds.Width <= 0 || restoreBounds.Height <= 0
+        => state == WindowState.Minimized
+            || restoreBounds.IsEmpty || restoreBounds.Width <= 0 || restoreBounds.Height <= 0
             ? null
             : new WindowPlacement(
                 restoreBounds.X,
