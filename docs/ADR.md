@@ -108,8 +108,9 @@ v1 에 포함된다. 이것들은 기능이 아니라 **탈출구 차단**이다
 1. 코드비하인드 금지 — `*.xaml.cs` 는 `InitializeComponent()` 만
 2. 참조 방향 — `FlexDir.App` 은 `FlexDir.Shell` 을 참조하지 않는다 (`Host` 분리)
 
-**강제 수단은 `scripts/check-structure.ps1` 이다.** `harness.config.json` 의
-`verify.fast` 에 들어 있어 매 step 끝과 매 턴 끝에 돈다.
+**강제 수단은 `scripts/check-structure.ps1` 이다.** CLAUDE.md §6 의 게이트 셋 중 하나로
+작업을 끝내기 전에 돈다. (처음에는 `harness.config.json` 의 `verify.fast` 가 매 step 끝에
+돌렸다 — ADR-023 에서 걷어냈다.)
 
 처음에는 2번을 "직접 참조 시 컴파일 에러" 라고 적었으나 **그것은 사실이 아니었다.**
 컴파일이 막아주는 것은 *참조가 없는 상태* 뿐이고, `FlexDir.App.csproj` 에
@@ -217,7 +218,7 @@ v2 에서 UNC·PIDL 을 같은 타입으로 확장한다. 이 추상화가 없�
 
 ## ADR-012 — TDD Guard 에 C# 지원을 추가한다
 
-**상태**: **완료** (harness 0.2.0)
+**상태**: **폐기** — harness 플러그인을 걷어냈다 (ADR-023). 아래는 당시 기록이다.
 
 **맥락**: harness 플러그인의 `tdd-guard.mjs` 는 `ts·go·py·rs` 만 안다.
 `.cs` 는 `if (!langKey) allow()` 로 무조건 통과한다. 즉 `tdd.enabled: true` 로
@@ -803,3 +804,24 @@ VS Code 를 설치하거나 지우면 버튼이 사실과 어긋난 채로 남�
 - **탐지 결과가 화면에 늦게 온다.** 조회가 배경 스레드라 창이 보인 직후 몇 밀리초 동안은
   버튼이 꺼져 있다. 자리표시자를 그리지 않는 규칙(`UI_GUIDE.md` §상태 표현)과 같은 판단으로
   **그 구간을 감춘 애니메이션을 넣지 않았다.**
+
+## ADR-023 — harness 플러그인을 걷어낸다
+
+**상태**: 확정 (2026-11-23, 사용자 결정)
+
+**결정.** `.claude/settings.json` 의 harness 플러그인과 그 실행기 전용 파일
+(`harness.config.json` · `phases/`)을 저장소에서 지운다. 플러그인이 하던 일 중 남기는 것은
+둘이다.
+
+- **테스트 우선** — TDD Guard 훅(ADR-012)이 편집을 거부하던 것을 CLAUDE.md §6 의 규칙으로
+  옮긴다. 기계가 막지 않는다.
+- **게이트** — `verify.fast` 의 세 명령(build · test `--blame-hang` · 구조 게이트)을
+  CLAUDE.md §6 에 그대로 옮긴다. 매 step 끝에 자동으로 돌지 않고, 끝내기 전에 돌린다.
+
+**남기는 것.** `.harness/` 는 이름만 같고 플러그인이 아니다 — 인수인계(`HANDOFF.md`)·사람
+확인 계획(`manual-plan.md`)·실물 프로브(ADR-015)이고 소스 주석이 이를 가리킨다. 그대로 둔다.
+ADR-009 의 경계(자동 채점 가능한 것만 자율로)는 실행 도구와 무관하게 유효하다.
+
+**대가.** ADR-012 가 막으려던 상태 — *"게이트가 켜져 있는 것처럼 보이는 것"* — 로 돌아가지
+않으려면 CLAUDE.md §6 은 강제가 아니라 규칙이라고 적어야 하고, 그렇게 적었다. 테스트를 건너뛴
+편집은 이제 리뷰와 게이트가 늦게 잡는다.

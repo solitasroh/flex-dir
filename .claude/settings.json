@@ -1,13 +1,1 @@
-{
-  "extraKnownMarketplaces": {
-    "harness-marketplace": {
-      "source": {
-        "source": "github",
-        "repo": "solitasroh/claude-harness-plugin"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "harness@harness-marketplace": true
-  }
-}
+{}

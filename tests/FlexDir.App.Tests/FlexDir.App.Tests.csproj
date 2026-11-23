@@ -17,8 +17,8 @@
     <ProjectReference Include="..\..\src\FlexDir.Core\FlexDir.Core.csproj" />
 
     <!-- Core 포트의 fake 와 계약 테스트 기반 클래스를 재사용한다.
-         Core 포트를 구현하는 fake 는 FlexDir.Core.Tests 에 있어야 한다 — TDD Guard 가
-         소스가 속한 프로젝트의 .Tests 만 후보로 보기 때문이다. -->
+         Core 포트를 구현하는 fake 는 FlexDir.Core.Tests 에 둔다 — App·Shell·Host 의
+         테스트가 같은 물건을 두 벌 두지 않고 함께 쓴다 (CLAUDE.md §6). -->
     <ProjectReference Include="..\FlexDir.Core.Tests\FlexDir.Core.Tests.csproj" />
   </ItemGroup>
 
