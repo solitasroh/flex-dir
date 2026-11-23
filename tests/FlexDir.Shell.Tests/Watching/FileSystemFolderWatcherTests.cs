@@ -17,7 +17,7 @@ namespace FlexDir.Shell.Tests.Watching;
 /// <para>
 /// <b>오버플로만은 실물로 재지 못한다.</b> 버퍼를 넘치게 하려면 OS 가 이벤트를 쏟아내는
 /// 속도에 기대야 하고, 그런 테스트는 통과와 실패를 번갈아 낸다. 매 턴 도는 게이트에
-/// 간헐적 실패를 넣는 것은 이 저장소가 가장 피하려는 것이라(harness.config.json 의 verify 주석)
+/// 간헐적 실패를 넣는 것은 이 저장소가 가장 피하려는 것이라(CLAUDE.md §6 게이트)
 /// <c>FileSystemWatcher</c> 를 만드는 자리를 바꿔 끼워 <c>Error</c> 를 직접 올린다. 즉
 /// "Error 를 Overflow 로 올리는가" 는 자동으로 재고, "실제로 넘치는가" 는 사람이 확인한다
 /// (ADR-009 의 경계와 같다).

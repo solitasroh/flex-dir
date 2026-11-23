@@ -51,27 +51,30 @@ ViewModel 로직뿐이다.
 목록 위 컨텍스트 메뉴는 합성 입력(UIA·SendInput)으로 밟히지 않는다. 시도하지 말고
 사람에게 눌러 달라고 한다.
 
-## 6. 코드를 쓰는 순서 (TDD Guard 훅이 강제한다)
+## 6. 테스트를 먼저 쓰고, 끝내기 전에 게이트를 돌린다
 
-`Write`·`Edit` 앞에 훅이 걸려 있다. 아래를 어기면 **편집이 거부된다.**
+이것을 강제하는 훅은 없다 (ADR-023). 기계가 막지 않으므로 스스로 지킨다.
 
-1. **새 소스 디렉터리는 먼저 만든다.** `mkdir -p src/FlexDir.Core/Sorting` 같은 식으로.
-   디렉터리가 없으면 훅이 테스트 프로젝트를 찾지 못해 무조건 거부한다.
-2. **테스트를 먼저 쓴다.** 소스가 `Foo.cs` 면 테스트 파일명은 정확히 `FooTests.cs` 다.
-   **인터페이스도 예외가 아니다** — `IFolderSource.cs` 에는 `IFolderSourceTests.cs` 가 필요하다.
-   파일 안의 클래스 이름은 달라도 된다.
-3. **테스트 위치는 소스가 속한 프로젝트의 `.Tests` 다.** `src/FlexDir.Core/X/Foo.cs` →
-   `tests/FlexDir.Core.Tests/X/FooTests.cs`. `FlexDir.App` 의 소스를 `FlexDir.Core.Tests` 로
-   보내면 찾지 못한다.
-4. **새 소스는 테스트가 실패(red)하는 상태에서만 쓸 수 있다.** 이미 통과하면 거부된다.
-5. Core 포트를 구현하는 fake 는 `tests/FlexDir.Core.Tests/Fakes/` 에 둔다.
-   `FlexDir.App.Tests` 가 그 프로젝트를 참조해 재사용한다.
+1. **테스트를 먼저 쓰고 실패(red)를 본 뒤에 소스를 쓴다.**
+2. **테스트 위치는 소스 구조를 미러링한다.** `src/FlexDir.Core/X/Foo.cs` →
+   `tests/FlexDir.Core.Tests/X/FooTests.cs`.
+3. Core 포트를 구현하는 fake 는 `tests/FlexDir.Core.Tests/Fakes/` 에 둔다.
+   `App`·`Shell`·`Host` 의 테스트가 그 프로젝트를 참조해 재사용한다.
 
-검사 제외: `*.xaml.cs` · `Program.cs` · `GlobalUsings.cs` · `AssemblyInfo.cs` ·
-생성 코드(`*.g.cs`·`*.Designer.cs`) · `*.Tests` 프로젝트 안의 모든 파일.
+작업을 끝냈다고 말하기 전에 아래 셋이 전부 통과해야 한다.
 
-동작이 없는 선언(열거형만 담은 파일 등)은 별도 파일로 두지 말고, 테스트할 동작이 있는
-파일에 함께 선언한다. 억지 테스트를 만들지 않기 위해서다.
+```
+dotnet build --nologo -warnaserror
+dotnet test --nologo --blame-hang --blame-hang-timeout 120s
+pwsh -File scripts/check-structure.ps1
+```
+
+`--blame-hang` 은 빼지 않는다. 취소 토큰을 넘기지 않은 fake 하나로 `dotnet test` 가
+무한 대기한 적이 있다 — 매달림은 실패로 만들어야 진단이 된다.
+
+Linux(클라우드 세션)에서는 `EnableWindowsTargeting=true` 로 빌드는 되지만 테스트는
+`FlexDir.Core.Tests` 만 돈다. `App`·`Host` 테스트는 WPF 런타임이, `Shell` 테스트는
+Windows shell 이 필요하다. 그 셋은 Windows 에서 확인했다고 말할 수 있을 때만 통과로 적는다.
 
 ## 7. 커밋
 
@@ -79,6 +82,3 @@ ViewModel 로직뿐이다.
 - 메시지에 AI·에이전트·생성 도구 이름을 넣지 않는다. `Co-Authored-By` 도 넣지 않는다.
 - 본문은 한국어 허용. 타입 prefix 는 영문.
 - **커밋은 사용자가 요청할 때만.** 푸시는 별도 지시가 있을 때만.
-  (`/harness:run` 자율 실행 구간은 예외 — 실행기가 step 단위로 커밋한다.)
-- **자율 실행이 죽으면 로그보다 `git log` 를 먼저 본다.** 죽는 자리가 커밋 다음이라
-  커밋은 남아 있다. 실패로 읽고 같은 step 을 다시 얹으면 중복 커밋이 된다.

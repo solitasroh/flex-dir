@@ -12,8 +12,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-# 실패 사유는 harness 실행기가 error_message 로 잡아 다음 시도 프롬프트에 넣는다.
-# 콘솔 코드페이지(949)로 나가면 읽을 수 없게 깨지므로 UTF-8 로 고정한다.
+# 실패 사유는 사람과 에이전트가 읽고 고친다. 콘솔 코드페이지(949)로 나가면 읽을 수
+# 없게 깨지므로 UTF-8 로 고정한다.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
 $root = Split-Path -Parent $PSScriptRoot
@@ -47,7 +47,7 @@ $allowed = @(
 # @() 로 감싼다. 결과가 0개면 파이프라인이 $null 을 내고, StrictMode 아래서
 # $null.Count 는 예외가 된다 — 위반이 없을 때 게이트가 실패하는 형태가 된다.
 $codeBehind = @(Get-ChildItem -Path (Join-Path $root 'src') -Recurse -Filter '*.xaml.cs' -File -ErrorAction SilentlyContinue |
-    Where-Object { $_.FullName -notmatch '\\(bin|obj)\\' })
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj)[\\/]' })
 
 foreach ($file in $codeBehind) {
     $rel = [IO.Path]::GetRelativePath($root, $file.FullName)
@@ -65,16 +65,22 @@ foreach ($file in $codeBehind) {
 }
 
 # ── B. 참조 방향 ───────────────────────────────────────────────────
-$appProj = Join-Path $root 'src\FlexDir.App\FlexDir.App.csproj'
-if (Test-Path -LiteralPath $appProj) {
+# 경로는 조각으로 넘긴다. 'src\X\X.csproj' 처럼 구분자를 박으면 Linux 에서 백슬래시가
+# 파일명 문자가 되어 Test-Path 가 false 가 되고, 검사가 통째로 건너뛰어진 채 통과한다.
+$appProj = Join-Path $root 'src' 'FlexDir.App' 'FlexDir.App.csproj'
+if (-not (Test-Path -LiteralPath $appProj)) {
+    $violations.Add("B. 검사 대상이 없다: $appProj. 경로가 바뀌었으면 이 스크립트를 고친다 — 못 찾고 넘어가면 게이트가 조용히 통과한다.")
+} else {
     if ((Get-ProjectBody $appProj) -match '<ProjectReference[^>]*FlexDir\.Shell') {
         $violations.Add('B. FlexDir.App 이 FlexDir.Shell 을 참조한다. 포트 인터페이스만 알아야 하고 구현체는 FlexDir.Host 가 주입한다.')
     }
 }
 
 # ── C. Core 순수성 ────────────────────────────────────────────────
-$coreProj = Join-Path $root 'src\FlexDir.Core\FlexDir.Core.csproj'
-if (Test-Path -LiteralPath $coreProj) {
+$coreProj = Join-Path $root 'src' 'FlexDir.Core' 'FlexDir.Core.csproj'
+if (-not (Test-Path -LiteralPath $coreProj)) {
+    $violations.Add("C. 검사 대상이 없다: $coreProj. 경로가 바뀌었으면 이 스크립트를 고친다 — 못 찾고 넘어가면 게이트가 조용히 통과한다.")
+} else {
     $core = Get-ProjectBody $coreProj
     if ($core -match '<ProjectReference') {
         $violations.Add('C. FlexDir.Core 가 다른 프로젝트를 참조한다. Core 는 참조 그래프의 바닥이다.')

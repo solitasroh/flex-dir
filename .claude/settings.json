@@ -1,13 +1,14 @@
 {
   "extraKnownMarketplaces": {
-    "harness-marketplace": {
+    "cursor-plugins": {
       "source": {
         "source": "github",
-        "repo": "solitasroh/claude-harness-plugin"
+        "repo": "cursor/plugins"
       }
     }
   },
   "enabledPlugins": {
-    "harness@harness-marketplace": true
+    "mattpocock-skills@claude-plugins-official": true,
+    "pstack@cursor-plugins": true
   }
 }
