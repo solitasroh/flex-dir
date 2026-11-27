@@ -1949,6 +1949,18 @@ public sealed partial class PaneViewModel : ObservableObject, IAsyncDisposable
             return Task.CompletedTask;
         }
 
+        // 제자리 이동은 할 일이 없고, shell 에 넘기면 오류 대화상자가 돌아온다 (DropAsync 와
+        // 같은 규칙). 복사는 거르지 않는다 — 같은 폴더 복사는 사본을 만드는 정상 조작이다.
+        if (isMove)
+        {
+            items = [.. items.Where(item => !(item.TryGetParent(out var parent) && parent.Equals(folder)))];
+
+            if (items.Count == 0)
+            {
+                return Task.CompletedTask;
+            }
+        }
+
         return RunAsync(
             token => isMove
                 ? fileOperations.MoveAsync(items, folder, token)

@@ -108,7 +108,7 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
         return sources.Count == 0
             ? Task.CompletedTask
             : Schedule(
-                new Request(OperationKind.Copy, sources, destinationFolder, null, NoFlags),
+                new Request(OperationKind.Copy, sources, destinationFolder, null, CopyFlags(sources, destinationFolder)),
                 destinationFolder,
                 ct);
     }
@@ -563,6 +563,29 @@ public sealed partial class ShellFileOperations : IFileOperations, IDisposable
     private const int CopyEngineUserCancelled = unchecked((int)0x80270000);
 
     private const uint NoFlags = 0;
+
+    /// <summary>
+    /// 원본이 이미 대상 폴더에 있으면 사본에 새 이름을 붙이게 한다 — 탐색기의 "- 복사본" 이다.
+    /// 플래그가 없으면 shell 은 사본 대신 <i>원본과 대상 파일 이름이 같습니다</i> 대화상자를 낸다.
+    /// <para>
+    /// 다른 폴더로의 복사에는 붙이지 않는다. 거기서의 충돌은 덮어쓰기·건너뛰기를 사용자가
+    /// 고를 일이고, 이 플래그는 묻지 않고 "(2)" 를 만든다. 플래그는 조작 전체에 하나라서
+    /// 원본이 섞여 있으면(검색 결과 등) 대상 폴더 출신이 하나라도 있을 때 붙인다 — 그쪽을
+    /// 빼면 그 항목이 오류 대화상자가 된다.
+    /// </para>
+    /// </summary>
+    private static uint CopyFlags(IReadOnlyList<LocationId> sources, LocationId destinationFolder)
+    {
+        foreach (var source in sources)
+        {
+            if (source.TryGetParent(out var parent) && parent.Equals(destinationFolder))
+            {
+                return FofRenameOnCollision;
+            }
+        }
+
+        return NoFlags;
+    }
 
     /// <summary>
     /// <c>FOF_ALLOWUNDO</c> 만으로는 부족하다. 드라이브의 휴지통 할당량을 넘으면 Windows 가

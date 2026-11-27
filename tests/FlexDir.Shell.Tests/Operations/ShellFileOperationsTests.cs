@@ -300,6 +300,37 @@ public sealed class ShellFileOperationsTests : IDisposable
         Assert.Equal(0u, Assert.Single(requests).Flags);
     }
 
+    // 같은 폴더에 복사-붙여넣기를 하면 탐색기는 "- 복사본" 을 만든다. 플래그가 없으면 shell 은
+    // 사본 대신 *원본과 대상 파일 이름이 같습니다* 대화상자를 낸다 (HISTORY 의 드롭 결함과 같은 뿌리).
+    [Fact]
+    public async Task Copy_IntoTheFolderItCameFrom_RenamesOnCollision()
+    {
+        var requests = new List<ShellFileOperations.Request>();
+
+        using var operations = Recording(requests.Add);
+
+        await operations.CopyAsync([Location("a.txt")], Parse(@"C:\Temp\flex-dir"), CancellationToken.None);
+
+        var flags = Assert.Single(requests).Flags;
+
+        Assert.Equal(FofRenameOnCollision, flags & FofRenameOnCollision);
+        Assert.Equal(0u, flags & FofAllowUndo);
+    }
+
+    // 다른 폴더로의 복사는 충돌 시 shell 의 덮어쓰기/건너뛰기 대화상자가 맞다 — 조용히
+    // "(2)" 를 만들면 사용자가 고를 기회를 잃는다. 이동은 사본을 만들지 않는다.
+    [Fact]
+    public async Task Move_IntoTheFolderItCameFrom_UsesNoExtraFlags()
+    {
+        var requests = new List<ShellFileOperations.Request>();
+
+        using var operations = Recording(requests.Add);
+
+        await operations.MoveAsync([Location("a.txt")], Parse(@"C:\Temp\flex-dir"), CancellationToken.None);
+
+        Assert.Equal(0u, Assert.Single(requests).Flags);
+    }
+
     // ── 만들어진 폴더 ───────────────────────────────────────────────
 
     // 이름이 겹치면 shell 이 다른 이름으로 만든다. 요청한 이름을 그대로 돌려주면

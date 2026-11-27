@@ -126,6 +126,39 @@ public class FileOperationCommandsTests
     }
 
     [Fact]
+    public async Task CutSelection_ThenPasteIntoTheSameFolder_DoesNothing()
+    {
+        // 제자리 이동은 할 일이 없다. shell 에 넘기면 오류 대화상자가 돌아온다 (DropAsync 와 같은 규칙).
+        var docs = Folder(@"C:\Temp\Docs", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(docs);
+        pane.Selection.SelectSingle("a.txt");
+
+        pane.CutSelectionCommand.Execute(null);
+        await pane.PasteCommand.ExecuteAsync(null);
+
+        Assert.Empty(operations.Moves);
+        Assert.Equal(PaneStatus.Idle, pane.Status);
+    }
+
+    [Fact]
+    public async Task CopySelection_ThenPasteIntoTheSameFolder_StillCopies()
+    {
+        // 같은 폴더 복사는 사본을 만드는 정상 조작이다 — 이름은 shell 이 붙인다.
+        var docs = Folder(@"C:\Temp\Docs", "a.txt");
+        var pane = CreatePane();
+        await pane.NavigateAsync(docs);
+        pane.Selection.SelectSingle("a.txt");
+
+        pane.CopySelectionCommand.Execute(null);
+        await pane.PasteCommand.ExecuteAsync(null);
+
+        var copy = Assert.Single(operations.Copies);
+        Assert.Equal([docs.Combine("a.txt")], copy.Sources);
+        Assert.Equal(docs, copy.Destination);
+    }
+
+    [Fact]
     public async Task CopySelection_ThenPaste_Copies()
     {
         var docs = Folder(@"C:\Temp\Docs", "a.txt");
